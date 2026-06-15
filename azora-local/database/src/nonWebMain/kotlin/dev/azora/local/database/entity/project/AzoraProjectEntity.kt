@@ -12,5 +12,6 @@ data class AzoraProjectEntity(
     val version: String,
     val engineVersion: String,
     val createdAt: Long,
-    val updatedAt: Long?
+    val updatedAt: Long?,
+    val settingsJson: String
 )

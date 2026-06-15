@@ -4,8 +4,8 @@ import dev.azora.canvas.domain.AzoraPortDefinition
 import dev.azora.canvas.domain.model.AzoraGraphModel
 import dev.azora.canvas.domain.model.node.AzoraNodeDataType
 import dev.azora.canvas.domain.type.AzoraNodeType
-import dev.azora.canvas.domain.ConstantType
-import dev.azora.canvas.domain.GlobalConstant
+import dev.azora.sdk.core.project.domain.ConstantType
+import dev.azora.sdk.core.project.domain.GlobalConstant
 import kotlinx.coroutines.*
 
 /**

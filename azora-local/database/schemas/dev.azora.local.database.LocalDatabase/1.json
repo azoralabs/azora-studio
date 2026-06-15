@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "101870194af32a29ff50262c53ee064e",
+    "identityHash": "d7cbc3fe46e3cbef314f5d05835ffb6c",
     "entities": [
       {
         "tableName": "azora_projects",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `companyName` TEXT NOT NULL, `packageName` TEXT NOT NULL, `version` TEXT NOT NULL, `engineVersion` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `companyName` TEXT NOT NULL, `packageName` TEXT NOT NULL, `version` TEXT NOT NULL, `engineVersion` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER, `settingsJson` TEXT NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -54,6 +54,12 @@
             "fieldPath": "updatedAt",
             "columnName": "updatedAt",
             "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "settingsJson",
+            "columnName": "settingsJson",
+            "affinity": "TEXT",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -62,11 +68,101 @@
             "id"
           ]
         }
+      },
+      {
+        "tableName": "azora_settings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`projectId` TEXT NOT NULL, `editorTooltipsEnabled` INTEGER NOT NULL, `tooltipDelaySeconds` INTEGER NOT NULL, `preferredColorPicker` TEXT NOT NULL, `paletteColorsJson` TEXT NOT NULL, `globalConstantsJson` TEXT NOT NULL, `azScriptUsePastel` INTEGER NOT NULL, `azScriptBoldKeywords` INTEGER NOT NULL, `azScriptItalicPreprocessor` INTEGER NOT NULL, `azScriptUnderlineVariables` INTEGER NOT NULL, `azoraLangPath` TEXT NOT NULL, `showRuntimeWarnings` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`projectId`))",
+        "fields": [
+          {
+            "fieldPath": "projectId",
+            "columnName": "projectId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "editorTooltipsEnabled",
+            "columnName": "editorTooltipsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tooltipDelaySeconds",
+            "columnName": "tooltipDelaySeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "preferredColorPicker",
+            "columnName": "preferredColorPicker",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paletteColorsJson",
+            "columnName": "paletteColorsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "globalConstantsJson",
+            "columnName": "globalConstantsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "azScriptUsePastel",
+            "columnName": "azScriptUsePastel",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "azScriptBoldKeywords",
+            "columnName": "azScriptBoldKeywords",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "azScriptItalicPreprocessor",
+            "columnName": "azScriptItalicPreprocessor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "azScriptUnderlineVariables",
+            "columnName": "azScriptUnderlineVariables",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "azoraLangPath",
+            "columnName": "azoraLangPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "showRuntimeWarnings",
+            "columnName": "showRuntimeWarnings",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "projectId"
+          ]
+        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '101870194af32a29ff50262c53ee064e')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd7cbc3fe46e3cbef314f5d05835ffb6c')"
     ]
   }
 }

@@ -66,6 +66,21 @@ interface PluginManager {
     fun getPluginContent(pluginId: String): (@Composable (AzoraProjectModel) -> Unit)?
 
     /**
+     * Get the dockable panels a plugin contributes. Defaults to none; plugin hosts
+     * that support multi-panel layouts can override this.
+     */
+    fun getPluginPanels(pluginId: String): List<PluginPanelDescriptor> = emptyList()
+
+    /**
+     * Get the Composable content for a specific panel contributed by a plugin.
+     * Defaults to null (no panel content).
+     */
+    fun getPluginPanelContent(
+        pluginId: String,
+        panelId: String
+    ): (@Composable (AzoraProjectModel) -> Unit)? = null
+
+    /**
      * Get a loaded plugin instance by ID.
      *
      * @param pluginId The plugin ID

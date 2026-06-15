@@ -38,4 +38,13 @@ interface AzoraPlugin {
      * Override to perform cleanup.
      */
     fun onUnload() {}
+
+    /**
+     * Handle a named action (e.g. "build", "run", "clean", "hot_reload") for the
+     * given project. Defaults to a no-op; plugins that contribute actions override this.
+     *
+     * @param action The action identifier.
+     * @param project The currently open project.
+     */
+    fun handleAction(action: String, project: AzoraProjectModel) {}
 }
