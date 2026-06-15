@@ -30,6 +30,8 @@ class ProjectManagerViewModel(
         is ProjectManagerAction.OnProjectNameChange -> onProjectNameChange(action.name)
         is ProjectManagerAction.OnCompanyNameChange -> onCompanyNameChange(action.name)
         is ProjectManagerAction.OnDomainPathChange -> onDomainPathChange(action.path)
+        is ProjectManagerAction.OnTemplateChange -> _state.update { it.copy(template = action.template) }
+        is ProjectManagerAction.OnIncludeServerChange -> _state.update { it.copy(includeServer = action.enabled) }
     }
 
     private fun onProjectNameChange(name: String) {

@@ -1,10 +1,15 @@
 package dev.azora.studio.project_manager
 
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
+import dev.azora.sdk.core.project.domain.ProjectTemplate
 
 sealed interface ProjectManagerAction {
 
     data class OnCreateProject(val project: AzoraProjectModel) : ProjectManagerAction
+
+    data class OnTemplateChange(val template: ProjectTemplate) : ProjectManagerAction
+
+    data class OnIncludeServerChange(val enabled: Boolean) : ProjectManagerAction
 
     data class OnOpenProject(val projectName: String) : ProjectManagerAction
 

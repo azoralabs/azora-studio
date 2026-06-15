@@ -3,6 +3,8 @@ package dev.azora.studio
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.window.WindowDraggableArea
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -22,6 +24,8 @@ import dev.azora.studio.azora_nodes.AzoraNodesViewModel
 import dev.azora.sdk.core.presentation.undoredo.GlobalUndoRedoCoordinator
 import dev.azora.BuildConfig
 import dev.azora.canvas.domain.interpreter.ConsoleOutputManager
+import dev.azora.sdk.core.domain.preferences.ThemePreference
+import dev.azora.sdk.core.domain.preferences.ThemePreferences
 import dev.azora.studio.di.initKoin
 import dev.azora.studio.project_manager.ProjectManagerApp
 import dev.azora.sdk.core.domain.util.Res
@@ -36,6 +40,7 @@ import dev.azora.sdk.docking.domain.DockPanelDescriptor
 import dev.azora.sdk.docking.domain.DockZone
 import dev.azora.sdk.docking.domain.collectPanelIds
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.compose.resources.painterResource as composeResourcePainter
 import org.koin.compose.koinInject
@@ -107,14 +112,31 @@ fun main() {
         modules(dev.azora.studio.di.desktopModule)
     }
 
-    // Apply OS theme by default
-    val initialDarkMode = isSystemInDarkMode()
-    AzoraTheme.apply(if (initialDarkMode) AzoraTheme.Dark else AzoraTheme.Light)
+    // Initialise a theme up-front so AzoraTheme.current is set before the first frame;
+    // the persisted preference is applied reactively once it loads.
+    AzoraTheme.apply(if (isSystemInDarkMode()) AzoraTheme.Dark else AzoraTheme.Light)
 
     application {
         var appState by remember { mutableStateOf<AppWindowState>(AppWindowState.InitialSplash) }
         var loadingState by remember { mutableStateOf(LoadingState()) }
-        var isDarkMode by remember { mutableStateOf(initialDarkMode) }
+
+        // Persisted theme preference (System / Light / Dark), restored on each launch.
+        val themePreferences: ThemePreferences = koinInject()
+        val themeScope = rememberCoroutineScope()
+        val themePreference by themePreferences.observeThemePreference()
+            .collectAsState(initial = ThemePreference.SYSTEM)
+        val systemDark = remember { isSystemInDarkMode() }
+        val isDarkMode = when (themePreference) {
+            ThemePreference.LIGHT -> false
+            ThemePreference.DARK -> true
+            ThemePreference.SYSTEM -> systemDark
+        }
+        val onThemeChange: (ThemePreference) -> Unit = { preference ->
+            themeScope.launch { themePreferences.updateThemePreference(preference) }
+        }
+        LaunchedEffect(isDarkMode) {
+            AzoraTheme.apply(if (isDarkMode) AzoraTheme.Dark else AzoraTheme.Light)
+        }
 
         val projectRepository: AzoraProjectRepository = koinInject()
         val splashConsole: ConsoleOutputManager = koinInject()
@@ -293,15 +315,23 @@ fun main() {
 
                     MenuBar {
                         Menu("View") {
-                            CheckboxItem(
-                                text = "Dark Mode",
-                                checked = isDarkMode,
-                                shortcut = KeyShortcut(Key.D, meta = true, shift = true),
-                                onCheckedChange = { checked ->
-                                    isDarkMode = checked
-                                    AzoraTheme.apply(if (checked) AzoraTheme.Dark else AzoraTheme.Light)
-                                }
-                            )
+                            Menu("Theme") {
+                                RadioButtonItem(
+                                    text = "System",
+                                    selected = themePreference == ThemePreference.SYSTEM,
+                                    onClick = { onThemeChange(ThemePreference.SYSTEM) }
+                                )
+                                RadioButtonItem(
+                                    text = "Light",
+                                    selected = themePreference == ThemePreference.LIGHT,
+                                    onClick = { onThemeChange(ThemePreference.LIGHT) }
+                                )
+                                RadioButtonItem(
+                                    text = "Dark",
+                                    selected = themePreference == ThemePreference.DARK,
+                                    onClick = { onThemeChange(ThemePreference.DARK) }
+                                )
+                            }
                         }
                     }
 
@@ -527,14 +557,23 @@ fun main() {
                             )
                         }
                         Menu("View") {
-                            // Theme toggle
-                            Item(
-                                if (isDarkMode) "Switch to Light Mode" else "Switch to Dark Mode",
-                                onClick = {
-                                    isDarkMode = !isDarkMode
-                                    AzoraTheme.apply(if (isDarkMode) AzoraTheme.Dark else AzoraTheme.Light)
-                                }
-                            )
+                            Menu("Theme") {
+                                RadioButtonItem(
+                                    text = "System",
+                                    selected = themePreference == ThemePreference.SYSTEM,
+                                    onClick = { onThemeChange(ThemePreference.SYSTEM) }
+                                )
+                                RadioButtonItem(
+                                    text = "Light",
+                                    selected = themePreference == ThemePreference.LIGHT,
+                                    onClick = { onThemeChange(ThemePreference.LIGHT) }
+                                )
+                                RadioButtonItem(
+                                    text = "Dark",
+                                    selected = themePreference == ThemePreference.DARK,
+                                    onClick = { onThemeChange(ThemePreference.DARK) }
+                                )
+                            }
                             Separator()
                             Menu("Windows") {
                                 // Helper to show or add a single panel
@@ -769,12 +808,10 @@ fun main() {
                                     MainWindowTitleBar(
                                         title = "${state.project.name} - Azora Studio ${BuildConfig.STUDIO_VERSION}",
                                         isDarkMode = isDarkMode,
+                                        themePreference = themePreference,
+                                        onThemeChange = onThemeChange,
                                         isMaximized = windowState.placement == WindowPlacement.Maximized,
                                         isFullscreen = isFullscreen,
-                                        onDarkModeToggle = { checked ->
-                                            isDarkMode = checked
-                                            AzoraTheme.apply(if (checked) AzoraTheme.Dark else AzoraTheme.Light)
-                                        },
                                         onMinimize = { windowState.isMinimized = true },
                                         onMaximize = {
                                             windowState.placement = if (windowState.placement == WindowPlacement.Maximized) {
@@ -807,10 +844,8 @@ fun main() {
                                 MacOSToolbar(
                                     title = "${state.project.name} - Azora Studio ${BuildConfig.STUDIO_VERSION}",
                                     isDarkMode = isDarkMode,
-                                    onDarkModeToggle = { checked ->
-                                        isDarkMode = checked
-                                        AzoraTheme.apply(if (checked) AzoraTheme.Dark else AzoraTheme.Light)
-                                    },
+                                    themePreference = themePreference,
+                                    onThemeChange = onThemeChange,
                                     canUndo = canUndo,
                                     canRedo = canRedo,
                                     onUndo = { undoRedoCoordinator.undo() },
@@ -1121,6 +1156,52 @@ fun main() {
 }
 
 /**
+ * Theme button that opens a dropdown with System / Light / Dark options.
+ * The icon reflects the currently-effective light/dark mode.
+ */
+@Composable
+private fun ThemeMenuButton(
+    themePreference: ThemePreference,
+    isDarkMode: Boolean,
+    onThemeChange: (ThemePreference) -> Unit,
+    buttonSize: Dp,
+    iconSize: Dp,
+    tint: androidx.compose.ui.graphics.Color
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.size(buttonSize)
+        ) {
+            Icon(
+                painter = composeResourcePainter(
+                    if (isDarkMode) AppRes.drawable.ic_light_mode else AppRes.drawable.ic_dark_mode
+                ),
+                contentDescription = "Theme",
+                tint = tint,
+                modifier = Modifier.size(iconSize)
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            listOf(
+                ThemePreference.SYSTEM to "System",
+                ThemePreference.LIGHT to "Light",
+                ThemePreference.DARK to "Dark"
+            ).forEach { (preference, label) ->
+                DropdownMenuItem(
+                    text = { Text((if (preference == themePreference) "✓  " else "      ") + label) },
+                    onClick = {
+                        onThemeChange(preference)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+/**
  * macOS/Linux toolbar with theme toggle in the safe area.
  * Shows Build/Run/Stop buttons when the software_studio plugin is enabled.
  */
@@ -1128,7 +1209,8 @@ fun main() {
 private fun MacOSToolbar(
     title: String,
     isDarkMode: Boolean,
-    onDarkModeToggle: (Boolean) -> Unit,
+    themePreference: ThemePreference,
+    onThemeChange: (ThemePreference) -> Unit,
     canUndo: Boolean = false,
     canRedo: Boolean = false,
     onUndo: () -> Unit = {},
@@ -1209,18 +1291,15 @@ private fun MacOSToolbar(
                 SoftwareStudioToolbarButtons(onPlay = onPlay, onStop = onStop)
             }
 
-            // Theme toggle (smaller to fit 28dp height)
-            IconButton(
-                onClick = { onDarkModeToggle(!isDarkMode) },
-                modifier = Modifier.size(20.dp)
-            ) {
-                Icon(
-                    painter = composeResourcePainter(if (isDarkMode) AppRes.drawable.ic_light_mode else AppRes.drawable.ic_dark_mode),
-                    contentDescription = if (isDarkMode) "Switch to Light Mode" else "Switch to Dark Mode",
-                    tint = palette.contentTop.copy(alpha = 0.7f),
-                    modifier = Modifier.size(14.dp)
-                )
-            }
+            // Theme selector (System / Light / Dark)
+            ThemeMenuButton(
+                themePreference = themePreference,
+                isDarkMode = isDarkMode,
+                onThemeChange = onThemeChange,
+                buttonSize = 20.dp,
+                iconSize = 14.dp,
+                tint = palette.contentTop.copy(alpha = 0.7f)
+            )
         }
     }
 }
@@ -1236,7 +1315,8 @@ private fun MainWindowTitleBar(
     isDarkMode: Boolean,
     isMaximized: Boolean,
     isFullscreen: Boolean,
-    onDarkModeToggle: (Boolean) -> Unit,
+    themePreference: ThemePreference,
+    onThemeChange: (ThemePreference) -> Unit,
     onMinimize: () -> Unit,
     onMaximize: () -> Unit,
     onFullscreen: () -> Unit,
@@ -1320,18 +1400,15 @@ private fun MainWindowTitleBar(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Dark mode toggle
-            IconButton(
-                onClick = { onDarkModeToggle(!isDarkMode) },
-                modifier = Modifier.size(28.dp)
-            ) {
-                Icon(
-                    painter = composeResourcePainter(if (isDarkMode) AppRes.drawable.ic_light_mode else AppRes.drawable.ic_dark_mode),
-                    contentDescription = if (isDarkMode) "Switch to Light Mode" else "Switch to Dark Mode",
-                    tint = palette.contentTop.copy(alpha = 0.5f),
-                    modifier = Modifier.size(14.dp)
-                )
-            }
+            // Theme selector (System / Light / Dark)
+            ThemeMenuButton(
+                themePreference = themePreference,
+                isDarkMode = isDarkMode,
+                onThemeChange = onThemeChange,
+                buttonSize = 28.dp,
+                iconSize = 14.dp,
+                tint = palette.contentTop.copy(alpha = 0.5f)
+            )
 
             // Minimize button
             IconButton(

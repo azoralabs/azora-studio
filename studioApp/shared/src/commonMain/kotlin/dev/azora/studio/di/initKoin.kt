@@ -1,5 +1,6 @@
 package dev.azora.studio.di
 
+import dev.azora.sdk.core.data.di.coreDataModule
 import dev.azora.sdk.core.data.logging.KermitLogger
 import dev.azora.sdk.core.domain.logging.AzoraLogger
 import dev.azora.sdk.core.io.di.coreIoModule
@@ -28,6 +29,7 @@ fun initKoin(config: KoinAppDeclaration? = null) {
             initCache,
 
             loggingModule,
+            coreDataModule,
             coreIoModule,
             corePresentationModule,
             azoraProjectDataModule,

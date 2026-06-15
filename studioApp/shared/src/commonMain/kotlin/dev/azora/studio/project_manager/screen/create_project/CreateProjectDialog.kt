@@ -2,6 +2,8 @@ package dev.azora.studio.project_manager.screen.create_project
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme.typography
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -9,7 +11,6 @@ import androidx.compose.ui.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.azora.studio.project_manager.ProjectManagerViewModel
-import dev.azora.sdk.core.component.dialog.AzoraDialog
 import dev.azora.sdk.core.presentation.screen.*
 import dev.azora.sdk.core.presentation.util.collectAsSWLC
 import dev.azora.sdk.core.theme.LocalAzoraPalette
@@ -28,27 +29,34 @@ fun CreateProjectDialog(
         screenViewModel.onAction(ScreenAction.PushDialog())
     }
 
-    AzoraDialog(
-        onDismissRequest = onPop,
-        contentAlignment = Alignment.Start,
-        bottom = {
-            Text(
-                text = "Project Location",
-                style = typography.labelSmall,
-                fontWeight = FontWeight.Light,
-                color = palette.contentLow
-            )
+    NewProjectWindow(onCloseRequest = onPop) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(palette.background)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            CreateProjectView(state) { action ->
+                viewModel.onAction(action)
+            }
 
-            Text(
-                text = "~/Documents/Azora/${state.projectName.field.ifBlank { "MyProject" }}",
-                style = typography.labelSmall,
-                fontWeight = FontWeight.Normal,
-                color = palette.contentMid
-            )
-        }
-    ) {
-        CreateProjectView(state) { action ->
-            viewModel.onAction(action)
+            // Project location footer
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Project Location",
+                    style = typography.labelSmall,
+                    fontWeight = FontWeight.Light,
+                    color = palette.contentLow
+                )
+                Text(
+                    text = "~/Documents/Azora/${state.projectName.field.ifBlank { "MyProject" }}",
+                    style = typography.labelSmall,
+                    fontWeight = FontWeight.Normal,
+                    color = palette.contentMid
+                )
+            }
         }
     }
 }

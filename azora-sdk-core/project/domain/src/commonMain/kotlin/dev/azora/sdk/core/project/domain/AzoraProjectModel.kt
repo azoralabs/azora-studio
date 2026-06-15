@@ -17,6 +17,9 @@ data class AzoraProjectModel(
     val engineVersion: String,
     val createdAt: Instant = defaultInstant,
     val updatedAt: Instant? = null,
+    val template: ProjectTemplate = ProjectTemplate.EMPTY,
+    /** Whether a Ktor backend server is included alongside the app. */
+    val includeServer: Boolean = false,
     val settings: ProjectSettings = ProjectSettings(),
     @Transient val projectDirectoryPath: String = ""
 )
