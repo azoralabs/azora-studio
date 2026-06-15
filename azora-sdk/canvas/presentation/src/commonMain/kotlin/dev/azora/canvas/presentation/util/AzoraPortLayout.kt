@@ -19,9 +19,9 @@ import androidx.compose.ui.unit.dp
  *
  * Three node shapes are pre-tabulated with their own top-padding offsets because they have
  * different header chrome:
- * - **ScreenNode** — plain header, ports start lower.
- * - **IfNode** — taller header (12 dp), fixed body width, used for branching control.
- * - **RootNode** — title-only, smallest header.
+ * - **ScreenNode** - plain header, ports start lower.
+ * - **IfNode** - taller header (12 dp), fixed body width, used for branching control.
+ * - **RootNode** - title-only, smallest header.
  */
 object AzoraPortLayout {
 
@@ -93,7 +93,7 @@ object AzoraPortLayout {
 
     /**
      * Resolve every dp constant in this object to pixels for the given [density]. Prefer
-     * [rememberPortLayoutPx] inside composables — it caches the result per density change.
+     * [rememberPortLayoutPx] inside composables - it caches the result per density change.
      */
     fun toPixels(density: Density): AzoraPortLayoutPx = with(density) {
         AzoraPortLayoutPx(

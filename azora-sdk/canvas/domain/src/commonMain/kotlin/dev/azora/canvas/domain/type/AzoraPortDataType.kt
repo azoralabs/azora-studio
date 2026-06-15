@@ -8,13 +8,13 @@ package dev.azora.canvas.domain.type
  * persistence variant used to render port circles in the canvas; the presentation layer maps each
  * value to a fixed color so users can tell port compatibility at a glance.
  *
- * - [BOOL] — boolean values.
- * - [INTEGER] — integer numbers.
- * - [REAL] — floating-point numbers.
- * - [TEXT] — strings.
- * - [ENUM] — enum cases produced by `ENUM_VALUE` nodes.
- * - [DATA_CLASS] — instances of user-defined data classes.
- * - [ANY] — wildcard; accepts any other data type.
+ * - [BOOL] - boolean values.
+ * - [INTEGER] - integer numbers.
+ * - [REAL] - floating-point numbers.
+ * - [TEXT] - strings.
+ * - [ENUM] - enum cases produced by `ENUM_VALUE` nodes.
+ * - [DATA_CLASS] - instances of user-defined data classes.
+ * - [ANY] - wildcard; accepts any other data type.
  */
 enum class AzoraPortDataType {
     BOOL,

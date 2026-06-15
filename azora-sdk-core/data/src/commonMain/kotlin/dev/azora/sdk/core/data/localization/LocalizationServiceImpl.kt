@@ -71,19 +71,19 @@ class LocalizationServiceImpl(
      * @return The resolved [Locale] instance.
      */
     override fun resolveLocale(savedCode: String?): Locale {
-        // 1 — saved locale
+        // 1 - saved locale
         savedCode?.let { key ->
             Locale.entries.find { it.code == key }?.let { return it }
         }
 
-        // 2 — fallback to device language
+        // 2 - fallback to device language
         val deviceLang = deviceLanguageProvider()
             .substringBefore("-")
             .lowercase()
 
         Locale.entries.find { it.code == deviceLang }?.let { return it }
 
-        // 3 — fallback EN
+        // 3 - fallback EN
         return defaultLocale
     }
 }

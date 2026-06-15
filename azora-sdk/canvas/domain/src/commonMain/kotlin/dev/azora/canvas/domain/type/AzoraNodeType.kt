@@ -6,13 +6,13 @@ import kotlinx.serialization.Serializable
  * Identifies the kind of node placed on the canvas and groups it for the node-picker.
  *
  * Each entry combines:
- * - [label] — human-readable name displayed in the node header and palette.
- * - [category] — palette section used to group related nodes (e.g. "Math", "Logic").
+ * - [label] - human-readable name displayed in the node header and palette.
+ * - [category] - palette section used to group related nodes (e.g. "Math", "Logic").
  *
  * Node types fall into two broad families that affect how [AzoraPortDefinition] generates ports:
- * - **Exec nodes** — have execution input/output ports and run side-effects in order
+ * - **Exec nodes** - have execution input/output ports and run side-effects in order
  *   (e.g. [START], [PRINT], [IF], [LOOP], [SET_VARIABLE]).
- * - **Pure data nodes** — have no exec ports and are evaluated on demand to produce a value
+ * - **Pure data nodes** - have no exec ports and are evaluated on demand to produce a value
  *   (e.g. [GET_VARIABLE], [ADD], [EQUAL], [DATA_CLASS_GET_FIELD]).
  *
  * The Game Builder, Audio and Tilemap groups extend the base scripting set with domain-specific nodes.

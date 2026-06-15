@@ -35,7 +35,7 @@ import dev.azora.canvas.presentation.util.*
  *   which are stored in canvas space.
  * @param mousePosition Current pointer position for hover detection.
  * @param selectedLinkId Currently selected link, if any.
- * @param hoveredLinkId Currently hovered link, if any — passed in so multiple layers can share it.
+ * @param hoveredLinkId Currently hovered link, if any - passed in so multiple layers can share it.
  * @param onLinkHovered Reports hover transitions: `(linkId, segmentIndex)` or `(null, 0)` to clear.
  * @param linkFilter Optional predicate to restrict which links this instance draws.
  * @param isCreatingLink Whether the in-flight link preview should be drawn.
@@ -257,7 +257,7 @@ fun AzoraLinksLayer(
  *
  * @param startPosition Source port position in screen space.
  * @param mousePosition Current pointer position in screen space.
- * @param portType Port type — drives the default color.
+ * @param portType Port type - drives the default color.
  * @param startColor Optional override for the gradient start.
  * @param endColor Optional override for the gradient end.
  */

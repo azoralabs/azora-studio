@@ -13,23 +13,23 @@ import kotlinx.coroutines.flow.update
  *
  * Intentionally not a `ViewModel` so it can be composed inside a host ViewModel that owns the
  * graph itself. The split is:
- * - **This class owns:** transient editor state ([state]) — pan, selection, in-flight link, open menus.
+ * - **This class owns:** transient editor state ([state]) - pan, selection, in-flight link, open menus.
  * - **The host owns:** the actual graph data (nodes, links, reroute points). Each callback fires
  *   when an action implies a graph mutation; the host validates, persists, and updates the model.
  *
  * Use [updateState] / [setPanOffset] to push state from outside (e.g. when restoring a saved view).
  *
- * @param initialState Starting state — defaults to an empty [AzoraCanvasState].
+ * @param initialState Starting state - defaults to an empty [AzoraCanvasState].
  * @param onLinkCreated Fires after a successful drop in link creation; host should validate and persist.
  * @param onLinkDeleted Fires when the user deletes a link via the link context menu.
  * @param onNodePositionChanged Fires per drag frame with the new world-space [Offset]; host updates the model.
- * @param onNodeDragEnded Fires once when a node drag ends — typically used to checkpoint undo.
+ * @param onNodeDragEnded Fires once when a node drag ends - typically used to checkpoint undo.
  * @param onReroutePointAdded Fires when the user inserts a reroute point at a specific segment index.
  * @param onReroutePointDeleted Fires when the user deletes a reroute point via its context menu.
  * @param onReroutePointPositionChanged Fires per drag frame with a delta (not an absolute position).
- * @param onReroutePointDragEnded Fires once when a reroute-point drag ends — typically used to checkpoint undo.
+ * @param onReroutePointDragEnded Fires once when a reroute-point drag ends - typically used to checkpoint undo.
  * @param onPanChanged Fires per pan frame with the cumulative pan offset.
- * @param onPanEnded Fires once when panning ends — typically used to persist the new viewport.
+ * @param onPanEnded Fires once when panning ends - typically used to persist the new viewport.
  */
 class AzoraCanvasStateHolder(
     initialState: AzoraCanvasState = AzoraCanvasState(),

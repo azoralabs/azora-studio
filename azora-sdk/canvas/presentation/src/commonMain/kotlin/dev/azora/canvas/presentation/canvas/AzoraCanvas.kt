@@ -11,7 +11,7 @@ import androidx.compose.ui.unit.*
 import dev.azora.sdk.core.theme.palette.AzoraPalette
 
 /**
- * Foundation composable for the canvas — grid background, pan handling, and mouse tracking.
+ * Foundation composable for the canvas - grid background, pan handling, and mouse tracking.
  *
  * Higher-level pieces ([AzoraEditorCanvas]) build on top of this. Responsibilities split as follows:
  * - **Visual chrome.** Draws an infinite-feeling grid that shifts with [panOffset], modulo the

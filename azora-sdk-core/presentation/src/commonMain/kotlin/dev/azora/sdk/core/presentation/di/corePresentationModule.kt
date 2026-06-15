@@ -16,11 +16,11 @@ import org.koin.dsl.module
  *
  * Currently, includes:
  *
- * - [ScopedStoreRegistryViewModel] — manages scoped ViewModel stores used
+ * - [ScopedStoreRegistryViewModel] - manages scoped ViewModel stores used
  *   for dialogs, sheets, nested navigation flows, and other temporary UI
  *   components that require isolated state.
  *
- * - [ScreenViewModel] — holds screen-level UI state (e.g., dialog visibility)
+ * - [ScreenViewModel] - holds screen-level UI state (e.g., dialog visibility)
  *   and exposes actions for updating that state. Declared as a `single` to
  *   ensure the same instance is shared across the app’s composable hierarchy.
  *

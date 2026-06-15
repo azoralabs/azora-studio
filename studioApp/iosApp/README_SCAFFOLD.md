@@ -1,4 +1,4 @@
-# Studio iOS app — scaffold
+# Studio iOS app - scaffold
 
 Copied from the launcher iosApp as a starting point. Before this builds in Xcode,
 wire it up (deferred per "scaffold now, wire later"):

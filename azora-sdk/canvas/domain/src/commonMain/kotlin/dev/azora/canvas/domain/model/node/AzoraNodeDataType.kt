@@ -30,6 +30,6 @@ enum class AzoraNodeDataType(
     STRING("String", "", AzoraPalette.AccentGreen),
     ENUM("Enum", "", AzoraPalette.AccentYellow),
     DATA_CLASS("Data Class", "", AzoraPalette.AccentOrange),
-    /** Wildcard type — accepts any other data type and defers concrete typing to runtime. */
+    /** Wildcard type - accepts any other data type and defers concrete typing to runtime. */
     ANY("Any", "", AzoraPalette.AccentPurple)
 }

@@ -4,10 +4,10 @@ import androidx.compose.ui.geometry.Offset
 import dev.azora.canvas.domain.type.AzoraPortType
 
 /**
- * Immutable snapshot of all transient canvas-editor state — the value driven by
+ * Immutable snapshot of all transient canvas-editor state - the value driven by
  * [AzoraCanvasStateHolder] and consumed by [dev.azora.canvas.presentation.canvas.AzoraEditorCanvas].
  *
- * Keep persisted graph data (nodes, links, reroute points) outside of this — that lives in the
+ * Keep persisted graph data (nodes, links, reroute points) outside of this - that lives in the
  * domain layer and is owned by the host. Everything here is what the editor "remembers" between
  * frames: pan, current selection, in-flight link creation, and which context menu (if any) is open.
  *

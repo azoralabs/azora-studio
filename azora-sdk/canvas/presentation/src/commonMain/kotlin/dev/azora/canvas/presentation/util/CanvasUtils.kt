@@ -13,7 +13,7 @@ import kotlin.math.sqrt
  * Theme color used to render execution-flow links and ports of this type.
  *
  * For [AzoraPortType.NAV_PUSH_REPLACE] (the split-shape port) this returns the default green of
- * the push half — the orange replace half is drawn separately by the port composable.
+ * the push half - the orange replace half is drawn separately by the port composable.
  */
 fun AzoraPortType.toColor(): Color = when (this) {
     AzoraPortType.NAV_ROOT -> AzoraPalette.AccentRed
@@ -44,7 +44,7 @@ fun AzoraPortDataType.toColor(): Color = when (this) {
  * Used by [dev.azora.canvas.presentation.canvas.AzoraLinksLayer] for link hover hit-testing. The
  * curve is sampled at 100 fixed `t` values and the test returns true on the first sample inside
  * the threshold; this is cheap and good enough for hover at typical link curvatures, but is not a
- * true geometric distance — narrow misses very close to inflection points may slip through.
+ * true geometric distance - narrow misses very close to inflection points may slip through.
  *
  * @param point The point to test, in the same coordinate space as the control points.
  * @param p0 Curve start.

@@ -37,7 +37,7 @@ data class FileDiagnostic(
 )
 
 /**
- * Stubbed diagnostics manager — always reports no problems while AzScript is disabled.
+ * Stubbed diagnostics manager - always reports no problems while AzScript is disabled.
  */
 class DiagnosticsManager {
     val allDiagnostics: StateFlow<List<FileDiagnostic>> = MutableStateFlow(emptyList())

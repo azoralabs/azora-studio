@@ -9,7 +9,7 @@ import dev.azora.canvas.domain.type.AzoraPortType
  * Render-ready link snapshot consumed by [dev.azora.canvas.presentation.canvas.AzoraLinksLayer].
  *
  * The presentation layer never reads the persisted [dev.azora.canvas.domain.model.AzoraExecLinkModel]
- * directly — the host typically resolves source/target node positions, applies pan, and produces
+ * directly - the host typically resolves source/target node positions, applies pan, and produces
  * one of these per visible link each frame. Keeping the rendered representation distinct from the
  * persisted one means that node moves, pan, and per-link color overrides don't have to round-trip
  * through the domain model.

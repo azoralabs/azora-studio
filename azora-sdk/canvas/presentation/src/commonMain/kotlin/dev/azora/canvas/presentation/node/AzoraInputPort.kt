@@ -28,7 +28,7 @@ import dev.azora.sdk.core.theme.palette.AzoraPalette
  * Triangular execution-flow input port pointing right (into the node).
  *
  * Reports its center to [onPositioned] in root coordinates so the canvas can anchor incoming links
- * accurately — that callback fires from `onGloballyPositioned`, which Compose may invoke multiple
+ * accurately - that callback fires from `onGloballyPositioned`, which Compose may invoke multiple
  * times per layout pass. The port shape varies by [type]: most types render as a single rounded
  * triangle, while [AzoraPortType.NAV_PUSH_REPLACE] is split horizontally into a green/orange pair
  * (per [AzoraPortType.mustSplitInHalf]).
@@ -37,7 +37,7 @@ import dev.azora.sdk.core.theme.palette.AzoraPalette
  * visible "empty socket" affordance, tinted by [notConnectedCenterColor] so it reads against the
  * node body color.
  *
- * @param type Port type — drives shape and color.
+ * @param type Port type - drives shape and color.
  * @param isConnected Whether at least one inbound link is attached.
  * @param notConnectedCenterColor Tint for the inner "empty socket" indicator.
  * @param modifier Layout modifier applied to the port hit-box.

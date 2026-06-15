@@ -48,8 +48,8 @@ data class AzoraOutputPortDef(
 /**
  * Unreal-Blueprint-style node body with ports rendered inline next to the header content.
  *
- * The composable handles common node concerns — positioning, selection / link-source border,
- * left-click select, drag, right-click consume — and delegates the actual interior layout to
+ * The composable handles common node concerns - positioning, selection / link-source border,
+ * left-click select, drag, right-click consume - and delegates the actual interior layout to
  * [headerContent]. The host wires ports into its layout via the two `@Composable () -> Unit`
  * callbacks that headerContent receives, which lets the same `AzoraNode` shell back many node
  * shapes (screen, if, root, ...).
@@ -82,7 +82,7 @@ data class AzoraOutputPortDef(
  * @param onOutputPortPositioned Reports each output port's center in **root** coordinates,
  *   keyed by [AzoraOutputPortDef.index].
  * @param headerContent Slot for the node's interior. Receives two `@Composable () -> Unit` slots
- *   (`inputPorts`, `outputPorts`) that the host places in its own layout — typically using
+ *   (`inputPorts`, `outputPorts`) that the host places in its own layout - typically using
  *   [InputPortsWrapper] and [OutputPortsWrapper].
  */
 @Composable

@@ -11,17 +11,17 @@ import kotlinx.serialization.Serializable
  * valued entries so the model stays trivially serializable.
  *
  * Common [properties] keys by node type:
- * - `SET_VARIABLE` / `GET_VARIABLE` — `variableId` → id of the [AzoraNodeVar].
- * - `GET_CONSTANT` — `constantId` → id of a project-level constant.
- * - `CAST` — `fromType` and `toType` → [AzoraNodeDataType] names.
- * - `PRINT` — `prefix` → optional label printed before the value.
- * - `FUNCTION_DEF` / `FUNCTION_CALL` — `functionId` (and `name` on `FUNCTION_DEF`).
- * - `ENUM_DEF` — `enumId`, `name`, `values` (comma-separated case names).
- * - `ENUM_VALUE` — `enumId`, `value`.
- * - `DATA_CLASS_DEF` — `classId`, `name`, `fields` (JSON-encoded field list).
- * - `DATA_CLASS_CREATE` — `classId`.
- * - `DATA_CLASS_GET_FIELD` / `DATA_CLASS_SET_FIELD` — `classId`, `fieldName`.
- * - `MATCH` — `caseCount` → number of case branches; per-case values stored as `case_0`, `case_1`, ...
+ * - `SET_VARIABLE` / `GET_VARIABLE` - `variableId` → id of the [AzoraNodeVar].
+ * - `GET_CONSTANT` - `constantId` → id of a project-level constant.
+ * - `CAST` - `fromType` and `toType` → [AzoraNodeDataType] names.
+ * - `PRINT` - `prefix` → optional label printed before the value.
+ * - `FUNCTION_DEF` / `FUNCTION_CALL` - `functionId` (and `name` on `FUNCTION_DEF`).
+ * - `ENUM_DEF` - `enumId`, `name`, `values` (comma-separated case names).
+ * - `ENUM_VALUE` - `enumId`, `value`.
+ * - `DATA_CLASS_DEF` - `classId`, `name`, `fields` (JSON-encoded field list).
+ * - `DATA_CLASS_CREATE` - `classId`.
+ * - `DATA_CLASS_GET_FIELD` / `DATA_CLASS_SET_FIELD` - `classId`, `fieldName`.
+ * - `MATCH` - `caseCount` → number of case branches; per-case values stored as `case_0`, `case_1`, ...
  *
  * @property id Stable identifier; unique within the containing graph.
  * @property screenId Optional id linking this node to a screen for screen-flow graphs.

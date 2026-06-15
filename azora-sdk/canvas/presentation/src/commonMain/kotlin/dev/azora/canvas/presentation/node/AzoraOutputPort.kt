@@ -27,13 +27,13 @@ import dev.azora.sdk.core.theme.palette.AzoraPalette
 /**
  * Triangular execution-flow output port pointing right (out of the node).
  *
- * Mirrors [AzoraInputPort] but on the right-hand side of a node and with an [enabled] flag —
+ * Mirrors [AzoraInputPort] but on the right-hand side of a node and with an [enabled] flag -
  * disabled ports render greyed-out and ignore clicks, useful for ports that exist structurally
  * but aren't valid in the current node configuration. Unlike the input port, this composable
  * tracks pointer enter/exit to draw a hover state, since output ports are the originator of new
  * link drags.
  *
- * @param type Port type — drives color.
+ * @param type Port type - drives color.
  * @param isConnected Whether at least one outbound link is attached.
  * @param notConnectedCenterColor Tint for the inner "empty socket" indicator.
  * @param enabled When false the port is dimmed and non-interactive.

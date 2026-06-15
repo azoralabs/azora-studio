@@ -3,7 +3,7 @@ package dev.azora.canvas.domain.model.node
 import kotlinx.serialization.Serializable
 
 /**
- * User-defined enumeration — a named set of string-valued cases.
+ * User-defined enumeration - a named set of string-valued cases.
  *
  * Stored in [dev.azora.canvas.domain.model.AzoraGraphModel.enums] and referenced by `ENUM_DEF` /
  * `ENUM_VALUE` nodes via the `enumId` property. `ENUM_VALUE` selects one entry from [values] and

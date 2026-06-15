@@ -23,18 +23,18 @@ import kotlin.math.roundToInt
  * Interaction model:
  * - Left-click selects and starts a drag; the `onSelect`/`onMove`/`onEndDrag` triple lets the
  *   host commit position changes incrementally and checkpoint undo at drag end.
- * - Right-click opens the reroute context menu via [onRightClick] — but if a menu is already open
+ * - Right-click opens the reroute context menu via [onRightClick] - but if a menu is already open
  *   for this point ([isContextMenuOpen] is true) the click instead dismisses it, mirroring native
  *   menu behavior.
  *
  * @param reroutePoint Domain model providing position and id.
- * @param color Fill color for the diamond — typically derived from the owning link's port type.
+ * @param color Fill color for the diamond - typically derived from the owning link's port type.
  * @param isSelected Drives the size bump and glow.
  * @param panOffset Current canvas pan applied to the model coordinates.
  * @param isContextMenuOpen When true, a right-click dismisses instead of re-opens.
  * @param onSelect Called on left-click before drag tracking starts.
  * @param onMove Called per drag frame with a position delta (not absolute position).
- * @param onEndDrag Called once after a drag — only if the pointer actually moved.
+ * @param onEndDrag Called once after a drag - only if the pointer actually moved.
  * @param onRightClick Called on right-click with the world-space position of this reroute point.
  * @param onDismissContextMenus Called whenever this point is interacted with so the canvas can
  *   close any unrelated menus.

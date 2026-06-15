@@ -5,7 +5,7 @@ import kotlin.time.TimeSource
 
 /** Severity of a [ConsoleMessage]; drives styling in the script console UI. */
 enum class ConsoleMessageType {
-    /** Regular script output — produced by `PRINT` nodes. */
+    /** Regular script output - produced by `PRINT` nodes. */
     OUTPUT,
     /** A runtime error reported by the interpreter. */
     ERROR,
@@ -20,7 +20,7 @@ enum class ConsoleMessageType {
  *
  * @property text The message text.
  * @property type Severity used for styling.
- * @property timestamp Milliseconds since the owning [ConsoleOutputManager] was created — useful for
+ * @property timestamp Milliseconds since the owning [ConsoleOutputManager] was created - useful for
  *   sequencing output relative to a single script run rather than wall-clock time.
  */
 data class ConsoleMessage(
@@ -33,7 +33,7 @@ data class ConsoleMessage(
  * Collects and exposes script console output as a [StateFlow] for the editor UI.
  *
  * Behaves like a tiny stdout/stderr buffer:
- * - [print] appends to a buffer without flushing — so consecutive prints concatenate on one line.
+ * - [print] appends to a buffer without flushing - so consecutive prints concatenate on one line.
  * - [println], [error], [warn] and [info] flush the print buffer first to preserve ordering, then
  *   emit a finished line.
  *

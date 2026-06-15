@@ -23,7 +23,7 @@ import dev.azora.sdk.core.theme.palette.AzoraPalette
 import kotlin.math.roundToInt
 
 /**
- * Full node-graph editor — the top-level composable a host typically embeds.
+ * Full node-graph editor - the top-level composable a host typically embeds.
  *
  * Composes [AzoraCanvas] (grid + pan + clicks) with three [AzoraLinksLayer]s, an
  * [AzoraLinkCreationPreview], every node via [AzoraNodeContent], reroute points, and three kinds
@@ -31,11 +31,11 @@ import kotlin.math.roundToInt
  * to all three link layers.
  *
  * Z-ordering strategy (so connected links read clearly when something is selected):
- * - **Layer 0** — non-connected, non-selected links (back-most).
- * - **Layer 1 (z=1)** — links connected to a selected node, in front of other links but behind
+ * - **Layer 0** - non-connected, non-selected links (back-most).
+ * - **Layer 1 (z=1)** - links connected to a selected node, in front of other links but behind
  *   the nodes themselves so the highlight reads as "behind the nodes".
- * - **Layer 1.5 (z=1.5)** — link creation preview.
- * - **Layer 2.5 (z=2.5)** — selected link, in front of nodes that don't touch it.
+ * - **Layer 1.5 (z=1.5)** - link creation preview.
+ * - **Layer 2.5 (z=2.5)** - selected link, in front of nodes that don't touch it.
  * - Nodes get z 2..5 based on whether they are link source, selected, or attached to the
  *   selected link.
  * - Reroute points inherit their owning link's layer; a *selected* reroute jumps to z=5 so it
@@ -60,7 +60,7 @@ import kotlin.math.roundToInt
  * @param nodeContent Host-provided node renderer; see [AzoraNodeContent].
  * @param onInputPortPositioned Forwarded port position callback (root coordinates).
  * @param onOutputPortPositioned Forwarded port position callback (root coordinates).
- * @param onCanvasPositioned Reports the editor's own position in the root window — useful when
+ * @param onCanvasPositioned Reports the editor's own position in the root window - useful when
  *   the host needs to map screen-space to canvas-space outside this composable.
  * @param extraContent Slot for custom on-canvas content rendered between the back link layer and
  *   the nodes (e.g. fixed root nodes, branch headers).

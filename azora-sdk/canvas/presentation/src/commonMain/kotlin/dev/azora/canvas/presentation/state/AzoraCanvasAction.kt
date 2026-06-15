@@ -11,20 +11,20 @@ import dev.azora.canvas.domain.type.AzoraPortType
  * for graph changes (link creation/deletion, node moves, reroute-point edits).
  *
  * Grouped by concern:
- * - **Pan / viewport** — [UpdatePan], [EndPan].
- * - **Selection** — [SelectNode], [SelectLink], [SelectReroutePoint], [ClearSelection].
- * - **Link creation** — [StartCreatingLink], [FinishCreatingLink], [CancelCreatingLink].
- * - **Node drag** — [UpdateNodePosition], [EndNodeDrag].
- * - **Link context menu** — [ShowLinkContextMenu], [DismissLinkContextMenu], [AddReroutePoint], [DeleteLink].
- * - **Reroute-point edits** — [UpdateReroutePointPosition], [EndReroutePointDrag], [ShowReroutePointContextMenu], [DismissReroutePointContextMenu], [DeleteReroutePoint].
- * - **Canvas context menu** — [ShowCanvasContextMenu], [DismissCanvasContextMenu].
- * - **Cross-cutting** — [DismissAllContextMenus].
+ * - **Pan / viewport** - [UpdatePan], [EndPan].
+ * - **Selection** - [SelectNode], [SelectLink], [SelectReroutePoint], [ClearSelection].
+ * - **Link creation** - [StartCreatingLink], [FinishCreatingLink], [CancelCreatingLink].
+ * - **Node drag** - [UpdateNodePosition], [EndNodeDrag].
+ * - **Link context menu** - [ShowLinkContextMenu], [DismissLinkContextMenu], [AddReroutePoint], [DeleteLink].
+ * - **Reroute-point edits** - [UpdateReroutePointPosition], [EndReroutePointDrag], [ShowReroutePointContextMenu], [DismissReroutePointContextMenu], [DeleteReroutePoint].
+ * - **Canvas context menu** - [ShowCanvasContextMenu], [DismissCanvasContextMenu].
+ * - **Cross-cutting** - [DismissAllContextMenus].
  */
 sealed interface AzoraCanvasAction {
 
-    /** Pan changed during a drag — emitted continuously until [EndPan]. [offset] is the cumulative pan. */
+    /** Pan changed during a drag - emitted continuously until [EndPan]. [offset] is the cumulative pan. */
     data class UpdatePan(val offset: Offset) : AzoraCanvasAction
-    /** Pan drag finished — host typically commits the final offset to undo state here. */
+    /** Pan drag finished - host typically commits the final offset to undo state here. */
     data object EndPan : AzoraCanvasAction
 
     /** Select a node, or pass `null` to clear node selection without affecting other kinds. */
@@ -39,7 +39,7 @@ sealed interface AzoraCanvasAction {
     /**
      * User started dragging a new link out of an output port.
      * @param sourceNodeId Node owning the source port.
-     * @param portType Type of the source port — drives the in-flight preview color.
+     * @param portType Type of the source port - drives the in-flight preview color.
      * @param outputPortIndex Which output port on the source node.
      */
     data class StartCreatingLink(
@@ -54,7 +54,7 @@ sealed interface AzoraCanvasAction {
 
     /** Node drag in progress; [position] is the new world-space position. Emitted continuously until [EndNodeDrag]. */
     data class UpdateNodePosition(val nodeId: String, val position: Offset) : AzoraCanvasAction
-    /** Node drag finished — host typically commits to persistence/undo here. */
+    /** Node drag finished - host typically commits to persistence/undo here. */
     data object EndNodeDrag : AzoraCanvasAction
 
     /**
@@ -86,6 +86,6 @@ sealed interface AzoraCanvasAction {
     /** Close the canvas context menu. */
     data object DismissCanvasContextMenu : AzoraCanvasAction
 
-    /** Close every open context menu in one shot — used when the user starts a new interaction. */
+    /** Close every open context menu in one shot - used when the user starts a new interaction. */
     data object DismissAllContextMenus : AzoraCanvasAction
 }

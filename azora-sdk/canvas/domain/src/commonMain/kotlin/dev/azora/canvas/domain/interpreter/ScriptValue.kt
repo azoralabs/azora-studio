@@ -9,11 +9,11 @@ package dev.azora.canvas.domain.interpreter
  * can compare, print, and arithmetic-combine values across types.
  *
  * The hierarchy spans three groups:
- * - **Primitives & strings** — [BooleanValue], [IntegerValue], [RealValue], [BigIntegerValue],
+ * - **Primitives & strings** - [BooleanValue], [IntegerValue], [RealValue], [BigIntegerValue],
  *   [BigRealValue], [TextValue], [CharValue].
- * - **Composites** — [EnumValue], [DataClassValue], [ArrayValue], [SetValue], [MapValue],
+ * - **Composites** - [EnumValue], [DataClassValue], [ArrayValue], [SetValue], [MapValue],
  *   [ScopeMemberValue].
- * - **Callables, futures and concurrency primitives** — [LambdaValue], [TaskValue], [FlowValue],
+ * - **Callables, futures and concurrency primitives** - [LambdaValue], [TaskValue], [FlowValue],
  *   [PointerValue], [MutexValue], [RwLockValue], [AtomicValue], [BarrierValue], [OnceValue],
  *   [ThreadPoolValue], [IsolatedValue], [ThreadHandleValue], [SoloInstanceValue], [WrapValue].
  *
@@ -214,7 +214,7 @@ sealed class ScriptValue {
     val isInteger: Boolean get() = this is IntegerValue || this is BigIntegerValue
     /** True for any floating-point variant ([RealValue], [BigRealValue]). */
     val isReal: Boolean get() = this is RealValue || this is BigRealValue
-    /** True for any numeric variant — the union of [isInteger] and [isReal]. */
+    /** True for any numeric variant - the union of [isInteger] and [isReal]. */
     val isNumeric: Boolean get() = isInteger || isReal
 
     companion object {

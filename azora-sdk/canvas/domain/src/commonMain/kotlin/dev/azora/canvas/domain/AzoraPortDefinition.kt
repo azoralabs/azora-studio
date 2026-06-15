@@ -11,12 +11,12 @@ import dev.azora.canvas.domain.type.AzoraNodeType
  * everything here ensures that adding a new node type only requires one edit to wire it up.
  *
  * The four functions form a fixed contract:
- * - [execInputCount] — number of execution input ports (0 for pure data nodes, typically 1 otherwise).
- * - [execOutputs] — names of execution output ports, in port-index order.
- * - [execOutputsForNode] — wraps [execOutputs] but expands dynamic outputs (currently only `MATCH`,
+ * - [execInputCount] - number of execution input ports (0 for pure data nodes, typically 1 otherwise).
+ * - [execOutputs] - names of execution output ports, in port-index order.
+ * - [execOutputsForNode] - wraps [execOutputs] but expands dynamic outputs (currently only `MATCH`,
  *   which derives `case_0..case_n` plus `default` from its `caseCount` property).
- * - [dataInputs] — `(name, type)` pairs for data input ports, in display order.
- * - [dataOutputs] — `(name, type)` pairs for data output ports, in display order.
+ * - [dataInputs] - `(name, type)` pairs for data input ports, in display order.
+ * - [dataOutputs] - `(name, type)` pairs for data output ports, in display order.
  *
  * Some node types declare empty input lists despite having dynamic ports (e.g. `FUNCTION_CALL`,
  * `DATA_CLASS_CREATE`); those are computed at the ViewModel level using the referenced
@@ -163,7 +163,7 @@ object AzoraPortDefinition {
      * Static `(name, type)` data input ports for [type] in display order.
      *
      * Some types (`FUNCTION_CALL`, `DATA_CLASS_CREATE`) return an empty list here even though they
-     * have inputs at runtime — those are derived from the referenced function/data class definition
+     * have inputs at runtime - those are derived from the referenced function/data class definition
      * by the ViewModel layer, since this module doesn't have access to that context.
      *
      * @param properties Reserved for future per-node configuration. Currently unused but kept in the

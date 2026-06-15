@@ -251,7 +251,7 @@ class ScriptInterpreter(
     }
 
     /**
-     * Public hook to evaluate a node's data input from outside the interpreter — useful when the
+     * Public hook to evaluate a node's data input from outside the interpreter - useful when the
      * editor wants to preview the value flowing into a port without running the whole graph.
      */
     fun evaluateData(nodeId: String, portName: String): ScriptValue {

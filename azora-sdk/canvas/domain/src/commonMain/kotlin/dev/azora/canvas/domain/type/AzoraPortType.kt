@@ -7,11 +7,11 @@ import kotlinx.serialization.Serializable
  *
  * Drives port shape and color in the presentation layer and determines navigation semantics
  * when the link is followed at runtime:
- * - [NAV_ROOT] — entry point of a navigation graph.
- * - [NAV_PUSH] — push the target onto the navigation stack.
- * - [NAV_REPLACE] — replace the current entry with the target.
- * - [NAV_PUSH_REPLACE] — combined push/replace; rendered as a split port (see [mustSplitInHalf]).
- * - [NAV_DIALOG] — open the target as a dialog/modal.
+ * - [NAV_ROOT] - entry point of a navigation graph.
+ * - [NAV_PUSH] - push the target onto the navigation stack.
+ * - [NAV_REPLACE] - replace the current entry with the target.
+ * - [NAV_PUSH_REPLACE] - combined push/replace; rendered as a split port (see [mustSplitInHalf]).
+ * - [NAV_DIALOG] - open the target as a dialog/modal.
  *
  * For data-flow port classification see [AzoraPortDataType].
  */
