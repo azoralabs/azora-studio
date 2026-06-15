@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<resources>
+    <string name="error_disk_full">Ops, parece que o seu armazenamento está cheio!</string>
+    <string name="error_not_found">Não foi possível encontrar o item solicitado</string>
+    <string name="error_unknown">Ocorreu um erro desconhecido</string>
+    <string name="error_bad_request">Pedido inválido</string>
+    <string name="error_request_timeout">O seu pedido expirou</string>
+    <string name="error_unauthorized">Credenciais inválidas</string>
+    <string name="error_forbidden">Não tens permissão para fazer isso</string>
+    <string name="error_conflict">Ocorreu um conflito</string>
+    <string name="error_too_many_requests">Atingiste o limite de pedidos</string>
+    <string name="error_no_internet">Não foi possível conectar. Por favor, verifica a tua ligação à internet.</string>
+    <string name="error_payload_too_large">O ficheiro anexado é demasiado grande</string>
+    <string name="error_server">Ops, ocorreu um erro no servidor</string>
+    <string name="error_service_unavailable">Serviço indisponível, tenta novamente mais tarde</string>
+    <string name="error_serialization">Erro de serialização</string>
+    <string name="error_unable_to_send_message">Ocorreu um erro ao enviar a mensagem</string>
+</resources>

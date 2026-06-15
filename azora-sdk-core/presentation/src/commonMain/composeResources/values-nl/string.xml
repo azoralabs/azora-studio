@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<resources>
+    <string name="error_disk_full">Oeps, het lijkt erop dat je opslagruimte vol is!</string>
+    <string name="error_not_found">Het gevraagde item kon niet worden gevonden</string>
+    <string name="error_unknown">Er is een onbekende fout opgetreden</string>
+    <string name="error_bad_request">Ongeldige aanvraag</string>
+    <string name="error_request_timeout">Je aanvraag is verlopen</string>
+    <string name="error_unauthorized">Ongeldige inloggegevens</string>
+    <string name="error_forbidden">Je hebt geen toestemming om dat te doen</string>
+    <string name="error_conflict">Er is een conflict opgetreden</string>
+    <string name="error_too_many_requests">Je hebt de aanvraaglimiet bereikt</string>
+    <string name="error_no_internet">Kan geen verbinding maken. Controleer je internetverbinding.</string>
+    <string name="error_payload_too_large">Het bijgevoegde bestand is te groot</string>
+    <string name="error_server">Oeps, er is een serverfout opgetreden</string>
+    <string name="error_service_unavailable">Service niet beschikbaar, probeer het later opnieuw</string>
+    <string name="error_serialization">Serialisatiefout</string>
+    <string name="error_unable_to_send_message">Er is een fout opgetreden bij het verzenden van het bericht</string>
+</resources>

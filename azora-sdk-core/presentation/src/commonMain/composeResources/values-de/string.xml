@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<resources>
+    <string name="error_disk_full">Hoppla, es sieht so aus, als wäre Ihr Speicher voll!</string>
+    <string name="error_not_found">Das angeforderte Element konnte nicht gefunden werden</string>
+    <string name="error_unknown">Ein unbekannter Fehler ist aufgetreten</string>
+    <string name="error_bad_request">Ungültige Anfrage</string>
+    <string name="error_request_timeout">Ihre Anfrage ist abgelaufen</string>
+    <string name="error_unauthorized">Ungültige Anmeldedaten</string>
+    <string name="error_forbidden">Sie sind nicht berechtigt, dies zu tun</string>
+    <string name="error_conflict">Ein Konflikt ist aufgetreten</string>
+    <string name="error_too_many_requests">Sie haben das Ratenlimit erreicht</string>
+    <string name="error_no_internet">Verbindung nicht möglich. Bitte überprüfen Sie Ihre Internetverbindung.</string>
+    <string name="error_payload_too_large">Die angehängte Datei ist zu groß</string>
+    <string name="error_server">Hoppla, ein serverseitiger Fehler ist aufgetreten</string>
+    <string name="error_service_unavailable">Dienst nicht verfügbar, bitte versuchen Sie es später erneut</string>
+    <string name="error_serialization">Serialisierungsfehler</string>
+    <string name="error_unable_to_send_message">Beim Senden der Nachricht ist ein Fehler aufgetreten</string>
+</resources>

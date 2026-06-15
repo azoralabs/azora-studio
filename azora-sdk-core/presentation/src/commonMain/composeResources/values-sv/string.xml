@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<resources>
+    <string name="error_disk_full">Hoppsan, det verkar som att ditt lagringsutrymme är fullt!</string>
+    <string name="error_not_found">Kunde inte hitta det begärda objektet</string>
+    <string name="error_unknown">Ett okänt fel inträffade</string>
+    <string name="error_bad_request">Ogiltig förfrågan</string>
+    <string name="error_request_timeout">Din förfrågan har löpt ut</string>
+    <string name="error_unauthorized">Ogiltiga inloggningsuppgifter</string>
+    <string name="error_forbidden">Du har inte behörighet att göra det</string>
+    <string name="error_conflict">En konflikt uppstod</string>
+    <string name="error_too_many_requests">Du har nått gränsen för förfrågningar</string>
+    <string name="error_no_internet">Kan inte ansluta. Kontrollera din internetanslutning.</string>
+    <string name="error_payload_too_large">Den bifogade filen är för stor</string>
+    <string name="error_server">Hoppsan, ett serverfel inträffade</string>
+    <string name="error_service_unavailable">Tjänsten är inte tillgänglig, försök igen senare</string>
+    <string name="error_serialization">Serialiseringsfel</string>
+    <string name="error_unable_to_send_message">Ett fel uppstod när meddelandet skulle skickas</string>
+</resources>

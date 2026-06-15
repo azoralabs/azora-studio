@@ -1,0 +1,600 @@
+package org.azora.studio.editor
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import azora.azora_studio.app.generated.resources.*
+import org.azora.studio.assets.AssetsPanel
+import org.azora.studio.assets.AssetsPanelViewModel
+import org.azora.studio.assets.OpenAzoraNodesFilesManager
+import org.azora.studio.assets.OpenAzoraSceneFilesManager
+import org.azora.studio.assets.OpenAzoraTileMapFilesManager
+import org.azora.studio.az_script.AzScriptFilePanel
+import org.azora.studio.az_script.DiagnosticsManager
+import org.azora.studio.assets.OpenAzScriptFilesManager
+import org.azora.studio.azora_nodes.AzoraNodesFilePanel
+import org.azora.studio.settings.SettingsScreen
+import org.azora.sdk.core.project.domain.AzoraProjectModel
+import org.azora.canvas.domain.interpreter.ConsoleMessageType
+import org.azora.canvas.domain.interpreter.ConsoleOutputManager
+import org.azora.sdk.docking.domain.*
+import org.azora.sdk.core.theme.LocalAzoraPalette
+import org.azora.sdk.docking.presentation.container.DockContainer
+import org.azora.sdk.docking.presentation.panel.DockPanelRegistry
+import org.azora.sdk.docking.presentation.theme.DockTheme
+import org.azora.sdk.plugin.core.InstalledPlugin
+import org.azora.sdk.plugin.presentation.PluginManager
+import org.jetbrains.compose.resources.painterResource
+import org.koin.compose.koinInject
+
+@Composable
+fun StudioView(
+    state: StudioState,
+    dockState: DockState,
+    onAction: (StudioAction) -> Unit,
+    screenOffsetX: Float = 0f,
+    screenOffsetY: Float = 0f,
+    project: AzoraProjectModel? = null,
+    pluginManager: PluginManager? = null,
+    enabledPlugins: List<InstalledPlugin> = emptyList()
+) {
+    val palette = LocalAzoraPalette.current
+    val projectPath = state.projectPath
+
+    // Inject managers for assets
+    val openFilesManager: OpenAzoraNodesFilesManager = koinInject()
+    val openFiles by openFilesManager.openFiles.collectAsState()
+    val openSceneFilesManager: OpenAzoraSceneFilesManager = koinInject()
+    val openTileMapFilesManager: OpenAzoraTileMapFilesManager = koinInject()
+    val openAzScriptFilesManager: OpenAzScriptFilesManager = koinInject()
+    val azScriptOpenFiles by openAzScriptFilesManager.openFiles.collectAsState()
+    val fileSystem: org.azora.sdk.core.io.FileSystem = koinInject()
+    val dockStateManager: DockStateManager = koinInject()
+
+    // Create AssetsPanelViewModel
+    val assetsPanelViewModel = remember(projectPath) {
+        AssetsPanelViewModel(
+            projectPath = projectPath,
+            fileSystem = fileSystem,
+            openFilesManager = openFilesManager,
+            openSceneFilesManager = openSceneFilesManager,
+            openTileMapFilesManager = openTileMapFilesManager,
+            openAzScriptFilesManager = openAzScriptFilesManager,
+            dockStateManager = dockStateManager
+        )
+    }
+
+    // Get panel IDs from dock layout that need dynamic registration
+    // Combine panels from dock layout AND openFiles to ensure all are registered
+    val azoraNodesPanelIds = remember(dockState.layout.panelDescriptors, openFiles) {
+        val layoutPanelIds = dockState.layout.panelDescriptors.keys
+            .filter { it.startsWith("azn_") }
+            .toSet()
+        val openFilePanelIds = openFiles.keys
+        layoutPanelIds + openFilePanelIds
+    }
+
+    val azoraScenePanelIds = remember(dockState.layout.panelDescriptors) {
+        dockState.layout.panelDescriptors.keys
+            .filter { it.startsWith("azorascene_") }
+            .toSet()
+    }
+
+    val azScriptPanelIds = remember(dockState.layout.panelDescriptors, azScriptOpenFiles) {
+        val layoutIds = dockState.layout.panelDescriptors.keys.filter { it.startsWith("azs_") }.toSet()
+        val openIds = azScriptOpenFiles.keys
+        layoutIds + openIds
+    }
+
+    // Register panel content synchronously so it's available on first render
+    val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azScriptPanelIds) {
+        DockPanelRegistry().apply {
+            register("project") { AssetsPanel(viewModel = assetsPanelViewModel) }
+            register("console") { ConsolePanel() }
+            register("problems") { ProblemsPanel() }
+            register("settings") { SettingsScreen(projectPath = projectPath) }
+
+            // Register dynamic panels for .azn files (from layout and openFiles)
+            azoraNodesPanelIds.forEach { panelId ->
+                register(panelId) {
+                    AzoraNodesFilePanel(panelId = panelId, projectPath = projectPath)
+                }
+            }
+
+            // Register dynamic panels for .az script files
+            azScriptPanelIds.forEach { panelId ->
+                register(panelId) {
+                    AzScriptFilePanel(panelId = panelId, projectPath = projectPath)
+                }
+            }
+
+            // Register dynamic panels for .azorascene files (delegated to Scene Studio plugin)
+            if (project != null && pluginManager != null) {
+                azoraScenePanelIds.forEach { panelId ->
+                    register(panelId) {
+                        pluginManager.getPluginPanelContent("org.azora.scene_studio", panelId)
+                            ?.invoke(project)
+                    }
+                }
+            }
+
+            // Register enabled plugin panels
+            if (project != null && pluginManager != null) {
+                enabledPlugins.forEach { plugin ->
+                    val panels = pluginManager.getPluginPanels(plugin.id)
+                    if (panels.isNotEmpty()) {
+                        // Group panels by group name
+                        val grouped = panels.filter { it.group != null }.groupBy { it.group!! }
+                        val ungrouped = panels.filter { it.group == null }
+
+                        // Grouped panels: single wrapper with nested dock
+                        grouped.forEach { (groupName, groupPanels) ->
+                            register("plugin_group_${plugin.id}_${groupName}") {
+                                PluginGroupPanel(
+                                    pluginId = plugin.id,
+                                    panels = groupPanels,
+                                    pluginManager = pluginManager,
+                                    project = project
+                                )
+                            }
+                        }
+
+                        // Ungrouped panels: register individually
+                        ungrouped.forEach { panel ->
+                            val panelContent = pluginManager.getPluginPanelContent(plugin.id, panel.id)
+                            if (panelContent != null) {
+                                register("plugin_${plugin.id}_${panel.id}") {
+                                    panelContent(project)
+                                }
+                            }
+                        }
+                    } else {
+                        // Single-panel plugin: register via Content()
+                        val content = pluginManager.getPluginContent(plugin.id)
+                        if (content != null) {
+                            register("plugin_${plugin.id}") {
+                                content(project)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    DockTheme(registry = panelRegistry) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(palette.background)
+        ) {
+            DockContainer(
+                layout = dockState.layout,
+                dragState = dockState.dragState,
+                maximizedPanelId = dockState.maximizedPanelId,
+                onAction = { action ->
+                    onAction(StudioAction.DockAction(action))
+                },
+                modifier = Modifier.fillMaxSize(),
+                renderFloatingWindows = false, // Native windows rendered separately
+                screenOffsetX = screenOffsetX,
+                screenOffsetY = screenOffsetY
+            )
+        }
+    }
+}
+
+/**
+ * Provides dock theming and registry for native floating windows.
+ * Should be called at the application level to render floating windows as real OS windows.
+ */
+@Composable
+fun StudioFloatingWindowsProvider(
+    projectPath: String,
+    dockState: DockState,
+    onAction: (StudioAction) -> Unit,
+    project: AzoraProjectModel? = null,
+    pluginManager: PluginManager? = null,
+    enabledPlugins: List<InstalledPlugin> = emptyList(),
+    content: @Composable () -> Unit
+) {
+    val palette = LocalAzoraPalette.current
+
+    // Inject managers for assets
+    val openFilesManager: OpenAzoraNodesFilesManager = koinInject()
+    val openFiles by openFilesManager.openFiles.collectAsState()
+    val openSceneFilesManager: OpenAzoraSceneFilesManager = koinInject()
+    val openTileMapFilesManager: OpenAzoraTileMapFilesManager = koinInject()
+    val openAzScriptFilesManager: OpenAzScriptFilesManager = koinInject()
+    val azScriptOpenFiles by openAzScriptFilesManager.openFiles.collectAsState()
+    val fileSystem: org.azora.sdk.core.io.FileSystem = koinInject()
+    val dockStateManager: DockStateManager = koinInject()
+
+    // Create AssetsPanelViewModel
+    val assetsPanelViewModel = remember(projectPath) {
+        AssetsPanelViewModel(
+            projectPath = projectPath,
+            fileSystem = fileSystem,
+            openFilesManager = openFilesManager,
+            openSceneFilesManager = openSceneFilesManager,
+            openTileMapFilesManager = openTileMapFilesManager,
+            openAzScriptFilesManager = openAzScriptFilesManager,
+            dockStateManager = dockStateManager
+        )
+    }
+
+    // Get panel IDs from dock layout that need dynamic registration
+    // Combine panels from dock layout AND openFiles to ensure all are registered
+    val azoraNodesPanelIds = remember(dockState.layout.panelDescriptors, openFiles) {
+        val layoutPanelIds = dockState.layout.panelDescriptors.keys
+            .filter { it.startsWith("azn_") }
+            .toSet()
+        val openFilePanelIds = openFiles.keys
+        layoutPanelIds + openFilePanelIds
+    }
+
+    val azoraScenePanelIds = remember(dockState.layout.panelDescriptors) {
+        dockState.layout.panelDescriptors.keys
+            .filter { it.startsWith("azorascene_") }
+            .toSet()
+    }
+
+    val azScriptPanelIds = remember(dockState.layout.panelDescriptors, azScriptOpenFiles) {
+        val layoutIds = dockState.layout.panelDescriptors.keys.filter { it.startsWith("azs_") }.toSet()
+        val openIds = azScriptOpenFiles.keys
+        layoutIds + openIds
+    }
+
+    // Register panel content synchronously so it's available on first render
+    val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azScriptPanelIds) {
+        DockPanelRegistry().apply {
+            register("project") { AssetsPanel(viewModel = assetsPanelViewModel) }
+            register("console") { ConsolePanel() }
+            register("problems") { ProblemsPanel() }
+            register("settings") { SettingsScreen(projectPath = projectPath) }
+
+            // Register dynamic panels for .azn files (from layout and openFiles)
+            azoraNodesPanelIds.forEach { panelId ->
+                register(panelId) {
+                    AzoraNodesFilePanel(panelId = panelId, projectPath = projectPath)
+                }
+            }
+
+            // Register dynamic panels for .az script files
+            azScriptPanelIds.forEach { panelId ->
+                register(panelId) {
+                    AzScriptFilePanel(panelId = panelId, projectPath = projectPath)
+                }
+            }
+
+            // Register dynamic panels for .azorascene files (delegated to Scene Studio plugin)
+            if (project != null && pluginManager != null) {
+                azoraScenePanelIds.forEach { panelId ->
+                    register(panelId) {
+                        pluginManager.getPluginPanelContent("org.azora.scene_studio", panelId)
+                            ?.invoke(project)
+                    }
+                }
+            }
+
+            // Register enabled plugin panels
+            if (project != null && pluginManager != null) {
+                enabledPlugins.forEach { plugin ->
+                    val panels = pluginManager.getPluginPanels(plugin.id)
+                    if (panels.isNotEmpty()) {
+                        // Group panels by group name
+                        val grouped = panels.filter { it.group != null }.groupBy { it.group!! }
+                        val ungrouped = panels.filter { it.group == null }
+
+                        // Grouped panels: single wrapper with nested dock
+                        grouped.forEach { (groupName, groupPanels) ->
+                            register("plugin_group_${plugin.id}_${groupName}") {
+                                PluginGroupPanel(
+                                    pluginId = plugin.id,
+                                    panels = groupPanels,
+                                    pluginManager = pluginManager,
+                                    project = project
+                                )
+                            }
+                        }
+
+                        // Ungrouped panels: register individually
+                        ungrouped.forEach { panel ->
+                            val panelContent = pluginManager.getPluginPanelContent(plugin.id, panel.id)
+                            if (panelContent != null) {
+                                register("plugin_${plugin.id}_${panel.id}") {
+                                    panelContent(project)
+                                }
+                            }
+                        }
+                    } else {
+                        val content = pluginManager.getPluginContent(plugin.id)
+                        if (content != null) {
+                            register("plugin_${plugin.id}") {
+                                content(project)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    DockTheme(registry = panelRegistry) {
+        content()
+    }
+}
+
+/**
+ * Console panel - real log output from AzoraNodes and system.
+ */
+@Composable
+internal fun ConsolePanel() {
+    val consoleOutputManager: ConsoleOutputManager = koinInject()
+    val messages by consoleOutputManager.messages.collectAsState()
+    val palette = LocalAzoraPalette.current
+    val listState = rememberLazyListState()
+
+    // Auto-scroll to bottom when new messages arrive
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Header with clear button
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .background(palette.surfaceTop)
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Console",
+                color = palette.contentTop,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "Clear",
+                color = palette.contentMid,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { consoleOutputManager.clear() }
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+        }
+
+        if (messages.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No output",
+                    color = palette.contentLow,
+                    fontSize = 11.sp
+                )
+            }
+        } else {
+            SelectionContainer {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(palette.background)
+                        .padding(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    items(messages) { message ->
+                        val textColor = when (message.type) {
+                            ConsoleMessageType.OUTPUT -> palette.contentTop
+                            ConsoleMessageType.ERROR -> Color(0xFFFF6666)
+                            ConsoleMessageType.WARNING -> Color(0xFFFFCC00)
+                            ConsoleMessageType.INFO -> palette.contentLow
+                        }
+                        Text(
+                            text = message.text,
+                            color = textColor,
+                            fontSize = 11.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+/**
+ * Problems panel - shows all diagnostics across open script files.
+ */
+@Composable
+internal fun ProblemsPanel() {
+    val diagnosticsManager: DiagnosticsManager = koinInject()
+    val dockStateManager: DockStateManager = koinInject()
+    val allDiagnostics by diagnosticsManager.allDiagnostics.collectAsState()
+    val palette = LocalAzoraPalette.current
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Header with error count
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .background(palette.surfaceTop)
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Problems",
+                color = palette.contentTop,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (allDiagnostics.isNotEmpty()) {
+                Text(
+                    text = "${allDiagnostics.size} error${if (allDiagnostics.size != 1) "s" else ""}",
+                    color = Color(0xFFFF6666),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .background(Color(0xFFFF6666).copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "Copy All",
+                    color = palette.contentMid,
+                    fontSize = 10.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable {
+                            val text = allDiagnostics.joinToString("\n") { d ->
+                                val ln = if (d.diagnostic.line > 0) ":${d.diagnostic.line}" else ""
+                                "${d.fileName}$ln  ${d.diagnostic.message}"
+                            }
+                            val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                            clipboard.setContents(java.awt.datatransfer.StringSelection(text), null)
+                        }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        if (allDiagnostics.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No problems",
+                    color = palette.contentLow,
+                    fontSize = 11.sp
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(palette.background)
+                    .padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                items(allDiagnostics) { fileDiag ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(2.dp))
+                                .clickable(onClick = {
+                                    dockStateManager.dispatch(DockAction.SelectPanel(fileDiag.panelId))
+                                    diagnosticsManager.requestNavigation(fileDiag.panelId, fileDiag.diagnostic.line)
+                                })
+                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "\u25CF",
+                                color = Color(0xFFFF4444),
+                                fontSize = 8.sp
+                            )
+                            Text(
+                                text = fileDiag.fileName,
+                                color = palette.contentMid,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            if (fileDiag.diagnostic.line > 0) {
+                                Text(
+                                    text = "Ln ${fileDiag.diagnostic.line}",
+                                    color = palette.contentLow,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Text(
+                                text = fileDiag.diagnostic.message,
+                                color = Color(0xFFFF6666),
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+/**
+ * Generic placeholder for panels.
+ */
+
+@Composable
+internal fun PanelPlaceholder(
+    title: String,
+    subtitle: String,
+    icon: Painter
+) {
+    val palette = LocalAzoraPalette.current
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Image(
+                painter = icon,
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(palette.contentTop.copy(alpha = 0.2f)),
+                modifier = Modifier.size(48.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = title,
+                color = palette.contentTop.copy(alpha = 0.4f),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                color = palette.contentTop.copy(alpha = 0.25f),
+                fontSize = 11.sp
+            )
+        }
+    }
+}

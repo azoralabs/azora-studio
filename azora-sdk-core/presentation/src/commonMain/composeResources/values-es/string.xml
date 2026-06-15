@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<resources>
+    <string name="error_disk_full">¡Vaya, parece que tu almacenamiento está lleno!</string>
+    <string name="error_not_found">No se pudo encontrar el elemento solicitado</string>
+    <string name="error_unknown">Ocurrió un error desconocido</string>
+    <string name="error_bad_request">Solicitud incorrecta</string>
+    <string name="error_request_timeout">Tu solicitud ha expirado</string>
+    <string name="error_unauthorized">Credenciales inválidas</string>
+    <string name="error_forbidden">No tienes permiso para hacer eso</string>
+    <string name="error_conflict">Ocurrió un conflicto</string>
+    <string name="error_too_many_requests">Has alcanzado el límite de solicitudes</string>
+    <string name="error_no_internet">No se puede conectar. Por favor, verifica tu conexión a internet.</string>
+    <string name="error_payload_too_large">El archivo adjunto es demasiado grande</string>
+    <string name="error_server">Vaya, ocurrió un error en el servidor</string>
+    <string name="error_service_unavailable">Servicio no disponible, inténtalo de nuevo más tarde</string>
+    <string name="error_serialization">Error de serialización</string>
+    <string name="error_unable_to_send_message">Ocurrió un error al enviar el mensaje</string>
+</resources>

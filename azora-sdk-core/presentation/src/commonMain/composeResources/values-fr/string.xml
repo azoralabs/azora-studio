@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<resources>
+    <string name="error_disk_full">Oups, il semble que votre stockage soit plein !</string>
+    <string name="error_not_found">Impossible de trouver l\'élément demandé</string>
+    <string name="error_unknown">Une erreur inconnue s\'est produite</string>
+    <string name="error_bad_request">Requête incorrecte</string>
+    <string name="error_request_timeout">Votre requête a expiré</string>
+    <string name="error_unauthorized">Identifiants invalides</string>
+    <string name="error_forbidden">Vous n\'êtes pas autorisé à faire cela</string>
+    <string name="error_conflict">Un conflit s\'est produit</string>
+    <string name="error_too_many_requests">Vous avez atteint la limite de débit</string>
+    <string name="error_no_internet">Impossible de se connecter. Veuillez vérifier votre connexion Internet.</string>
+    <string name="error_payload_too_large">Le fichier que vous avez joint est trop volumineux</string>
+    <string name="error_server">Oups, une erreur côté serveur s\'est produite</string>
+    <string name="error_service_unavailable">Service indisponible, veuillez réessayer plus tard</string>
+    <string name="error_serialization">Erreur de sérialisation</string>
+    <string name="error_unable_to_send_message">Une erreur s\'est produite lors de l\'envoi du message</string>
+</resources>

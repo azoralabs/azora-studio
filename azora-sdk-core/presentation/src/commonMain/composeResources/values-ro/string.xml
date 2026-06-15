@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<resources>
+    <string name="error_disk_full">Oops, se pare că spațiul de stocare este plin!</string>
+    <string name="error_not_found">Nu s-a putut găsi elementul solicitat</string>
+    <string name="error_unknown">A apărut o eroare necunoscută</string>
+    <string name="error_bad_request">Cerere invalidă</string>
+    <string name="error_request_timeout">Cererea ta a expirat</string>
+    <string name="error_unauthorized">Credențiale invalide</string>
+    <string name="error_forbidden">Nu ai permisiunea să faci asta</string>
+    <string name="error_conflict">A apărut un conflict</string>
+    <string name="error_too_many_requests">Ai atins limita de cereri</string>
+    <string name="error_no_internet">Nu se poate conecta. Te rugăm să verifici conexiunea la internet.</string>
+    <string name="error_payload_too_large">Fișierul atașat este prea mare</string>
+    <string name="error_server">Oops, a apărut o eroare pe server</string>
+    <string name="error_service_unavailable">Serviciu indisponibil, te rugăm să încerci din nou mai târziu</string>
+    <string name="error_serialization">Eroare de serializare</string>
+    <string name="error_unable_to_send_message">A apărut o eroare la trimiterea mesajului</string>
+</resources>

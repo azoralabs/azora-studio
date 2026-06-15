@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<resources>
+    <string name="error_disk_full">Hoppá, úgy tűnik, hogy a tárhely megtelt!</string>
+    <string name="error_not_found">A kért elem nem található</string>
+    <string name="error_unknown">Ismeretlen hiba történt</string>
+    <string name="error_bad_request">Hibás kérés</string>
+    <string name="error_request_timeout">A kérés időtúllépés miatt megszakadt</string>
+    <string name="error_unauthorized">Érvénytelen hitelesítő adatok</string>
+    <string name="error_forbidden">Nincs jogosultsága ehhez a művelethez</string>
+    <string name="error_conflict">Konfliktus történt</string>
+    <string name="error_too_many_requests">Elérte a kéréskorlátot</string>
+    <string name="error_no_internet">Nem sikerült csatlakozni. Kérjük, ellenőrizze az internetkapcsolatot.</string>
+    <string name="error_payload_too_large">A csatolt fájl túl nagy</string>
+    <string name="error_server">Hoppá, szerverhiba történt</string>
+    <string name="error_service_unavailable">A szolgáltatás nem érhető el, kérjük próbálja újra később</string>
+    <string name="error_serialization">Szerializációs hiba</string>
+    <string name="error_unable_to_send_message">Hiba történt az üzenet küldése közben</string>
+</resources>
