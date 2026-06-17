@@ -3,8 +3,10 @@ package dev.azora.sdk.core.project.data.repository
 import dev.azora.local.database.LocalDatabase
 import dev.azora.sdk.core.domain.util.*
 import dev.azora.sdk.core.io.*
+import dev.azora.sdk.core.project.data.generator.WebsiteTemplateGenerator
 import dev.azora.sdk.core.project.data.mapper.*
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
+import dev.azora.sdk.core.project.domain.ProjectTemplate
 import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
 import kotlinx.serialization.json.Json
 
@@ -65,6 +67,9 @@ actual class LocalAzoraProjectRepository(
 
             // Save database state to project.azora
             saveProjectDatabaseToFile(projectPath)
+
+            // Scaffold template-specific source (e.g. a Kobweb site for the Website template).
+            generateTemplate(project, projectPath)
 
             Res.Success(project)
         } catch (_: Exception) {
@@ -151,6 +156,13 @@ actual class LocalAzoraProjectRepository(
             Res.Success(projectModel)
         } catch (_: Exception) {
             Res.Failure(DataError.Local.UNKNOWN)
+        }
+    }
+
+    private suspend fun generateTemplate(project: AzoraProjectModel, projectPath: String) {
+        when (project.template) {
+            ProjectTemplate.WEBSITE -> WebsiteTemplateGenerator(fileSystem).generate(project, projectPath)
+            else -> { /* No scaffolding for other templates yet */ }
         }
     }
 
