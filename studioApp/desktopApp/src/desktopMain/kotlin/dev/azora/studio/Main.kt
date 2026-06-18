@@ -27,6 +27,7 @@ import dev.azora.canvas.domain.interpreter.ConsoleOutputManager
 import dev.azora.sdk.core.domain.preferences.ThemePreference
 import dev.azora.sdk.core.domain.preferences.ThemePreferences
 import dev.azora.studio.di.initKoin
+import dev.azora.studio.run.ProjectRunner
 import dev.azora.studio.project_manager.ProjectManagerApp
 import dev.azora.sdk.core.domain.util.Res
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
@@ -404,6 +405,19 @@ fun main() {
 
                 // Inject ConsoleOutputManager for build/run logging
                 val consoleOutputManager: ConsoleOutputManager = koinInject()
+
+                // Project runner — streams the generated project's gradle output to the Console panel
+                val projectRunner = remember(consoleOutputManager) { ProjectRunner(consoleOutputManager) }
+                val projectRunTask = ProjectRunner.runTaskFor(state.project.template)
+                val onRunProject: () -> Unit = {
+                    projectRunTask?.let { task ->
+                        projectRunner.run(
+                            java.io.File(System.getProperty("user.home") + "/Documents", state.projectPath),
+                            task
+                        )
+                    }
+                }
+                val onStopProject: () -> Unit = { projectRunner.stop() }
 
                 // Inject PluginManager for menu and windows
                 val pluginManager: dev.azora.sdk.plugin.presentation.PluginManager = koinInject()
@@ -836,7 +850,11 @@ fun main() {
                                         pluginManager = pluginManager,
                                         enabledPlugins = enabledPlugins,
                                         onPlay = { showGameWindow = true },
-                                        onStop = { showGameWindow = false }
+                                        onStop = { showGameWindow = false },
+                                        canRunProject = projectRunTask != null,
+                                        isProjectRunning = projectRunner.isRunning,
+                                        onRunProject = onRunProject,
+                                        onStopProject = onStopProject
                                     )
                                 }
                             } else {
@@ -854,7 +872,11 @@ fun main() {
                                     pluginManager = pluginManager,
                                     enabledPlugins = enabledPlugins,
                                     onPlay = { showGameWindow = true },
-                                    onStop = { showGameWindow = false }
+                                    onStop = { showGameWindow = false },
+                                    canRunProject = projectRunTask != null,
+                                    isProjectRunning = projectRunner.isRunning,
+                                    onRunProject = onRunProject,
+                                    onStopProject = onStopProject
                                 )
                             }
 
@@ -1202,6 +1224,39 @@ private fun ThemeMenuButton(
 }
 
 /**
+ * Run / Stop controls that launch the generated project and stream its output to the
+ * Console panel. Hidden when the current template can't be run from Studio.
+ */
+@Composable
+private fun ProjectRunControls(
+    canRun: Boolean,
+    isRunning: Boolean,
+    onRun: () -> Unit,
+    onStop: () -> Unit,
+    buttonSize: Dp,
+    iconSize: Dp,
+    tint: androidx.compose.ui.graphics.Color
+) {
+    if (!canRun) return
+    IconButton(onClick = onRun, enabled = !isRunning, modifier = Modifier.size(buttonSize)) {
+        Icon(
+            painter = composeResourcePainter(AppRes.drawable.ic_play_arrow),
+            contentDescription = "Run project",
+            tint = tint,
+            modifier = Modifier.size(iconSize)
+        )
+    }
+    IconButton(onClick = onStop, enabled = isRunning, modifier = Modifier.size(buttonSize)) {
+        Icon(
+            painter = composeResourcePainter(AppRes.drawable.ic_stop),
+            contentDescription = "Stop project",
+            tint = tint,
+            modifier = Modifier.size(iconSize)
+        )
+    }
+}
+
+/**
  * macOS/Linux toolbar with theme toggle in the safe area.
  * Shows Build/Run/Stop buttons when the software_studio plugin is enabled.
  */
@@ -1219,7 +1274,11 @@ private fun MacOSToolbar(
     pluginManager: dev.azora.sdk.plugin.presentation.PluginManager? = null,
     enabledPlugins: List<dev.azora.sdk.plugin.core.InstalledPlugin> = emptyList(),
     onPlay: () -> Unit = {},
-    onStop: () -> Unit = {}
+    onStop: () -> Unit = {},
+    canRunProject: Boolean = false,
+    isProjectRunning: Boolean = false,
+    onRunProject: () -> Unit = {},
+    onStopProject: () -> Unit = {}
 ) {
     val palette = LocalAzoraPalette.current
     val titleBarBackground = if (isDarkMode) AzoraPalette.Neutral90 else palette.surfaceTop
@@ -1291,6 +1350,17 @@ private fun MacOSToolbar(
                 SoftwareStudioToolbarButtons(onPlay = onPlay, onStop = onStop)
             }
 
+            // Run / Stop the generated project (output streams to the Console panel)
+            ProjectRunControls(
+                canRun = canRunProject,
+                isRunning = isProjectRunning,
+                onRun = onRunProject,
+                onStop = onStopProject,
+                buttonSize = 20.dp,
+                iconSize = 14.dp,
+                tint = palette.contentTop.copy(alpha = 0.7f)
+            )
+
             // Theme selector (System / Light / Dark)
             ThemeMenuButton(
                 themePreference = themePreference,
@@ -1329,7 +1399,11 @@ private fun MainWindowTitleBar(
     pluginManager: dev.azora.sdk.plugin.presentation.PluginManager? = null,
     enabledPlugins: List<dev.azora.sdk.plugin.core.InstalledPlugin> = emptyList(),
     onPlay: () -> Unit = {},
-    onStop: () -> Unit = {}
+    onStop: () -> Unit = {},
+    canRunProject: Boolean = false,
+    isProjectRunning: Boolean = false,
+    onRunProject: () -> Unit = {},
+    onStopProject: () -> Unit = {}
 ) {
     val palette = LocalAzoraPalette.current
     val titleBarBackground = if (isDarkMode) AzoraPalette.Neutral90 else palette.surfaceTop
@@ -1400,6 +1474,17 @@ private fun MainWindowTitleBar(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Run / Stop the generated project (output streams to the Console panel)
+            ProjectRunControls(
+                canRun = canRunProject,
+                isRunning = isProjectRunning,
+                onRun = onRunProject,
+                onStop = onStopProject,
+                buttonSize = 28.dp,
+                iconSize = 14.dp,
+                tint = palette.contentTop.copy(alpha = 0.5f)
+            )
+
             // Theme selector (System / Light / Dark)
             ThemeMenuButton(
                 themePreference = themePreference,

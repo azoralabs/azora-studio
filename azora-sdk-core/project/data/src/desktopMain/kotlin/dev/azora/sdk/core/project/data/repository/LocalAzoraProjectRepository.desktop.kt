@@ -3,6 +3,11 @@ package dev.azora.sdk.core.project.data.repository
 import dev.azora.local.database.LocalDatabase
 import dev.azora.sdk.core.domain.util.*
 import dev.azora.sdk.core.io.*
+import dev.azora.sdk.core.project.data.generator.DesktopTemplateGenerator
+import dev.azora.sdk.core.project.data.generator.EmptyTemplateGenerator
+import dev.azora.sdk.core.project.data.generator.MobileTemplateGenerator
+import dev.azora.sdk.core.project.data.generator.MultiplatformTemplateGenerator
+import dev.azora.sdk.core.project.data.generator.WebTemplateGenerator
 import dev.azora.sdk.core.project.data.generator.WebsiteTemplateGenerator
 import dev.azora.sdk.core.project.data.mapper.*
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
@@ -161,8 +166,15 @@ actual class LocalAzoraProjectRepository(
 
     private suspend fun generateTemplate(project: AzoraProjectModel, projectPath: String) {
         when (project.template) {
+            ProjectTemplate.EMPTY -> EmptyTemplateGenerator(fileSystem).generate(project, projectPath)
+            ProjectTemplate.DESKTOP -> DesktopTemplateGenerator(fileSystem).generate(project, projectPath)
+            ProjectTemplate.WEB -> WebTemplateGenerator(fileSystem).generate(project, projectPath)
             ProjectTemplate.WEBSITE -> WebsiteTemplateGenerator(fileSystem).generate(project, projectPath)
-            else -> { /* No scaffolding for other templates yet */ }
+            ProjectTemplate.MOBILE -> MobileTemplateGenerator(fileSystem).generate(project, projectPath)
+            ProjectTemplate.MULTIPLATFORM -> MultiplatformTemplateGenerator(fileSystem).generate(project, projectPath)
+            ProjectTemplate.AUDIO,
+            ProjectTemplate.PIXEL,
+            ProjectTemplate.SERVER -> { /* Not scaffolded yet */ }
         }
     }
 
