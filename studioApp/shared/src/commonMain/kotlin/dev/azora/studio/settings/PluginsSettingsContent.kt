@@ -150,6 +150,7 @@ fun PluginsSettingsContent(
                             viewModel.togglePlugin(plugin.id, enabled)
                         },
                         onLaunch = { onLaunchPlugin(plugin.id) },
+                        onRemove = { viewModel.uninstallPlugin(plugin.id) },
                         showLaunchButton = showLaunchButton
                     )
                 }
@@ -163,6 +164,7 @@ private fun PluginCard(
     plugin: InstalledPlugin,
     onToggle: (Boolean) -> Unit,
     onLaunch: () -> Unit,
+    onRemove: () -> Unit,
     showLaunchButton: Boolean = true
 ) {
     val palette = LocalAzoraPalette.current
@@ -268,6 +270,9 @@ private fun PluginCard(
                     LaunchButton(onClick = onLaunch)
                 }
 
+                // Remove (uninstall) — always available
+                RemoveButton(onClick = onRemove)
+
                 // Toggle switch
                 PluginToggle(
                     checked = plugin.enabled,
@@ -300,6 +305,31 @@ private fun LaunchButton(onClick: () -> Unit) {
         Text(
             text = "Launch",
             color = palette.content,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun RemoveButton(onClick: () -> Unit) {
+    val palette = LocalAzoraPalette.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    val color by animateColorAsState(if (isHovered) palette.error else palette.contentLow)
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "Remove",
+            color = color,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium
         )

@@ -5,7 +5,6 @@ import dev.azora.sdk.core.domain.logging.AzoraLogger
 import dev.azora.sdk.core.domain.util.Res
 import dev.azora.sdk.core.presentation.util.*
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
-import dev.azora.sdk.core.project.domain.ProjectTemplate
 import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
 import dev.azora.sdk.plugin.presentation.PluginManager
 import kotlinx.coroutines.channels.Channel
@@ -38,17 +37,16 @@ class ProjectManagerViewModel(
 
     /**
      * Recompute [ProjectManagerState.availableTemplates] from the plugin manager's contributions:
-     * the builtin Empty template plus every contribution whose id matches a [ProjectTemplate] entry.
+     * the builtin Empty template plus every contribution a plugin declares.
      */
     private fun refreshAvailableTemplates() {
-        val contributed = pluginManager.templateContributions().mapNotNull { contribution ->
-            val matched = ProjectTemplate.entries.firstOrNull { it.name == contribution.id }
-                ?: return@mapNotNull null
+        val contributed = pluginManager.templateContributions().map { contribution ->
             AvailableTemplate(
-                template = matched,
-                label = contribution.label.ifBlank { matched.label },
-                description = contribution.description.ifBlank { matched.description },
-                pluginId = null
+                templateId = contribution.id,
+                label = contribution.label,
+                description = contribution.description,
+                pluginId = null,
+                supportsOptionalServer = contribution.supportsOptionalServer
             )
         }
         _state.update { it.copy(availableTemplates = listOf(AvailableTemplate.EMPTY) + contributed) }
@@ -61,7 +59,7 @@ class ProjectManagerViewModel(
         is ProjectManagerAction.OnProjectNameChange -> onProjectNameChange(action.name)
         is ProjectManagerAction.OnCompanyNameChange -> onCompanyNameChange(action.name)
         is ProjectManagerAction.OnDomainPathChange -> onDomainPathChange(action.path)
-        is ProjectManagerAction.OnTemplateChange -> _state.update { it.copy(template = action.template) }
+        is ProjectManagerAction.OnTemplateChange -> _state.update { it.copy(template = action.templateId) }
         is ProjectManagerAction.OnIncludeServerChange -> _state.update { it.copy(includeServer = action.enabled) }
     }
 

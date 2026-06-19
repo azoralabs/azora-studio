@@ -418,26 +418,8 @@ fun main() {
                 val projectDir = remember(state.projectPath) {
                     java.io.File(System.getProperty("user.home") + "/Documents", state.projectPath)
                 }
-                val runScope = rememberCoroutineScope()
-                var runTargets by remember(state.project.template) { mutableStateOf<List<RunTarget>>(emptyList()) }
-                var selectedTarget by remember(state.project.template) { mutableStateOf<RunTarget?>(null) }
-                val templateRunnable = RunTargets.isRunnable(state.project.template)
-                val refreshTargets: () -> Unit = {
-                    runScope.launch {
-                        val targets = withContext(Dispatchers.IO) { RunTargets.targetsFor(state.project.template) }
-                        runTargets = targets
-                        if (selectedTarget == null || targets.none { it.id == selectedTarget?.id }) {
-                            selectedTarget = targets.firstOrNull()
-                        }
-                    }
-                }
-                LaunchedEffect(state.project.template) { refreshTargets() }
-                val onRunProject: () -> Unit = {
-                    selectedTarget?.let { projectRunner.run(projectDir, it, state.project.packageName) }
-                }
-                val onStopProject: () -> Unit = { projectRunner.stop() }
 
-                // Inject PluginManager for menu and windows
+                // Inject PluginManager (needed for run-target enumeration + plugin menu/windows).
                 val pluginManager: dev.azora.sdk.plugin.presentation.PluginManager = koinInject()
                 val installedPlugins by pluginManager.installedPlugins.collectAsState()
                 val enabledPlugins = installedPlugins.filter { it.enabled }
@@ -446,6 +428,28 @@ fun main() {
                 LaunchedEffect(Unit) {
                     pluginManager.loadInstalledPlugins()
                 }
+
+                val runScope = rememberCoroutineScope()
+                var runTargets by remember(state.project.template) { mutableStateOf<List<RunTarget>>(emptyList()) }
+                var selectedTarget by remember(state.project.template) { mutableStateOf<RunTarget?>(null) }
+                val templateRunnable = RunTargets.isRunnable(state.project.template, pluginManager)
+                val refreshTargets: () -> Unit = {
+                    runScope.launch {
+                        val targets = withContext(Dispatchers.IO) { RunTargets.targetsFor(state.project.template, pluginManager) }
+                        runTargets = targets
+                        if (selectedTarget == null || targets.none { it.id == selectedTarget?.id }) {
+                            selectedTarget = targets.firstOrNull()
+                        }
+                    }
+                }
+                // Re-enumerate when the template or the set of enabled plugins changes (plugins may
+                // load asynchronously after the project opens).
+                LaunchedEffect(state.project.template, enabledPlugins) { refreshTargets() }
+                val onRunProject: () -> Unit = {
+                    selectedTarget?.let { projectRunner.run(projectDir, it, state.project.packageName) }
+                }
+                val onStopProject: () -> Unit = { projectRunner.stop() }
+
 
                 // Main Studio Window - undecorated with custom title bar on Windows only
                 Window(

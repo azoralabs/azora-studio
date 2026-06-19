@@ -7,6 +7,9 @@ import dev.azora.canvas.domain.interpreter.ConsoleOutputManager
 import java.io.File
 import kotlin.concurrent.thread
 
+/** Matches the `http://localhost:<port>` URL a Kobweb server prints when it starts. */
+private val URL_REGEX = Regex("https?://localhost:\\d+")
+
 /**
  * Runs the selected [RunTarget] for a generated project and streams output into the shared
  * [ConsoleOutputManager] (rendered by the Studio "Console" dock panel).
@@ -22,6 +25,12 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
 
     @Volatile
     private var process: Process? = null
+
+    /** A detached server (e.g. Kobweb) started by a run whose [RunTarget.stopTask] is set. */
+    @Volatile
+    private var detachedStopTask: String? = null
+    @Volatile
+    private var detachedProjectDir: File? = null
 
     var isRunning by mutableStateOf(false)
         private set
@@ -45,18 +54,31 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
                         console.info("Open ${projectDir.resolve("iosApp").absolutePath} in Xcode (see iosApp/README.md) and run on \"${target.label}\".")
                     }
                     RunTargetKind.ANDROID -> runAndroid(projectDir, target, appId)
-                    else -> runGradle(projectDir, target.gradleTask ?: "run", emptyMap())
+                    else -> {
+                        val result = runGradle(projectDir, target.gradleTask ?: "run", emptyMap())
+                        // Detached server (e.g. kobwebStart): task returns but the server keeps running.
+                        if (result.ok && target.stopTask != null) {
+                            detachedStopTask = target.stopTask
+                            detachedProjectDir = projectDir
+                            console.info("Server running in the background — use Stop to shut it down.")
+                            // Open the browser to the URL the server printed (port may be dynamic).
+                            URL_REGEX.find(result.output)?.value?.let { openInBrowser(it) }
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 console.error("Failed to run: ${e.message}")
             } finally {
                 process = null
-                isRunning = false
+                // Stay "running" while a detached server is up; otherwise the task is done.
+                if (detachedStopTask == null) isRunning = false
             }
         }
     }
 
-    private fun runGradle(projectDir: File, task: String, extraEnv: Map<String, String>): Boolean {
+    private data class GradleResult(val ok: Boolean, val output: String)
+
+    private fun runGradle(projectDir: File, task: String, extraEnv: Map<String, String>): GradleResult {
         console.info("> gradlew $task")
         val wrapper = File(projectDir, if (isWindows) "gradlew.bat" else "gradlew")
         val launcher = when {
@@ -73,15 +95,28 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
         extraEnv.forEach { (k, v) -> builder.environment()[k] = v }
         val proc = builder.start()
         process = proc
-        proc.inputStream.bufferedReader().forEachLine { console.println(it) }
+        val output = StringBuilder()
+        proc.inputStream.bufferedReader().forEachLine { console.println(it); output.appendLine(it) }
         val code = proc.waitFor()
         return if (code == 0) {
             console.info("Done (exit code 0)")
-            true
+            GradleResult(true, output.toString())
         } else {
             console.error("Exited with code $code")
-            false
+            GradleResult(false, output.toString())
         }
+    }
+
+    /** Opens [url] in the platform default browser (best-effort). */
+    private fun openInBrowser(url: String) {
+        val cmd = when {
+            isWindows -> listOf("cmd", "/c", "start", "", url)
+            System.getProperty("os.name").lowercase().contains("mac") -> listOf("open", url)
+            else -> listOf("xdg-open", url)
+        }
+        runCatching { ProcessBuilder(cmd).redirectErrorStream(true).start() }
+            .onSuccess { console.info("Opening $url in your browser.") }
+            .onFailure { console.info("Server is at $url — open it in your browser.") }
     }
 
     private fun runAndroid(projectDir: File, target: RunTarget, appId: String) {
@@ -110,7 +145,7 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
         }
         val env = buildMap { target.androidSerial?.let { put("ANDROID_SERIAL", it) } }
         console.info("Installing on ${target.label}…")
-        if (!runGradle(projectDir, target.gradleTask ?: ":composeApp:installDebug", env)) return
+        if (!runGradle(projectDir, target.gradleTask ?: ":composeApp:installDebug", env).ok) return
         console.info("Launching $appId…")
         val serialArgs = target.androidSerial?.let { listOf("-s", it) } ?: emptyList()
         runAndWait(listOf(adb.absolutePath) + serialArgs + listOf("shell", "monkey", "-p", appId, "-c", "android.intent.category.LAUNCHER", "1"))
@@ -134,12 +169,26 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
         }.getOrDefault("")
 
     fun stop() {
+        val stopTask = detachedStopTask
+        val stopDir = detachedProjectDir
+        detachedStopTask = null
+        detachedProjectDir = null
+
         process?.let { proc ->
             runCatching { proc.descendants().forEach { it.destroy() } }
             proc.destroy()
             console.info("Stopped.")
         }
         process = null
+
+        // A detached server (e.g. Kobweb) is shut down via its own gradle stop task.
+        if (stopTask != null && stopDir != null) {
+            console.info("Stopping server (gradlew $stopTask)…")
+            thread(isDaemon = true, name = "azora-server-stop") {
+                runCatching { runGradle(stopDir, stopTask, emptyMap()) }
+                    .onFailure { console.error("Stop task failed: ${it.message}") }
+            }
+        }
         isRunning = false
     }
 }

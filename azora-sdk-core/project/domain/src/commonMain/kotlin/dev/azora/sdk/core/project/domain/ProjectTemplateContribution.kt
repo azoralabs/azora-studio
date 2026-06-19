@@ -2,13 +2,37 @@ package dev.azora.sdk.core.project.domain
 
 import dev.azora.sdk.core.io.FileSystem
 
+/** Builtin template id always available (no plugin required). Every other id is plugin-contributed. */
+const val BUILTIN_TEMPLATE_ID_EMPTY = "empty"
+
 /**
- * Generates the source/build files for one [ProjectTemplate] when a project of that template is
- * created (or regenerated).
+ * How the host should execute a contributed run target.
+ * - [GRADLE]: invoke [ProjectRunTarget.gradleTask] as a normal (possibly blocking) Gradle task.
+ * - [ANDROID]: [ProjectRunTarget.gradleTask] is the install task; the host enumerates Android
+ *   devices/emulators, installs, and launches.
+ * - [IOS]: the host enumerates iOS simulators and prints guidance (no automated install).
+ */
+enum class ProjectRunTargetKind { GRADLE, ANDROID, IOS }
+
+/**
+ * A runnable target a template contributes (e.g. "Run Website" → Kobweb dev server, "Run" → app).
  *
- * Implementations live in plugins (e.g. the Website builder ships a Kobweb generator). The host
- * (Azora Studio) never references generator implementations directly — it resolves them through a
- * [ProjectTemplateGeneratorResolver] backed by the plugin manager.
+ * Plugins own their build/run logic: [gradleTask] is invoked by the host to run it. When [stopTask]
+ * is set, [gradleTask] is expected to launch a detached, long-running process (e.g. a dev server)
+ * that is later shut down with [stopTask]; otherwise [gradleTask] is a blocking task the host kills.
+ */
+data class ProjectRunTarget(
+    val id: String,
+    val label: String,
+    val gradleTask: String,
+    val stopTask: String? = null,
+    val kind: ProjectRunTargetKind = ProjectRunTargetKind.GRADLE,
+)
+
+/**
+ * Generates the source/build files for one project template when a project of that template is
+ * created (or regenerated). Implementations live in plugins; the host never references them
+ * directly — it resolves them through a [ProjectTemplateGeneratorResolver] backed by the plugin manager.
  */
 interface ProjectTemplateGenerator {
 
@@ -23,16 +47,12 @@ interface ProjectTemplateGenerator {
 }
 
 /**
- * A project template contributed by a plugin.
+ * A project template contributed by a plugin (or the builtin host template).
  *
- * @property id Stable identifier matching a [ProjectTemplate] enum entry name (e.g. `"WEBSITE"`).
- *   This keeps the serialized project model and DB untouched while letting plugins surface the
- *   template in the create-project UI and own its generation.
- * @property label Human-readable name shown in the template picker.
- * @property description Short explanation of what the template scaffolds.
- * @property accentColor Hex color used for the template card accent.
- * @property iconXml Optional inline vector icon XML rendered on the card.
- * @property generator The [ProjectTemplateGenerator] that scaffolds the project.
+ * @property id Stable template identifier stored on the project (e.g. "website"). Persisted with the
+ *   project, so it must not change across versions.
+ * @property runTargets Build/run targets the host surfaces in its run controls.
+ * @property supportsOptionalServer Whether the "Include backend server" toggle applies to this template.
  */
 data class ProjectTemplateContribution(
     val id: String,
@@ -40,16 +60,17 @@ data class ProjectTemplateContribution(
     val description: String,
     val accentColor: String = "#FF9C27B0",
     val iconXml: String? = null,
-    val generator: ProjectTemplateGenerator
+    val supportsOptionalServer: Boolean = false,
+    val generator: ProjectTemplateGenerator,
+    val runTargets: List<ProjectRunTarget> = emptyList(),
 )
 
 /**
- * Resolves the [ProjectTemplateGenerator] for a given [ProjectTemplate], or `null` if no installed
- * plugin contributes it.
+ * Resolves the [ProjectTemplateGenerator] for a given template id, or `null` if none contributes it.
  *
  * Defined in the domain layer so the data-layer repository can depend on it without coupling to the
- * plugin SDK. The host provides the implementation (backed by the plugin manager).
+ * plugin SDK. The host provides the implementation (builtin templates + the plugin manager).
  */
 fun interface ProjectTemplateGeneratorResolver {
-    suspend fun generatorFor(template: ProjectTemplate): ProjectTemplateGenerator?
+    suspend fun generatorFor(templateId: String): ProjectTemplateGenerator?
 }

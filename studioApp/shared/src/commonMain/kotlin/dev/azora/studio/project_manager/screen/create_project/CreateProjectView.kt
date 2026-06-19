@@ -20,7 +20,6 @@ import dev.azora.BuildConfig
 import dev.azora.studio.project_manager.*
 import dev.azora.sdk.core.component.button.AzoraButton
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
-import dev.azora.sdk.core.project.domain.ProjectTemplate
 import kotlin.uuid.Uuid
 import dev.azora.sdk.core.component.debug.AzoraPreview
 import dev.azora.sdk.core.component.dialog.AzoraDialog
@@ -73,8 +72,9 @@ fun ColumnScope.CreateProjectView(
             onSelect = { onAction(ProjectManagerAction.OnTemplateChange(it)) }
         )
 
-        // Optional Ktor server — hidden for the Server template (which is itself a server).
-        if (state.template.supportsOptionalServer) {
+        // Optional Ktor server — only for templates that opt in (via their contribution).
+        val selectedTemplate = state.availableTemplates.firstOrNull { it.templateId == state.template }
+        if (selectedTemplate?.supportsOptionalServer == true) {
             ServerCheckbox(
                 checked = state.includeServer,
                 onCheckedChange = { onAction(ProjectManagerAction.OnIncludeServerChange(it)) }
@@ -129,9 +129,8 @@ fun ColumnScope.CreateProjectView(
                     state.projectName.field.isNotBlank() &&
                     state.companyName.field.isNotBlank(),
             onClick = {
-                // The Server template is always a server; others use the checkbox.
                 val includeServer =
-                    if (state.template.supportsOptionalServer) state.includeServer else true
+                    if (selectedTemplate?.supportsOptionalServer == true) state.includeServer else false
                 val project = AzoraProjectModel(
                     id = Uuid.random().toString(),
                     name = state.projectName.field,
@@ -150,9 +149,9 @@ fun ColumnScope.CreateProjectView(
 
 @Composable
 private fun TemplateSelector(
-    selected: ProjectTemplate,
+    selected: String,
     templates: List<AvailableTemplate>,
-    onSelect: (ProjectTemplate) -> Unit
+    onSelect: (String) -> Unit
 ) {
     // 3-per-row grid (built from chunked Rows so it nests inside a scrolling dialog).
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -164,7 +163,7 @@ private fun TemplateSelector(
                 rowTemplates.forEach { template ->
                     TemplateCard(
                         template = template,
-                        isSelected = template.template == selected,
+                        isSelected = template.templateId == selected,
                         onSelect = onSelect,
                         modifier = Modifier.weight(1f)
                     )
@@ -180,7 +179,7 @@ private fun TemplateSelector(
 private fun TemplateCard(
     template: AvailableTemplate,
     isSelected: Boolean,
-    onSelect: (ProjectTemplate) -> Unit,
+    onSelect: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalAzoraPalette.current
@@ -194,7 +193,7 @@ private fun TemplateCard(
                 color = if (isSelected) palette.primary else palette.surfaceDisabled,
                 shape = RoundedCornerShape(8.dp)
             )
-            .clickable { onSelect(template.template) }
+            .clickable { onSelect(template.templateId) }
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {

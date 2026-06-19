@@ -2,8 +2,8 @@ package dev.azora.sdk.core.project.data.mapper
 
 import dev.azora.local.database.entity.project.AzoraProjectEntity
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
+import dev.azora.sdk.core.project.domain.BUILTIN_TEMPLATE_ID_EMPTY
 import dev.azora.sdk.core.project.domain.ProjectSettings
-import dev.azora.sdk.core.project.domain.ProjectTemplate
 import kotlinx.serialization.json.Json
 import kotlin.time.Instant
 
@@ -21,7 +21,7 @@ fun AzoraProjectModel.toEntity() = AzoraProjectEntity(
     engineVersion = engineVersion,
     createdAt = createdAt.toEpochMilliseconds(),
     updatedAt = updatedAt?.toEpochMilliseconds(),
-    template = template.name,
+    template = template,
     includeServer = includeServer,
     settingsJson = json.encodeToString(settings)
 )
@@ -35,7 +35,7 @@ fun AzoraProjectEntity.toModel() = AzoraProjectModel(
     engineVersion = engineVersion,
     createdAt = Instant.fromEpochMilliseconds(createdAt),
     updatedAt = updatedAt?.let { Instant.fromEpochMilliseconds(it) },
-    template = runCatching { ProjectTemplate.valueOf(template) }.getOrDefault(ProjectTemplate.EMPTY),
+    template = template.takeIf { it.isNotBlank() } ?: BUILTIN_TEMPLATE_ID_EMPTY,
     includeServer = includeServer,
     settings = try {
         json.decodeFromString<ProjectSettings>(settingsJson)

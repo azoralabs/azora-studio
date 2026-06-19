@@ -1,6 +1,8 @@
 package dev.azora.studio.run
 
-import dev.azora.sdk.core.project.domain.ProjectTemplate
+import dev.azora.sdk.core.project.domain.BUILTIN_TEMPLATE_ID_EMPTY
+import dev.azora.sdk.core.project.domain.ProjectRunTargetKind
+import dev.azora.sdk.plugin.presentation.PluginManager
 import java.io.File
 
 enum class RunTargetKind { JVM, DESKTOP, WEB, ANDROID, IOS }
@@ -18,6 +20,14 @@ data class RunTarget(
     val androidSerial: String? = null,
     val androidAvd: String? = null,
     val iosUdid: String? = null,
+    /**
+     * Optional Gradle task that stops a detached, long-running server started by [gradleTask].
+     *
+     * When set, [gradleTask] is expected to launch a background server process and return (e.g.
+     * Kobweb's `kobwebStart`). The run stays "running" until this stop task is invoked. Null for
+     * ordinary blocking tasks that are killed by destroying the process.
+     */
+    val stopTask: String? = null,
 )
 
 /**
@@ -35,37 +45,33 @@ object RunTargets {
     fun adb(): File? = sdkDir()?.resolve("platform-tools/adb")?.takeIf { it.canExecute() }
     private fun emulator(): File? = sdkDir()?.resolve("emulator/emulator")?.takeIf { it.canExecute() }
 
-    /** Whether the template can be run from Studio at all (drives toolbar visibility). */
-    fun isRunnable(template: ProjectTemplate): Boolean = when (template) {
-        ProjectTemplate.EMPTY, ProjectTemplate.DESKTOP, ProjectTemplate.WEB,
-        ProjectTemplate.SERVER, ProjectTemplate.MOBILE, ProjectTemplate.MULTIPLATFORM,
-        ProjectTemplate.WEBSITE -> true
-        ProjectTemplate.AUDIO, ProjectTemplate.PIXEL -> false
-    }
+    /** Whether the template can be run from Studio at all (drives toolbar visibility). Cheap (no subprocess). */
+    fun isRunnable(templateId: String, pluginManager: PluginManager): Boolean =
+        templateId == BUILTIN_TEMPLATE_ID_EMPTY ||
+            pluginManager.templateContributions()
+                .firstOrNull { it.id == templateId }
+                ?.runTargets
+                ?.isNotEmpty() == true
 
-    /** Targets for [template]. Performs quick subprocess calls — run off the UI thread. */
-    fun targetsFor(template: ProjectTemplate): List<RunTarget> = buildList {
-        when (template) {
-            ProjectTemplate.EMPTY, ProjectTemplate.SERVER ->
-                add(RunTarget("jvm", "Run", RunTargetKind.JVM, "run"))
-            ProjectTemplate.DESKTOP ->
-                add(RunTarget("desktop", "Desktop", RunTargetKind.DESKTOP, "run"))
-            ProjectTemplate.WEB ->
-                add(RunTarget("web", "Web (browser)", RunTargetKind.WEB, "wasmJsBrowserDevelopmentRun"))
-            ProjectTemplate.WEBSITE ->
-                // Compiles the generated Kobweb `:site` module — proves the site builds from Studio.
-                add(RunTarget("website", "Build Site", RunTargetKind.WEB, ":site:compileKotlinJs"))
-            ProjectTemplate.MOBILE -> {
-                addAll(androidTargets(":composeApp:installDebug"))
-                addAll(iosTargets())
+    /**
+     * Targets for [templateId]. The builtin "empty" template contributes a plain "Run"; every other
+     * template's targets come from the matching plugin's contribution. Android/iOS-kind targets are
+     * expanded to per-device/per-simulator targets. Performs subprocess calls — run off the UI thread.
+     */
+    fun targetsFor(templateId: String, pluginManager: PluginManager): List<RunTarget> = buildList {
+        if (templateId == BUILTIN_TEMPLATE_ID_EMPTY) {
+            add(RunTarget("run", "Run", RunTargetKind.JVM, "run"))
+            return@buildList
+        }
+        val contribution = pluginManager.templateContributions().firstOrNull { it.id == templateId } ?: return@buildList
+        contribution.runTargets.forEach { target ->
+            when (target.kind) {
+                ProjectRunTargetKind.GRADLE -> add(
+                    RunTarget(target.id, target.label, RunTargetKind.JVM, target.gradleTask, stopTask = target.stopTask)
+                )
+                ProjectRunTargetKind.ANDROID -> addAll(androidTargets(target.gradleTask))
+                ProjectRunTargetKind.IOS -> addAll(iosTargets())
             }
-            ProjectTemplate.MULTIPLATFORM -> {
-                add(RunTarget("desktop", "Desktop", RunTargetKind.DESKTOP, ":composeApp:run"))
-                add(RunTarget("web", "Web (browser)", RunTargetKind.WEB, ":composeApp:wasmJsBrowserDevelopmentRun"))
-                addAll(androidTargets(":composeApp:installDebug"))
-                addAll(iosTargets())
-            }
-            ProjectTemplate.AUDIO, ProjectTemplate.PIXEL -> {}
         }
     }
 
