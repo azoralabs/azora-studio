@@ -12,6 +12,9 @@ import dev.azora.sdk.core.project.data.generator.WebsiteTemplateGenerator
 import dev.azora.sdk.core.project.data.mapper.*
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
 import dev.azora.sdk.core.project.domain.ProjectTemplate
+import dev.azora.sdk.core.project.domain.website
+import dev.azora.sdk.core.project.domain.withWebsite
+import dev.azora.sdk.core.project.domain.website.WebsiteModel
 import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
 import kotlinx.serialization.json.Json
 
@@ -44,6 +47,7 @@ actual class LocalAzoraProjectRepository(
     override suspend fun createProject(project: AzoraProjectModel): Res<AzoraProjectModel, DataError.Local> {
         return try {
             val projectPath = getProjectPath(project.name)
+            val effectiveProject = seedTemplateDefaults(project)
 
             // Check if project already exists
             when (fileSystem.directoryExists(projectPath)) {
@@ -68,15 +72,15 @@ actual class LocalAzoraProjectRepository(
             clearDatabase()
 
             // Insert project into database
-            db.projectDao.insertProject(project.toEntity())
+            db.projectDao.insertProject(effectiveProject.toEntity())
 
             // Save database state to project.azora
             saveProjectDatabaseToFile(projectPath)
 
             // Scaffold template-specific source (e.g. a Kobweb site for the Website template).
-            generateTemplate(project, projectPath)
+            generateTemplate(effectiveProject, projectPath)
 
-            Res.Success(project)
+            Res.Success(effectiveProject)
         } catch (_: Exception) {
             Res.Failure(DataError.Local.UNKNOWN)
         }
@@ -162,6 +166,17 @@ actual class LocalAzoraProjectRepository(
         } catch (_: Exception) {
             Res.Failure(DataError.Local.UNKNOWN)
         }
+    }
+
+    /**
+     * Populates template-specific defaults that should be persisted with the project before it is
+     * scaffolded. For [ProjectTemplate.WEBSITE] this seeds a starter [WebsiteModel] so the project
+     * file and the generated site agree and the website workflow has content to edit immediately.
+     */
+    private fun seedTemplateDefaults(project: AzoraProjectModel): AzoraProjectModel = when {
+        project.template == ProjectTemplate.WEBSITE && project.settings.website == null ->
+            project.copy(settings = project.settings.withWebsite(WebsiteModel.default(project.name)))
+        else -> project
     }
 
     private suspend fun generateTemplate(project: AzoraProjectModel, projectPath: String) {
