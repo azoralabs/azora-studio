@@ -13,5 +13,7 @@ data class AzoraProjectEntity(
     val engineVersion: String,
     val createdAt: Long,
     val updatedAt: Long?,
+    val template: String = "EMPTY",
+    val includeServer: Boolean = false,
     val settingsJson: String
 )

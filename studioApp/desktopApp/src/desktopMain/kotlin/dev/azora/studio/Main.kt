@@ -1,7 +1,9 @@
 package dev.azora.studio
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.window.WindowDraggableArea
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -11,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +31,10 @@ import dev.azora.sdk.core.domain.preferences.ThemePreference
 import dev.azora.sdk.core.domain.preferences.ThemePreferences
 import dev.azora.studio.di.initKoin
 import dev.azora.studio.run.ProjectRunner
+import dev.azora.studio.run.RunTarget
+import dev.azora.studio.run.RunTargets
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import dev.azora.studio.project_manager.ProjectManagerApp
 import dev.azora.sdk.core.domain.util.Res
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
@@ -406,16 +413,27 @@ fun main() {
                 // Inject ConsoleOutputManager for build/run logging
                 val consoleOutputManager: ConsoleOutputManager = koinInject()
 
-                // Project runner — streams the generated project's gradle output to the Console panel
+                // Project runner — streams the generated project's run output to the Console panel
                 val projectRunner = remember(consoleOutputManager) { ProjectRunner(consoleOutputManager) }
-                val projectRunTask = ProjectRunner.runTaskFor(state.project.template)
-                val onRunProject: () -> Unit = {
-                    projectRunTask?.let { task ->
-                        projectRunner.run(
-                            java.io.File(System.getProperty("user.home") + "/Documents", state.projectPath),
-                            task
-                        )
+                val projectDir = remember(state.projectPath) {
+                    java.io.File(System.getProperty("user.home") + "/Documents", state.projectPath)
+                }
+                val runScope = rememberCoroutineScope()
+                var runTargets by remember(state.project.template) { mutableStateOf<List<RunTarget>>(emptyList()) }
+                var selectedTarget by remember(state.project.template) { mutableStateOf<RunTarget?>(null) }
+                val templateRunnable = RunTargets.isRunnable(state.project.template)
+                val refreshTargets: () -> Unit = {
+                    runScope.launch {
+                        val targets = withContext(Dispatchers.IO) { RunTargets.targetsFor(state.project.template) }
+                        runTargets = targets
+                        if (selectedTarget == null || targets.none { it.id == selectedTarget?.id }) {
+                            selectedTarget = targets.firstOrNull()
+                        }
                     }
+                }
+                LaunchedEffect(state.project.template) { refreshTargets() }
+                val onRunProject: () -> Unit = {
+                    selectedTarget?.let { projectRunner.run(projectDir, it, state.project.packageName) }
                 }
                 val onStopProject: () -> Unit = { projectRunner.stop() }
 
@@ -851,7 +869,11 @@ fun main() {
                                         enabledPlugins = enabledPlugins,
                                         onPlay = { showGameWindow = true },
                                         onStop = { showGameWindow = false },
-                                        canRunProject = projectRunTask != null,
+                                        runnable = templateRunnable,
+                                        runTargets = runTargets,
+                                        selectedTarget = selectedTarget,
+                                        onSelectTarget = { selectedTarget = it },
+                                        onRefreshTargets = refreshTargets,
                                         isProjectRunning = projectRunner.isRunning,
                                         onRunProject = onRunProject,
                                         onStopProject = onStopProject
@@ -873,7 +895,11 @@ fun main() {
                                     enabledPlugins = enabledPlugins,
                                     onPlay = { showGameWindow = true },
                                     onStop = { showGameWindow = false },
-                                    canRunProject = projectRunTask != null,
+                                    runnable = templateRunnable,
+                                    runTargets = runTargets,
+                                    selectedTarget = selectedTarget,
+                                    onSelectTarget = { selectedTarget = it },
+                                    onRefreshTargets = refreshTargets,
                                     isProjectRunning = projectRunner.isRunning,
                                     onRunProject = onRunProject,
                                     onStopProject = onStopProject
@@ -1229,7 +1255,11 @@ private fun ThemeMenuButton(
  */
 @Composable
 private fun ProjectRunControls(
-    canRun: Boolean,
+    show: Boolean,
+    targets: List<RunTarget>,
+    selected: RunTarget?,
+    onSelect: (RunTarget) -> Unit,
+    onRefresh: () -> Unit,
     isRunning: Boolean,
     onRun: () -> Unit,
     onStop: () -> Unit,
@@ -1237,11 +1267,48 @@ private fun ProjectRunControls(
     iconSize: Dp,
     tint: androidx.compose.ui.graphics.Color
 ) {
-    if (!canRun) return
-    IconButton(onClick = onRun, enabled = !isRunning, modifier = Modifier.size(buttonSize)) {
+    if (!show) return
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .clickable { onRefresh(); expanded = true }
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = selected?.label ?: "Select target",
+                color = tint,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 170.dp)
+            )
+            Text("▾", color = tint, fontSize = 9.sp)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (targets.isEmpty()) {
+                DropdownMenuItem(
+                    text = { Text("No targets found") },
+                    onClick = { expanded = false },
+                    enabled = false
+                )
+            } else {
+                targets.forEach { target ->
+                    DropdownMenuItem(
+                        text = { Text((if (target.id == selected?.id) "✓  " else "      ") + target.label) },
+                        onClick = { onSelect(target); expanded = false }
+                    )
+                }
+            }
+        }
+    }
+    IconButton(onClick = onRun, enabled = !isRunning && selected != null, modifier = Modifier.size(buttonSize)) {
         Icon(
             painter = composeResourcePainter(AppRes.drawable.ic_play_arrow),
-            contentDescription = "Run project",
+            contentDescription = "Run",
             tint = tint,
             modifier = Modifier.size(iconSize)
         )
@@ -1249,7 +1316,7 @@ private fun ProjectRunControls(
     IconButton(onClick = onStop, enabled = isRunning, modifier = Modifier.size(buttonSize)) {
         Icon(
             painter = composeResourcePainter(AppRes.drawable.ic_stop),
-            contentDescription = "Stop project",
+            contentDescription = "Stop",
             tint = tint,
             modifier = Modifier.size(iconSize)
         )
@@ -1275,7 +1342,11 @@ private fun MacOSToolbar(
     enabledPlugins: List<dev.azora.sdk.plugin.core.InstalledPlugin> = emptyList(),
     onPlay: () -> Unit = {},
     onStop: () -> Unit = {},
-    canRunProject: Boolean = false,
+    runnable: Boolean = false,
+    runTargets: List<RunTarget> = emptyList(),
+    selectedTarget: RunTarget? = null,
+    onSelectTarget: (RunTarget) -> Unit = {},
+    onRefreshTargets: () -> Unit = {},
     isProjectRunning: Boolean = false,
     onRunProject: () -> Unit = {},
     onStopProject: () -> Unit = {}
@@ -1352,7 +1423,11 @@ private fun MacOSToolbar(
 
             // Run / Stop the generated project (output streams to the Console panel)
             ProjectRunControls(
-                canRun = canRunProject,
+                show = runnable,
+                targets = runTargets,
+                selected = selectedTarget,
+                onSelect = onSelectTarget,
+                onRefresh = onRefreshTargets,
                 isRunning = isProjectRunning,
                 onRun = onRunProject,
                 onStop = onStopProject,
@@ -1400,7 +1475,11 @@ private fun MainWindowTitleBar(
     enabledPlugins: List<dev.azora.sdk.plugin.core.InstalledPlugin> = emptyList(),
     onPlay: () -> Unit = {},
     onStop: () -> Unit = {},
-    canRunProject: Boolean = false,
+    runnable: Boolean = false,
+    runTargets: List<RunTarget> = emptyList(),
+    selectedTarget: RunTarget? = null,
+    onSelectTarget: (RunTarget) -> Unit = {},
+    onRefreshTargets: () -> Unit = {},
     isProjectRunning: Boolean = false,
     onRunProject: () -> Unit = {},
     onStopProject: () -> Unit = {}
@@ -1476,7 +1555,11 @@ private fun MainWindowTitleBar(
         ) {
             // Run / Stop the generated project (output streams to the Console panel)
             ProjectRunControls(
-                canRun = canRunProject,
+                show = runnable,
+                targets = runTargets,
+                selected = selectedTarget,
+                onSelect = onSelectTarget,
+                onRefresh = onRefreshTargets,
                 isRunning = isProjectRunning,
                 onRun = onRunProject,
                 onStop = onStopProject,
