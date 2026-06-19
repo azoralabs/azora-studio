@@ -5,14 +5,17 @@ import dev.azora.sdk.core.domain.logging.AzoraLogger
 import dev.azora.sdk.core.domain.util.Res
 import dev.azora.sdk.core.presentation.util.*
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
+import dev.azora.sdk.core.project.domain.ProjectTemplate
 import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
+import dev.azora.sdk.plugin.presentation.PluginManager
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class ProjectManagerViewModel(
     private val projectRepository: AzoraProjectRepository,
-    private val logger: AzoraLogger
+    private val logger: AzoraLogger,
+    private val pluginManager: PluginManager
 ) : ViewModel() {
 
     private val clazz = this::class.simpleName
@@ -22,6 +25,34 @@ class ProjectManagerViewModel(
 
     private val _state = MutableStateFlow(ProjectManagerState())
     val state = _state.asStateFlow()
+
+    init {
+        // Load installed plugins, then keep the available-template list in sync as plugins are
+        // installed/enabled/disabled. With no contributing plugins, only the Empty template shows.
+        viewModelScope.launch {
+            runCatching { pluginManager.loadInstalledPlugins() }
+            refreshAvailableTemplates()
+            pluginManager.installedPlugins.collect { refreshAvailableTemplates() }
+        }
+    }
+
+    /**
+     * Recompute [ProjectManagerState.availableTemplates] from the plugin manager's contributions:
+     * the builtin Empty template plus every contribution whose id matches a [ProjectTemplate] entry.
+     */
+    private fun refreshAvailableTemplates() {
+        val contributed = pluginManager.templateContributions().mapNotNull { contribution ->
+            val matched = ProjectTemplate.entries.firstOrNull { it.name == contribution.id }
+                ?: return@mapNotNull null
+            AvailableTemplate(
+                template = matched,
+                label = contribution.label.ifBlank { matched.label },
+                description = contribution.description.ifBlank { matched.description },
+                pluginId = null
+            )
+        }
+        _state.update { it.copy(availableTemplates = listOf(AvailableTemplate.EMPTY) + contributed) }
+    }
 
     fun onAction(action: ProjectManagerAction) = when (action) {
         is ProjectManagerAction.OnCreateProject -> onCreateProject(action.project)

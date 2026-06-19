@@ -2,6 +2,7 @@ package dev.azora.sdk.plugin.presentation
 
 import androidx.compose.runtime.Composable
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
+import dev.azora.sdk.core.project.domain.ProjectTemplateContribution
 import dev.azora.sdk.plugin.core.*
 import kotlinx.coroutines.flow.StateFlow
 
@@ -61,9 +62,9 @@ interface PluginManager {
      * Get the Composable content for a loaded plugin.
      *
      * @param pluginId The plugin ID
-     * @return A Composable function, or null if the plugin is not loaded
+     * @return A Composable function taking the host [PluginContext], or null if the plugin is not loaded
      */
-    fun getPluginContent(pluginId: String): (@Composable (AzoraProjectModel) -> Unit)?
+    fun getPluginContent(pluginId: String): (@Composable (PluginContext) -> Unit)?
 
     /**
      * Get the dockable panels a plugin contributes. Defaults to none; plugin hosts
@@ -78,7 +79,13 @@ interface PluginManager {
     fun getPluginPanelContent(
         pluginId: String,
         panelId: String
-    ): (@Composable (AzoraProjectModel) -> Unit)? = null
+    ): (@Composable (PluginContext) -> Unit)? = null
+
+    /**
+     * Project templates contributed by all currently loaded (enabled) plugins. The host surfaces
+     * these in the create-project UI and resolves generators through them.
+     */
+    fun templateContributions(): List<ProjectTemplateContribution> = emptyList()
 
     /**
      * Get a loaded plugin instance by ID.

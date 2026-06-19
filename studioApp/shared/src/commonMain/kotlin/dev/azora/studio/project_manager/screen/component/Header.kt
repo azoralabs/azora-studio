@@ -12,12 +12,14 @@ import azora.azora_studio.app.generated.resources.*
 import dev.azora.sdk.core.theme.LocalAzoraPalette
 import androidx.compose.ui.tooling.preview.Preview
 import dev.azora.sdk.core.component.button.AzoraButton
+import dev.azora.sdk.core.component.button.AzoraButtonStyle
 import dev.azora.sdk.core.theme.palette.AzoraPalette
 import org.jetbrains.compose.resources.painterResource
 
 @Composable
 internal fun Header(
-    onNewProjectClick: () -> Unit
+    onNewProjectClick: () -> Unit,
+    onPluginsClick: () -> Unit = {}
 ) {
     val palette = LocalAzoraPalette.current
 
@@ -51,18 +53,34 @@ internal fun Header(
                 )
             }
 
-            AzoraButton(
-                text = "New Project",
-                leadingIcon = {
-                    Icon(
-                        painter = painterResource(Res.drawable.create_project_icon),
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = AzoraPalette.White
-                    )
-                },
-                onClick = onNewProjectClick
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AzoraButton(
+                    text = "Plugins",
+                    style = AzoraButtonStyle.SECONDARY,
+                    leadingIcon = {
+                        Icon(
+                            painter = painterResource(Res.drawable.ic_inventory),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = AzoraPalette.White
+                        )
+                    },
+                    onClick = onPluginsClick
+                )
+
+                AzoraButton(
+                    text = "New Project",
+                    leadingIcon = {
+                        Icon(
+                            painter = painterResource(Res.drawable.create_project_icon),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = AzoraPalette.White
+                        )
+                    },
+                    onClick = onNewProjectClick
+                )
+            }
         }
     }
 }
@@ -71,6 +89,7 @@ internal fun Header(
 @Composable
 private fun Header_Preview() {
     Header(
-        onNewProjectClick = {}
+        onNewProjectClick = {},
+        onPluginsClick = {}
     )
 }

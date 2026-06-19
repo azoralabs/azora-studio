@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import dev.azora.sdk.core.theme.LocalAzoraPalette
 import dev.azora.sdk.plugin.core.InstalledPlugin
 import dev.azora.sdk.plugin.presentation.PluginManagerViewModel
+import org.koin.compose.getKoin
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -26,11 +27,16 @@ import org.koin.compose.viewmodel.koinViewModel
  */
 @Composable
 fun PluginsSettingsContent(
-    onLaunchPlugin: (String) -> Unit = {}
+    onLaunchPlugin: (String) -> Unit = {},
+    /** Whether to show the per-plugin "Launch" action. Hidden where no project is open (e.g. the Project Browser). */
+    showLaunchButton: Boolean = true
 ) {
     val viewModel: PluginManagerViewModel = koinViewModel()
     val state by viewModel.state.collectAsState()
     val palette = LocalAzoraPalette.current
+
+    // Desktop provides a native JAR picker; on other targets it is unbound (button hidden).
+    val filePicker = getKoin().getOrNull<PluginFilePicker>()
 
     // Load plugins on first composition
     LaunchedEffect(Unit) {
@@ -55,11 +61,18 @@ fun PluginsSettingsContent(
                 fontWeight = FontWeight.SemiBold
             )
 
-            Text(
-                text = "${state.installedPlugins.size} plugins",
-                color = palette.contentLow,
-                fontSize = 11.sp
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "${state.installedPlugins.size} plugins",
+                    color = palette.contentLow,
+                    fontSize = 11.sp
+                )
+                if (filePicker != null) {
+                    InstallPluginButton {
+                        filePicker.pickPluginJar()?.let { path -> viewModel.installPlugin(path) }
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -136,7 +149,8 @@ fun PluginsSettingsContent(
                         onToggle = { enabled ->
                             viewModel.togglePlugin(plugin.id, enabled)
                         },
-                        onLaunch = { onLaunchPlugin(plugin.id) }
+                        onLaunch = { onLaunchPlugin(plugin.id) },
+                        showLaunchButton = showLaunchButton
                     )
                 }
             }
@@ -148,7 +162,8 @@ fun PluginsSettingsContent(
 private fun PluginCard(
     plugin: InstalledPlugin,
     onToggle: (Boolean) -> Unit,
-    onLaunch: () -> Unit
+    onLaunch: () -> Unit,
+    showLaunchButton: Boolean = true
 ) {
     val palette = LocalAzoraPalette.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -248,8 +263,8 @@ private fun PluginCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Launch button (only if enabled)
-                if (plugin.enabled) {
+                // Launch button (only if enabled and requested)
+                if (showLaunchButton && plugin.enabled) {
                     LaunchButton(onClick = onLaunch)
                 }
 
@@ -285,6 +300,38 @@ private fun LaunchButton(onClick: () -> Unit) {
         Text(
             text = "Launch",
             color = palette.content,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun InstallPluginButton(onClick: () -> Unit) {
+    val palette = LocalAzoraPalette.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    val backgroundColor by animateColorAsState(
+        if (isHovered) palette.primary else palette.surfaceLow
+    )
+    val borderColor by animateColorAsState(
+        if (isHovered) palette.primary else palette.surfaceDisabled
+    )
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(backgroundColor)
+            .border(width = 1.dp, color = borderColor, shape = RoundedCornerShape(4.dp))
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "+ Install Plugin…",
+            color = if (isHovered) palette.content else palette.contentTop,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium
         )

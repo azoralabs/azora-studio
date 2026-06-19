@@ -24,6 +24,7 @@ fun ProjectManagerView(
 ) {
     val palette = LocalAzoraPalette.current
     val screenState by screenViewModel.state.collectAsSWLC()
+    var showPlugins by remember { mutableStateOf(false) }
 
     // Ensure Azora directory exists on app start
     LaunchedEffect(Unit) {
@@ -41,7 +42,8 @@ fun ProjectManagerView(
             Header(
                 onNewProjectClick = {
                     screenViewModel.onAction(ScreenAction.PushDialog())
-                }
+                },
+                onPluginsClick = { showPlugins = true }
             )
 
             Box(
@@ -66,6 +68,11 @@ fun ProjectManagerView(
         // Dialog overlay
         if (screenState.onDialog) {
             CreateProjectDialog(viewModel)
+        }
+
+        // Plugins management window (install/enable/disable templates before creating a project)
+        if (showPlugins) {
+            PluginsBrowserWindow(onCloseRequest = { showPlugins = false })
         }
 
         // Loading overlay

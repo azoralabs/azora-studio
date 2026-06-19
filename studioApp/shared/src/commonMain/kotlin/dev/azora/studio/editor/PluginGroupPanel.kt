@@ -10,6 +10,7 @@ import dev.azora.sdk.docking.presentation.container.DockContainer
 import dev.azora.sdk.docking.presentation.panel.DockPanelRegistry
 import dev.azora.sdk.docking.presentation.theme.DockTheme
 import dev.azora.sdk.docking.presentation.theme.LocalAllowExternalDrag
+import dev.azora.sdk.plugin.core.PluginContext
 import dev.azora.sdk.plugin.core.PluginPanelDescriptor
 import dev.azora.sdk.plugin.presentation.PluginManager
 
@@ -28,7 +29,7 @@ fun PluginGroupPanel(
     pluginId: String,
     panels: List<PluginPanelDescriptor>,
     pluginManager: PluginManager,
-    project: AzoraProjectModel
+    pluginContext: PluginContext
 ) {
     // Create a local DockStateManager for the nested layout
     val innerStateManager = remember(pluginId) {
@@ -92,7 +93,7 @@ fun PluginGroupPanel(
                 val innerId = "inner_${pluginId}_${panel.id}"
                 val content = pluginManager.getPluginPanelContent(pluginId, panel.id)
                 if (content != null) {
-                    register(innerId) { content(project) }
+                    register(innerId) { content(pluginContext) }
                 }
             }
         }

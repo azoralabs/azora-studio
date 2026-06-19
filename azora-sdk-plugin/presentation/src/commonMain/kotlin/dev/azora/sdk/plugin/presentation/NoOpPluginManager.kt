@@ -33,7 +33,7 @@ class NoOpPluginManager : PluginManager {
         // No-op
     }
 
-    override fun getPluginContent(pluginId: String): (@Composable (AzoraProjectModel) -> Unit)? =
+    override fun getPluginContent(pluginId: String): (@Composable (PluginContext) -> Unit)? =
         null
 
     override fun getLoadedPlugin(pluginId: String): AzoraPlugin? = null

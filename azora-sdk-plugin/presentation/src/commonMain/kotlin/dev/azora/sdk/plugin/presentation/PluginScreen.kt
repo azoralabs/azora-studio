@@ -7,8 +7,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
-import dev.azora.sdk.core.project.domain.AzoraProjectModel
 import dev.azora.sdk.core.theme.palette.AzoraPalette
+import dev.azora.sdk.plugin.core.PluginContext
 
 /**
  * Screen that displays the content of a loaded plugin.
@@ -17,13 +17,13 @@ import dev.azora.sdk.core.theme.palette.AzoraPalette
 @Composable
 fun PluginScreen(
     pluginId: String,
-    project: AzoraProjectModel,
+    context: PluginContext,
     pluginManager: PluginManager
 ) {
     val pluginContent = pluginManager.getPluginContent(pluginId)
 
     if (pluginContent != null) {
-        pluginContent(project)
+        pluginContent(context)
     } else {
         // Plugin not loaded - show placeholder
         PluginNotLoadedScreen(pluginId)

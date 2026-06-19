@@ -12,6 +12,8 @@ kotlin {
             implementation(libs.compose.ui)
 
             implementation(projects.azoraSdkCore.project.domain)
+            implementation(projects.azoraSdkCore.io)
+            implementation(projects.azoraSdkCore.domain)
         }
 
         desktopMain.dependencies {

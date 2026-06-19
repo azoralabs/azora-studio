@@ -2,6 +2,7 @@ package dev.azora.sdk.plugin.presentation
 
 import androidx.compose.runtime.Composable
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
+import dev.azora.sdk.core.project.domain.ProjectTemplateContribution
 import dev.azora.sdk.plugin.core.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -190,10 +191,13 @@ class DesktopPluginManager : PluginManager {
         writeInstalledJson(newList)
     }
 
-    override fun getPluginContent(pluginId: String): (@Composable (AzoraProjectModel) -> Unit)? {
+    override fun getPluginContent(pluginId: String): (@Composable (PluginContext) -> Unit)? {
         val loaded = loadedPlugins[pluginId] ?: return null
-        return { project -> loaded.plugin.Content(project) }
+        return { context -> loaded.plugin.Content(context) }
     }
+
+    override fun templateContributions(): List<ProjectTemplateContribution> =
+        loadedPlugins.values.flatMap { runCatching { it.plugin.projectTemplates() }.getOrElse { emptyList() } }
 
     override fun getLoadedPlugin(pluginId: String): AzoraPlugin? {
         return loadedPlugins[pluginId]?.plugin

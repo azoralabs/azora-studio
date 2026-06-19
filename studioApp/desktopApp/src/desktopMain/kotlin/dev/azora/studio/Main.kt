@@ -1154,8 +1154,16 @@ fun main() {
                             LocalAzoraPalette provides gamePalette,
                             LocalAzoraTypography provides gameTypography
                         ) {
+                            val gameContext = dev.azora.studio.editor.StudioPluginContext(
+                                project = state.project,
+                                projectPath = state.projectPath,
+                                fileSystem = koinInject<dev.azora.sdk.core.io.FileSystem>(),
+                                logger = koinInject<dev.azora.sdk.core.domain.logging.AzoraLogger>(),
+                                scope = rememberCoroutineScope(),
+                                repository = koinInject<AzoraProjectRepository>()
+                            )
                             pluginManager.getPluginPanelContent("dev.azora.scene_studio", "standalone_game")
-                                ?.invoke(state.project)
+                                ?.invoke(gameContext)
                         }
                     }
                 }

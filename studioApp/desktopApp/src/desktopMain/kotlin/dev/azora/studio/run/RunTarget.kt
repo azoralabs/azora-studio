@@ -38,8 +38,9 @@ object RunTargets {
     /** Whether the template can be run from Studio at all (drives toolbar visibility). */
     fun isRunnable(template: ProjectTemplate): Boolean = when (template) {
         ProjectTemplate.EMPTY, ProjectTemplate.DESKTOP, ProjectTemplate.WEB,
-        ProjectTemplate.SERVER, ProjectTemplate.MOBILE, ProjectTemplate.MULTIPLATFORM -> true
-        ProjectTemplate.WEBSITE, ProjectTemplate.AUDIO, ProjectTemplate.PIXEL -> false
+        ProjectTemplate.SERVER, ProjectTemplate.MOBILE, ProjectTemplate.MULTIPLATFORM,
+        ProjectTemplate.WEBSITE -> true
+        ProjectTemplate.AUDIO, ProjectTemplate.PIXEL -> false
     }
 
     /** Targets for [template]. Performs quick subprocess calls — run off the UI thread. */
@@ -51,6 +52,9 @@ object RunTargets {
                 add(RunTarget("desktop", "Desktop", RunTargetKind.DESKTOP, "run"))
             ProjectTemplate.WEB ->
                 add(RunTarget("web", "Web (browser)", RunTargetKind.WEB, "wasmJsBrowserDevelopmentRun"))
+            ProjectTemplate.WEBSITE ->
+                // Compiles the generated Kobweb `:site` module — proves the site builds from Studio.
+                add(RunTarget("website", "Build Site", RunTargetKind.WEB, ":site:compileKotlinJs"))
             ProjectTemplate.MOBILE -> {
                 addAll(androidTargets(":composeApp:installDebug"))
                 addAll(iosTargets())
@@ -61,7 +65,7 @@ object RunTargets {
                 addAll(androidTargets(":composeApp:installDebug"))
                 addAll(iosTargets())
             }
-            ProjectTemplate.WEBSITE, ProjectTemplate.AUDIO, ProjectTemplate.PIXEL -> {}
+            ProjectTemplate.AUDIO, ProjectTemplate.PIXEL -> {}
         }
     }
 

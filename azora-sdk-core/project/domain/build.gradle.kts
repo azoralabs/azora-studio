@@ -9,6 +9,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
 
             implementation(projects.azoraSdkCore.domain)
+            implementation(projects.azoraSdkCore.io)
             implementation(projects.azoraSdkCore.util)
         }
     }

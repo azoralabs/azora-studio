@@ -17,7 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import azora.azora_studio.app.generated.resources.*
 import dev.azora.canvas.domain.interpreter.*
+import dev.azora.sdk.core.domain.logging.AzoraLogger
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
+import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
 import dev.azora.sdk.core.theme.LocalAzoraPalette
 import dev.azora.sdk.docking.domain.*
 import dev.azora.sdk.docking.presentation.container.DockContainer
@@ -30,6 +32,7 @@ import dev.azora.studio.az_script.AzScriptFilePanel
 import dev.azora.studio.az_script.DiagnosticsManager
 import dev.azora.studio.azora_nodes.AzoraNodesFilePanel
 import dev.azora.studio.settings.SettingsScreen
+import androidx.compose.runtime.rememberCoroutineScope
 import org.koin.compose.koinInject
 
 @Composable
@@ -55,6 +58,11 @@ fun StudioView(
     val azScriptOpenFiles by openAzScriptFilesManager.openFiles.collectAsState()
     val fileSystem: dev.azora.sdk.core.io.FileSystem = koinInject()
     val dockStateManager: DockStateManager = koinInject()
+
+    // Host context dependencies handed to plugin content
+    val pluginLogger: AzoraLogger = koinInject()
+    val projectRepository: AzoraProjectRepository = koinInject()
+    val pluginScope = rememberCoroutineScope()
 
     // Create AssetsPanelViewModel
     val assetsPanelViewModel = remember(projectPath) {
@@ -113,18 +121,26 @@ fun StudioView(
                 }
             }
 
-            // Register dynamic panels for .azorascene files (delegated to Scene Studio plugin)
+            // Plugin content (Scene Studio panels + enabled plugins) needs a host PluginContext.
             if (project != null && pluginManager != null) {
+                val pluginContext = StudioPluginContext(
+                    project = project,
+                    projectPath = projectPath,
+                    fileSystem = fileSystem,
+                    logger = pluginLogger,
+                    scope = pluginScope,
+                    repository = projectRepository
+                )
+
+                // Register dynamic panels for .azorascene files (delegated to Scene Studio plugin)
                 azoraScenePanelIds.forEach { panelId ->
                     register(panelId) {
                         pluginManager.getPluginPanelContent("dev.azora.scene_studio", panelId)
-                            ?.invoke(project)
+                            ?.invoke(pluginContext)
                     }
                 }
-            }
 
-            // Register enabled plugin panels
-            if (project != null && pluginManager != null) {
+                // Register enabled plugin panels
                 enabledPlugins.forEach { plugin ->
                     val panels = pluginManager.getPluginPanels(plugin.id)
                     if (panels.isNotEmpty()) {
@@ -139,7 +155,7 @@ fun StudioView(
                                     pluginId = plugin.id,
                                     panels = groupPanels,
                                     pluginManager = pluginManager,
-                                    project = project
+                                    pluginContext = pluginContext
                                 )
                             }
                         }
@@ -149,7 +165,7 @@ fun StudioView(
                             val panelContent = pluginManager.getPluginPanelContent(plugin.id, panel.id)
                             if (panelContent != null) {
                                 register("plugin_${plugin.id}_${panel.id}") {
-                                    panelContent(project)
+                                    panelContent(pluginContext)
                                 }
                             }
                         }
@@ -158,7 +174,7 @@ fun StudioView(
                         val content = pluginManager.getPluginContent(plugin.id)
                         if (content != null) {
                             register("plugin_${plugin.id}") {
-                                content(project)
+                                content(pluginContext)
                             }
                         }
                     }
@@ -215,6 +231,11 @@ fun StudioFloatingWindowsProvider(
     val fileSystem: dev.azora.sdk.core.io.FileSystem = koinInject()
     val dockStateManager: DockStateManager = koinInject()
 
+    // Host context dependencies handed to plugin content
+    val pluginLogger: AzoraLogger = koinInject()
+    val projectRepository: AzoraProjectRepository = koinInject()
+    val pluginScope = rememberCoroutineScope()
+
     // Create AssetsPanelViewModel
     val assetsPanelViewModel = remember(projectPath) {
         AssetsPanelViewModel(
@@ -272,18 +293,26 @@ fun StudioFloatingWindowsProvider(
                 }
             }
 
-            // Register dynamic panels for .azorascene files (delegated to Scene Studio plugin)
+            // Plugin content (Scene Studio panels + enabled plugins) needs a host PluginContext.
             if (project != null && pluginManager != null) {
+                val pluginContext = StudioPluginContext(
+                    project = project,
+                    projectPath = projectPath,
+                    fileSystem = fileSystem,
+                    logger = pluginLogger,
+                    scope = pluginScope,
+                    repository = projectRepository
+                )
+
+                // Register dynamic panels for .azorascene files (delegated to Scene Studio plugin)
                 azoraScenePanelIds.forEach { panelId ->
                     register(panelId) {
                         pluginManager.getPluginPanelContent("dev.azora.scene_studio", panelId)
-                            ?.invoke(project)
+                            ?.invoke(pluginContext)
                     }
                 }
-            }
 
-            // Register enabled plugin panels
-            if (project != null && pluginManager != null) {
+                // Register enabled plugin panels
                 enabledPlugins.forEach { plugin ->
                     val panels = pluginManager.getPluginPanels(plugin.id)
                     if (panels.isNotEmpty()) {
@@ -298,7 +327,7 @@ fun StudioFloatingWindowsProvider(
                                     pluginId = plugin.id,
                                     panels = groupPanels,
                                     pluginManager = pluginManager,
-                                    project = project
+                                    pluginContext = pluginContext
                                 )
                             }
                         }
@@ -308,7 +337,7 @@ fun StudioFloatingWindowsProvider(
                             val panelContent = pluginManager.getPluginPanelContent(plugin.id, panel.id)
                             if (panelContent != null) {
                                 register("plugin_${plugin.id}_${panel.id}") {
-                                    panelContent(project)
+                                    panelContent(pluginContext)
                                 }
                             }
                         }
@@ -316,7 +345,7 @@ fun StudioFloatingWindowsProvider(
                         val content = pluginManager.getPluginContent(plugin.id)
                         if (content != null) {
                             register("plugin_${plugin.id}") {
-                                content(project)
+                                content(pluginContext)
                             }
                         }
                     }

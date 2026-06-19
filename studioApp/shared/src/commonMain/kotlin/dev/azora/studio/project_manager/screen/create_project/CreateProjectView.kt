@@ -69,6 +69,7 @@ fun ColumnScope.CreateProjectView(
 
         TemplateSelector(
             selected = state.template,
+            templates = state.availableTemplates,
             onSelect = { onAction(ProjectManagerAction.OnTemplateChange(it)) }
         )
 
@@ -150,11 +151,12 @@ fun ColumnScope.CreateProjectView(
 @Composable
 private fun TemplateSelector(
     selected: ProjectTemplate,
+    templates: List<AvailableTemplate>,
     onSelect: (ProjectTemplate) -> Unit
 ) {
     // 3-per-row grid (built from chunked Rows so it nests inside a scrolling dialog).
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ProjectTemplate.entries.chunked(3).forEach { rowTemplates ->
+        templates.chunked(3).forEach { rowTemplates ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -162,7 +164,7 @@ private fun TemplateSelector(
                 rowTemplates.forEach { template ->
                     TemplateCard(
                         template = template,
-                        isSelected = template == selected,
+                        isSelected = template.template == selected,
                         onSelect = onSelect,
                         modifier = Modifier.weight(1f)
                     )
@@ -176,7 +178,7 @@ private fun TemplateSelector(
 
 @Composable
 private fun TemplateCard(
-    template: ProjectTemplate,
+    template: AvailableTemplate,
     isSelected: Boolean,
     onSelect: (ProjectTemplate) -> Unit,
     modifier: Modifier = Modifier
@@ -192,7 +194,7 @@ private fun TemplateCard(
                 color = if (isSelected) palette.primary else palette.surfaceDisabled,
                 shape = RoundedCornerShape(8.dp)
             )
-            .clickable { onSelect(template) }
+            .clickable { onSelect(template.template) }
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
