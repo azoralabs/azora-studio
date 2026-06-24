@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import dev.azora.studio.assets.OpenAzoraNodesFilesManager
 import dev.azora.studio.assets.openAzoraNodesFiles
 import dev.azora.studio.assets.withOpenAzoraNodesFiles
+import dev.azora.studio.content_browser.OpenTextFilesManager
+import dev.azora.studio.content_browser.openTextFiles
+import dev.azora.studio.content_browser.withOpenTextFiles
 import dev.azora.sdk.docking.domain.*
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
 import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
@@ -20,7 +23,8 @@ class StudioViewModel(
     private val projectPath: String,
     val dockStateManager: DockStateManager,
     private val projectRepository: AzoraProjectRepository,
-    private val openFilesManager: OpenAzoraNodesFilesManager
+    private val openFilesManager: OpenAzoraNodesFilesManager,
+    private val openTextFilesManager: OpenTextFilesManager
 ) : ViewModel() {
 
     private val clazz = this::class.simpleName
@@ -47,6 +51,7 @@ class StudioViewModel(
         // File restoration involves disk I/O and JSON parsing which must not run on EDT.
         viewModelScope.launch {
             restoreOpenFiles()
+            restoreOpenTextFiles()
             loadSavedLayout()
         }
 
@@ -55,6 +60,9 @@ class StudioViewModel(
 
         // Auto-save open files mapping on changes (debounced)
         observeOpenFilesChanges()
+
+        // Auto-save open text files mapping on changes (debounced)
+        observeOpenTextFilesChanges()
     }
 
     private suspend fun restoreOpenFiles() {
@@ -121,6 +129,43 @@ class StudioViewModel(
         } catch (e: Exception) {
             println("[StudioViewModel] Failed to save open files mapping: ${e.message}")
             e.printStackTrace()
+        }
+    }
+
+    private suspend fun restoreOpenTextFiles() {
+        val savedMapping = project.settings.openTextFiles
+        if (savedMapping.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                savedMapping.forEach { (panelId, filePath) ->
+                    openTextFilesManager.restoreFile(panelId, filePath)
+                }
+            }
+        }
+    }
+
+    @OptIn(FlowPreview::class)
+    private fun observeOpenTextFilesChanges() {
+        viewModelScope.launch {
+            openTextFilesManager.openFiles
+                .map { files -> files.mapValues { it.value.filePath } }
+                .distinctUntilChanged()
+                .debounce(500)
+                .collect { mapping -> saveOpenTextFilesToProject(mapping) }
+        }
+    }
+
+    private suspend fun saveOpenTextFilesToProject(mapping: Map<String, String>) {
+        try {
+            val currentProject = projectRepository.getProject()
+            if (currentProject is dev.azora.sdk.core.domain.util.Res.Success) {
+                val updatedProject = currentProject.data.copy(
+                    settings = currentProject.data.settings.withOpenTextFiles(mapping)
+                )
+                projectRepository.updateProject(updatedProject)
+                projectRepository.saveProject(projectPath)
+            }
+        } catch (e: Exception) {
+            println("[StudioViewModel] Failed to save open text files mapping: ${e.message}")
         }
     }
 

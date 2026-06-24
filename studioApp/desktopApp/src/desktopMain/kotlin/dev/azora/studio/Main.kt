@@ -500,6 +500,7 @@ fun main() {
                     val builtInPanels = remember {
                         listOf(
                             DockPanelDescriptor(id = "project", title = "Project", minimumWidth = 200f, minimumHeight = 150f),
+                            DockPanelDescriptor(id = "content_browser", title = "Content Browser", minimumWidth = 220f, minimumHeight = 200f),
                             DockPanelDescriptor(id = "console", title = "Console", minimumWidth = 200f, minimumHeight = 100f),
                             DockPanelDescriptor(id = "problems", title = "Problems", minimumWidth = 200f, minimumHeight = 100f)
                         )

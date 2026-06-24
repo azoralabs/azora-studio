@@ -31,6 +31,10 @@ import dev.azora.studio.assets.*
 import dev.azora.studio.az_script.AzScriptFilePanel
 import dev.azora.studio.az_script.DiagnosticsManager
 import dev.azora.studio.azora_nodes.AzoraNodesFilePanel
+import dev.azora.studio.content_browser.ContentBrowserPanel
+import dev.azora.studio.content_browser.ContentBrowserViewModel
+import dev.azora.studio.content_browser.OpenTextFilesManager
+import dev.azora.studio.content_browser.TextFilePanel
 import dev.azora.studio.settings.SettingsScreen
 import androidx.compose.runtime.rememberCoroutineScope
 import org.koin.compose.koinInject
@@ -58,6 +62,8 @@ fun StudioView(
     val azScriptOpenFiles by openAzScriptFilesManager.openFiles.collectAsState()
     val fileSystem: dev.azora.sdk.core.io.FileSystem = koinInject()
     val dockStateManager: DockStateManager = koinInject()
+    val openTextFilesManager: OpenTextFilesManager = koinInject()
+    val openTextFiles by openTextFilesManager.openFiles.collectAsState()
 
     // Host context dependencies handed to plugin content
     val pluginLogger: AzoraLogger = koinInject()
@@ -73,6 +79,16 @@ fun StudioView(
             openSceneFilesManager = openSceneFilesManager,
             openTileMapFilesManager = openTileMapFilesManager,
             openAzScriptFilesManager = openAzScriptFilesManager,
+            dockStateManager = dockStateManager
+        )
+    }
+
+    // Create ContentBrowserViewModel
+    val contentBrowserViewModel = remember(projectPath) {
+        ContentBrowserViewModel(
+            projectPath = projectPath,
+            fileSystem = fileSystem,
+            openTextFilesManager = openTextFilesManager,
             dockStateManager = dockStateManager
         )
     }
@@ -99,13 +115,20 @@ fun StudioView(
         layoutIds + openIds
     }
 
+    val textPanelIds = remember(dockState.layout.panelDescriptors, openTextFiles) {
+        val layoutIds = dockState.layout.panelDescriptors.keys.filter { it.startsWith("txt_") }.toSet()
+        val openIds = openTextFiles.keys
+        layoutIds + openIds
+    }
+
     // Register panel content synchronously so it's available on first render
-    val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azScriptPanelIds) {
+    val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azScriptPanelIds, textPanelIds) {
         DockPanelRegistry().apply {
             register("project") { AssetsPanel(viewModel = assetsPanelViewModel) }
             register("console") { ConsolePanel() }
             register("problems") { ProblemsPanel() }
             register("settings") { SettingsScreen(projectPath = projectPath) }
+            register("content_browser") { ContentBrowserPanel(viewModel = contentBrowserViewModel) }
 
             // Register dynamic panels for .azn files (from layout and openFiles)
             azoraNodesPanelIds.forEach { panelId ->
@@ -118,6 +141,13 @@ fun StudioView(
             azScriptPanelIds.forEach { panelId ->
                 register(panelId) {
                     AzScriptFilePanel(panelId = panelId, projectPath = projectPath)
+                }
+            }
+
+            // Register dynamic panels for text files opened in the Content Browser
+            textPanelIds.forEach { panelId ->
+                register(panelId) {
+                    TextFilePanel(panelId = panelId, projectPath = projectPath)
                 }
             }
 
@@ -230,6 +260,8 @@ fun StudioFloatingWindowsProvider(
     val azScriptOpenFiles by openAzScriptFilesManager.openFiles.collectAsState()
     val fileSystem: dev.azora.sdk.core.io.FileSystem = koinInject()
     val dockStateManager: DockStateManager = koinInject()
+    val openTextFilesManager: OpenTextFilesManager = koinInject()
+    val openTextFiles by openTextFilesManager.openFiles.collectAsState()
 
     // Host context dependencies handed to plugin content
     val pluginLogger: AzoraLogger = koinInject()
@@ -245,6 +277,16 @@ fun StudioFloatingWindowsProvider(
             openSceneFilesManager = openSceneFilesManager,
             openTileMapFilesManager = openTileMapFilesManager,
             openAzScriptFilesManager = openAzScriptFilesManager,
+            dockStateManager = dockStateManager
+        )
+    }
+
+    // Create ContentBrowserViewModel
+    val contentBrowserViewModel = remember(projectPath) {
+        ContentBrowserViewModel(
+            projectPath = projectPath,
+            fileSystem = fileSystem,
+            openTextFilesManager = openTextFilesManager,
             dockStateManager = dockStateManager
         )
     }
@@ -271,13 +313,20 @@ fun StudioFloatingWindowsProvider(
         layoutIds + openIds
     }
 
+    val textPanelIds = remember(dockState.layout.panelDescriptors, openTextFiles) {
+        val layoutIds = dockState.layout.panelDescriptors.keys.filter { it.startsWith("txt_") }.toSet()
+        val openIds = openTextFiles.keys
+        layoutIds + openIds
+    }
+
     // Register panel content synchronously so it's available on first render
-    val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azScriptPanelIds) {
+    val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azScriptPanelIds, textPanelIds) {
         DockPanelRegistry().apply {
             register("project") { AssetsPanel(viewModel = assetsPanelViewModel) }
             register("console") { ConsolePanel() }
             register("problems") { ProblemsPanel() }
             register("settings") { SettingsScreen(projectPath = projectPath) }
+            register("content_browser") { ContentBrowserPanel(viewModel = contentBrowserViewModel) }
 
             // Register dynamic panels for .azn files (from layout and openFiles)
             azoraNodesPanelIds.forEach { panelId ->
@@ -290,6 +339,13 @@ fun StudioFloatingWindowsProvider(
             azScriptPanelIds.forEach { panelId ->
                 register(panelId) {
                     AzScriptFilePanel(panelId = panelId, projectPath = projectPath)
+                }
+            }
+
+            // Register dynamic panels for text files opened in the Content Browser
+            textPanelIds.forEach { panelId ->
+                register(panelId) {
+                    TextFilePanel(panelId = panelId, projectPath = projectPath)
                 }
             }
 

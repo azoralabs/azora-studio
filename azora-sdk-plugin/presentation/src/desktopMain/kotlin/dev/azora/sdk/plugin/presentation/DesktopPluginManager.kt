@@ -221,6 +221,15 @@ class DesktopPluginManager : PluginManager {
     // Private helpers
 
     private fun loadPluginJar(installedPlugin: InstalledPlugin) {
+        // Idempotent: never load the same plugin twice. Each load creates a new
+        // URLClassLoader, and a second load would orphan the first one while
+        // Compose `remember` slots (e.g. a plugin panel's cached edit state)
+        // still reference instances from the OLD classloader — those then fail
+        // to cast to the new classloader's types (ClassCastException).
+        // `loadInstalledPlugins()` is invoked from several places, so without
+        // this guard a plugin can end up on two classloaders in one session.
+        if (loadedPlugins.containsKey(installedPlugin.id)) return
+
         val jarFile = File(pluginDir, installedPlugin.jarFileName)
         if (!jarFile.exists()) {
             throw IllegalStateException("Plugin JAR not found: ${jarFile.absolutePath}")
