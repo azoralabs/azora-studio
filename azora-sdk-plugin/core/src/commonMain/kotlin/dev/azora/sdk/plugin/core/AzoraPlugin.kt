@@ -25,11 +25,34 @@ interface AzoraPlugin {
     /**
      * The main content displayed when the plugin is activated for the open project.
      *
+     * Used by hosts that surface a plugin as a single tab, and as the fallback when a plugin
+     * contributes no [panels]. Multi-tab plugins still implement this (e.g. as a hub or their primary
+     * panel) so single-tab hosts remain functional.
+     *
      * @param context Host context exposing the current project, its path, a file system, a logger,
      *   and a [PluginContext.saveProject] hook for persisting plugin edits.
      */
     @Composable
     fun Content(context: PluginContext)
+
+    /**
+     * The dockable panels this plugin contributes, each surfaced by the host as its own tab. Return
+     * an empty list (the default) to appear as a single [Content] tab instead.
+     *
+     * Panels with the same [PluginPanelDescriptor.group] are laid out together; ungrouped panels
+     * each become an independent tab.
+     */
+    fun panels(): List<PluginPanelDescriptor> = emptyList()
+
+    /**
+     * Renders the content of the panel identified by [panelId] (one of the ids returned by [panels]).
+     * Only invoked for plugins that contribute [panels]; the default is empty.
+     *
+     * @param panelId The id of the panel to render.
+     * @param context Host context (see [Content]).
+     */
+    @Composable
+    fun PanelContent(panelId: String, context: PluginContext) {}
 
     /**
      * Project templates contributed by this plugin. The host surfaces them in the create-project UI

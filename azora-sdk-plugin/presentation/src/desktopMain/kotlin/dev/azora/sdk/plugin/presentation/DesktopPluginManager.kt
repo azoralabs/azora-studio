@@ -196,6 +196,21 @@ class DesktopPluginManager : PluginManager {
         return { context -> loaded.plugin.Content(context) }
     }
 
+    override fun getPluginPanels(pluginId: String): List<PluginPanelDescriptor> {
+        val loaded = loadedPlugins[pluginId] ?: return emptyList()
+        return runCatching { loaded.plugin.panels() }.getOrElse { emptyList() }
+    }
+
+    override fun getPluginPanelContent(
+        pluginId: String,
+        panelId: String
+    ): (@Composable (PluginContext) -> Unit)? {
+        val loaded = loadedPlugins[pluginId] ?: return null
+        val hasPanel = runCatching { loaded.plugin.panels().any { it.id == panelId } }.getOrDefault(false)
+        if (!hasPanel) return null
+        return { context -> loaded.plugin.PanelContent(panelId, context) }
+    }
+
     override fun templateContributions(): List<ProjectTemplateContribution> =
         loadedPlugins.values.flatMap { runCatching { it.plugin.projectTemplates() }.getOrElse { emptyList() } }
 
