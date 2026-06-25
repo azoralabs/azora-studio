@@ -93,7 +93,8 @@ fun StudioView(
             fileSystem = fileSystem,
             openTextFilesManager = openTextFilesManager,
             openAzsceneFilesManager = openAzsceneFilesManager,
-            dockStateManager = dockStateManager
+            dockStateManager = dockStateManager,
+            pluginManager = pluginManager
         )
     }
 
@@ -179,21 +180,10 @@ fun StudioView(
                 }
 
                 // Generic .azscene panels: route to the plugin registered for the file's `type`.
+                // Restores its state from the panel id so it survives a Studio restart.
                 azscenePanelIds.forEach { panelId ->
                     register(panelId) {
-                        val st = openAzsceneFilesManager.getState(panelId)
-                        val editor = st?.let { pluginManager.getAzsceneEditor(it.type, it.filePath) }
-                        if (editor != null) {
-                            editor(pluginContext)
-                        } else {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = st?.let { "No plugin handles '${it.type}'" } ?: "Unknown .azscene file",
-                                    color = palette.contentLow,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
+                        AzscenePanel(panelId, openAzsceneFilesManager, pluginManager, pluginContext)
                     }
                 }
 
@@ -318,7 +308,8 @@ fun StudioFloatingWindowsProvider(
             fileSystem = fileSystem,
             openTextFilesManager = openTextFilesManager,
             openAzsceneFilesManager = openAzsceneFilesManager,
-            dockStateManager = dockStateManager
+            dockStateManager = dockStateManager,
+            pluginManager = pluginManager
         )
     }
 
@@ -404,21 +395,10 @@ fun StudioFloatingWindowsProvider(
                 }
 
                 // Generic .azscene panels: route to the plugin registered for the file's `type`.
+                // Restores its state from the panel id so it survives a Studio restart.
                 azscenePanelIds.forEach { panelId ->
                     register(panelId) {
-                        val st = openAzsceneFilesManager.getState(panelId)
-                        val editor = st?.let { pluginManager.getAzsceneEditor(it.type, it.filePath) }
-                        if (editor != null) {
-                            editor(pluginContext)
-                        } else {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = st?.let { "No plugin handles '${it.type}'" } ?: "Unknown .azscene file",
-                                    color = palette.contentLow,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
+                        AzscenePanel(panelId, openAzsceneFilesManager, pluginManager, pluginContext)
                     }
                 }
 
@@ -466,6 +446,39 @@ fun StudioFloatingWindowsProvider(
 
     DockTheme(registry = panelRegistry) {
         content()
+    }
+}
+
+/**
+ * Renders a generic `.azscene` panel by delegating to the plugin registered for the file's `type`.
+ * Lazily [restores][OpenAzsceneFilesManager.restore] the file from the (path-encoding) panel id so a
+ * panel persisted in the dock layout still opens after a Studio restart.
+ */
+@Composable
+private fun AzscenePanel(
+    panelId: String,
+    manager: OpenAzsceneFilesManager,
+    pluginManager: PluginManager,
+    context: dev.azora.sdk.plugin.core.PluginContext
+) {
+    val palette = LocalAzoraPalette.current
+    val openFiles by manager.openFiles.collectAsState()
+    LaunchedEffect(panelId) { manager.restore(panelId) }
+
+    val st = openFiles[panelId]
+    if (st == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Loading…", color = palette.contentMid, fontSize = 12.sp)
+        }
+        return
+    }
+    val editor = pluginManager.getAzsceneEditor(st.type, st.filePath)
+    if (editor != null) {
+        editor(context)
+    } else {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No plugin handles '${st.type}'", color = palette.contentLow, fontSize = 12.sp)
+        }
     }
 }
 

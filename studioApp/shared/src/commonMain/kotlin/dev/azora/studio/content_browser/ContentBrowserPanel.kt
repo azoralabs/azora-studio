@@ -116,8 +116,10 @@ fun ContentBrowserPanel(
         ContentBrowserContextMenu(
             position = position,
             targetPath = state.contextMenuTargetPath,
+            sceneTemplates = viewModel.azsceneTemplates(),
             onCreateFolder = { name -> viewModel.createFolder(name) },
             onCreateFile = { name -> viewModel.createFile(name) },
+            onCreateScene = { type, name -> viewModel.createSceneFile(type, name) },
             onRenameRequested = { state.contextMenuTargetPath?.let { viewModel.dismissContextMenu(); renameTarget = it } },
             onDelete = { state.contextMenuTargetPath?.let { viewModel.deleteItem(it) } },
             onDismiss = viewModel::dismissContextMenu
@@ -519,14 +521,17 @@ private fun CenteredHint(text: String) {
 private fun ContentBrowserContextMenu(
     position: Offset,
     targetPath: String?,
+    sceneTemplates: List<dev.azora.sdk.plugin.core.AzsceneTemplate>,
     onCreateFolder: (String) -> Unit,
     onCreateFile: (String) -> Unit,
+    onCreateScene: (type: String, name: String) -> Unit,
     onRenameRequested: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
     var showFolderDialog by remember { mutableStateOf(false) }
     var showFileDialog by remember { mutableStateOf(false) }
+    var sceneDialogType by remember { mutableStateOf<dev.azora.sdk.plugin.core.AzsceneTemplate?>(null) }
 
     if (showFolderDialog) {
         NamePromptDialog(
@@ -548,6 +553,16 @@ private fun ContentBrowserContextMenu(
         )
         return
     }
+    sceneDialogType?.let { tpl ->
+        NamePromptDialog(
+            title = "New ${tpl.label}",
+            placeholder = "Name",
+            confirmLabel = "Create",
+            onConfirm = { name -> onCreateScene(tpl.type, name); sceneDialogType = null },
+            onDismiss = { sceneDialogType = null }
+        )
+        return
+    }
 
     Box(
         modifier = Modifier
@@ -561,6 +576,9 @@ private fun ContentBrowserContextMenu(
         Column(modifier = Modifier.padding(4.dp)) {
             MenuRow("New Folder") { showFolderDialog = true }
             MenuRow("New File") { showFileDialog = true }
+            sceneTemplates.forEach { tpl ->
+                MenuRow("New ${tpl.label}") { sceneDialogType = tpl }
+            }
             if (targetPath != null) {
                 Spacer(
                     modifier = Modifier

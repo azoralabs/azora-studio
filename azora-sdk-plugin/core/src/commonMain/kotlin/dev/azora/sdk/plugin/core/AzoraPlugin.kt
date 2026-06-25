@@ -92,6 +92,19 @@ interface AzoraPlugin {
     fun azsceneEditorTypes(): Set<String> = emptySet()
 
     /**
+     * The `.azscene` document types this plugin can *create*, with human labels. The host surfaces
+     * these in its "New …" menu (e.g. "New Website Page") so the user picks a type when creating a
+     * scene file; the host stays agnostic of what the labels mean. Defaults to none.
+     */
+    fun azsceneTemplates(): List<AzsceneTemplate> = emptyList()
+
+    /**
+     * The initial file content for a new `.azscene` document of [type] (one of [azsceneTemplates]).
+     * The host writes this verbatim to the new file. Returns null if the plugin doesn't own [type].
+     */
+    fun newAzsceneContent(type: String): String? = null
+
+    /**
      * Renders the editor for an `.azscene` file of one of [azsceneEditorTypes]. The host opens the
      * file's dock panel and calls this; the plugin owns loading, saving and any side effects (it has
      * the file system, project and [PluginContext.saveProject] via [context]).

@@ -218,6 +218,12 @@ class DesktopPluginManager : PluginManager {
         return { context -> loaded.plugin.AzsceneEditor(type, filePath, context) }
     }
 
+    override fun azsceneTemplates(): List<dev.azora.sdk.plugin.core.AzsceneTemplate> =
+        loadedPlugins.values.flatMap { runCatching { it.plugin.azsceneTemplates() }.getOrElse { emptyList() } }
+
+    override fun newAzsceneContent(type: String): String? =
+        loadedPlugins.values.firstNotNullOfOrNull { runCatching { it.plugin.newAzsceneContent(type) }.getOrNull() }
+
     override fun templateContributions(): List<ProjectTemplateContribution> =
         loadedPlugins.values.flatMap { runCatching { it.plugin.projectTemplates() }.getOrElse { emptyList() } }
 

@@ -47,8 +47,28 @@ class ContentBrowserViewModel(
     private val fileSystem: FileSystem,
     private val openTextFilesManager: OpenTextFilesManager,
     private val openAzsceneFilesManager: dev.azora.studio.assets.OpenAzsceneFilesManager,
-    private val dockStateManager: DockStateManager
+    private val dockStateManager: DockStateManager,
+    private val pluginManager: dev.azora.sdk.plugin.presentation.PluginManager? = null
 ) : ViewModel() {
+
+    /** Creatable `.azscene` types contributed by plugins, for the "New …" menu. */
+    fun azsceneTemplates(): List<dev.azora.sdk.plugin.core.AzsceneTemplate> =
+        pluginManager?.azsceneTemplates().orEmpty()
+
+    /** Creates a new `.azscene` file of [type] (content from the owning plugin) and opens it. */
+    fun createSceneFile(type: String, name: String) {
+        viewModelScope.launch {
+            val parent = resolveCreateParent()
+            val fileName = if (name.endsWith(".azscene")) name else "$name.azscene"
+            val path = "$parent/$fileName"
+            val content = pluginManager?.newAzsceneContent(type) ?: "{\n  \"type\": \"$type\"\n}\n"
+            when (fileSystem.writeToFile(path, content)) {
+                is FileSystemResult.Success -> { refresh(); openAzsceneFile(path) }
+                is FileSystemResult.Error -> _state.value = _state.value.copy(error = "Failed to create scene")
+            }
+            dismissContextMenu()
+        }
+    }
 
     private val rootAbs: String = fileSystem.getAbsolutePath(projectPath)
     private val rootName: String = projectPath.substringAfterLast("/")

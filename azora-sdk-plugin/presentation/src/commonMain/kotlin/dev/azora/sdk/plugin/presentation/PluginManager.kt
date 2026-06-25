@@ -88,6 +88,12 @@ interface PluginManager {
      */
     fun getAzsceneEditor(type: String, filePath: String): (@Composable (PluginContext) -> Unit)? = null
 
+    /** Creatable `.azscene` types across all loaded plugins, for the host's "New …" menu. */
+    fun azsceneTemplates(): List<dev.azora.sdk.plugin.core.AzsceneTemplate> = emptyList()
+
+    /** Initial content for a new `.azscene` document of [type], from the plugin that owns it. */
+    fun newAzsceneContent(type: String): String? = null
+
     /**
      * Project templates contributed by all currently loaded (enabled) plugins. The host surfaces
      * these in the create-project UI and resolves generators through them.
