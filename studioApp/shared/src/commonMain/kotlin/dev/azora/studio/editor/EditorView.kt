@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.text.font.*
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import azora.azora_studio.app.generated.resources.*
@@ -56,8 +57,6 @@ fun StudioView(
     // Inject managers for assets
     val openFilesManager: OpenAzoraNodesFilesManager = koinInject()
     val openFiles by openFilesManager.openFiles.collectAsState()
-    val openSceneFilesManager: OpenAzoraSceneFilesManager = koinInject()
-    val openTileMapFilesManager: OpenAzoraTileMapFilesManager = koinInject()
     val openAzScriptFilesManager: OpenAzScriptFilesManager = koinInject()
     val azScriptOpenFiles by openAzScriptFilesManager.openFiles.collectAsState()
     val fileSystem: dev.azora.sdk.core.io.FileSystem = koinInject()
@@ -72,27 +71,15 @@ fun StudioView(
     val projectRepository: AzoraProjectRepository = koinInject()
     val pluginScope = rememberCoroutineScope()
 
-    // Create AssetsPanelViewModel
-    val assetsPanelViewModel = remember(projectPath) {
-        AssetsPanelViewModel(
-            projectPath = projectPath,
-            fileSystem = fileSystem,
-            openFilesManager = openFilesManager,
-            openSceneFilesManager = openSceneFilesManager,
-            openTileMapFilesManager = openTileMapFilesManager,
-            openAzScriptFilesManager = openAzScriptFilesManager,
-            openAzsceneFilesManager = openAzsceneFilesManager,
-            dockStateManager = dockStateManager
-        )
-    }
-
-    // Create ContentBrowserViewModel
+    // Create ContentBrowserViewModel (the project's single file browser)
     val contentBrowserViewModel = remember(projectPath) {
         ContentBrowserViewModel(
             projectPath = projectPath,
             fileSystem = fileSystem,
             openTextFilesManager = openTextFilesManager,
             openAzsceneFilesManager = openAzsceneFilesManager,
+            openAzoraNodesFilesManager = openFilesManager,
+            openAzScriptFilesManager = openAzScriptFilesManager,
             dockStateManager = dockStateManager,
             pluginManager = pluginManager
         )
@@ -133,7 +120,7 @@ fun StudioView(
     // Register panel content synchronously so it's available on first render
     val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azscenePanelIds, azScriptPanelIds, textPanelIds) {
         DockPanelRegistry().apply {
-            register("project") { AssetsPanel(viewModel = assetsPanelViewModel) }
+            register("welcome") { WelcomePanel(projectPath = projectPath) }
             register("console") { ConsolePanel() }
             register("problems") { ProblemsPanel() }
             register("settings") { SettingsScreen(projectPath = projectPath) }
@@ -271,8 +258,6 @@ fun StudioFloatingWindowsProvider(
     // Inject managers for assets
     val openFilesManager: OpenAzoraNodesFilesManager = koinInject()
     val openFiles by openFilesManager.openFiles.collectAsState()
-    val openSceneFilesManager: OpenAzoraSceneFilesManager = koinInject()
-    val openTileMapFilesManager: OpenAzoraTileMapFilesManager = koinInject()
     val openAzScriptFilesManager: OpenAzScriptFilesManager = koinInject()
     val azScriptOpenFiles by openAzScriptFilesManager.openFiles.collectAsState()
     val fileSystem: dev.azora.sdk.core.io.FileSystem = koinInject()
@@ -287,27 +272,15 @@ fun StudioFloatingWindowsProvider(
     val projectRepository: AzoraProjectRepository = koinInject()
     val pluginScope = rememberCoroutineScope()
 
-    // Create AssetsPanelViewModel
-    val assetsPanelViewModel = remember(projectPath) {
-        AssetsPanelViewModel(
-            projectPath = projectPath,
-            fileSystem = fileSystem,
-            openFilesManager = openFilesManager,
-            openSceneFilesManager = openSceneFilesManager,
-            openTileMapFilesManager = openTileMapFilesManager,
-            openAzScriptFilesManager = openAzScriptFilesManager,
-            openAzsceneFilesManager = openAzsceneFilesManager,
-            dockStateManager = dockStateManager
-        )
-    }
-
-    // Create ContentBrowserViewModel
+    // Create ContentBrowserViewModel (the project's single file browser)
     val contentBrowserViewModel = remember(projectPath) {
         ContentBrowserViewModel(
             projectPath = projectPath,
             fileSystem = fileSystem,
             openTextFilesManager = openTextFilesManager,
             openAzsceneFilesManager = openAzsceneFilesManager,
+            openAzoraNodesFilesManager = openFilesManager,
+            openAzScriptFilesManager = openAzScriptFilesManager,
             dockStateManager = dockStateManager,
             pluginManager = pluginManager
         )
@@ -348,7 +321,7 @@ fun StudioFloatingWindowsProvider(
     // Register panel content synchronously so it's available on first render
     val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azscenePanelIds, azScriptPanelIds, textPanelIds) {
         DockPanelRegistry().apply {
-            register("project") { AssetsPanel(viewModel = assetsPanelViewModel) }
+            register("welcome") { WelcomePanel(projectPath = projectPath) }
             register("console") { ConsolePanel() }
             register("problems") { ProblemsPanel() }
             register("settings") { SettingsScreen(projectPath = projectPath) }
@@ -692,6 +665,54 @@ internal fun ProblemsPanel() {
             }
         }
     }
+
+/**
+ * Welcome tab shown in the editor area of a freshly created/opened project.
+ *
+ * Purely informational. Once the user closes it, it is gone for good — it is not
+ * listed under View > Windows, so there is no way to bring it back.
+ */
+@Composable
+internal fun WelcomePanel(projectPath: String) {
+    val palette = LocalAzoraPalette.current
+    val projectName = projectPath.substringAfterLast('/').ifBlank { "your project" }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(palette.background),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Text(
+                text = "Welcome to Azora Studio",
+                color = palette.contentTop,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = projectName,
+                color = palette.contentMid,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "Use the Content Browser below to explore your project files,\n" +
+                    "create folders and files, and open them in the editor.",
+                color = palette.contentLow,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp
+            )
+        }
+    }
+}
 
 /**
  * Generic placeholder for panels.

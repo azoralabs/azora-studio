@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 import dev.azora.studio.project_manager.ProjectManagerApp
 import dev.azora.sdk.core.domain.util.Res
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
+import dev.azora.sdk.core.project.domain.ProjectTemplateGeneratorResolver
 import dev.azora.studio.settings.sceneStudioUseKmp
 import dev.azora.sdk.core.project.domain.globalConstants
 import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
@@ -445,8 +446,25 @@ fun main() {
                 // Re-enumerate when the template or the set of enabled plugins changes (plugins may
                 // load asynchronously after the project opens).
                 LaunchedEffect(state.project.template, enabledPlugins) { refreshTargets() }
+                // Regenerate the project from its source files before each run, then launch the
+                // selected target — so "Run" always reflects the latest edits. For the Website
+                // template this re-emits generated/ from the current .azscene pages/components;
+                // template generators are idempotent scaffolders, so this is safe to re-run.
+                val templateGeneratorResolver: ProjectTemplateGeneratorResolver = koinInject()
+                val runFileSystem: dev.azora.sdk.core.io.FileSystem = koinInject()
                 val onRunProject: () -> Unit = {
-                    selectedTarget?.let { projectRunner.run(projectDir, it, state.project.packageName) }
+                    val target = selectedTarget
+                    if (target != null) {
+                        runScope.launch {
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    templateGeneratorResolver.generatorFor(state.project.template)
+                                        ?.generate(state.project, state.projectPath, runFileSystem)
+                                }.onFailure { consoleOutputManager.error("Generate failed: ${it.message}") }
+                            }
+                            projectRunner.run(projectDir, target, state.project.packageName)
+                        }
+                    }
                 }
                 val onStopProject: () -> Unit = { projectRunner.stop() }
 
@@ -499,7 +517,6 @@ fun main() {
                     // Built-in panel descriptors
                     val builtInPanels = remember {
                         listOf(
-                            DockPanelDescriptor(id = "project", title = "Project", minimumWidth = 200f, minimumHeight = 150f),
                             DockPanelDescriptor(id = "content_browser", title = "Content Browser", minimumWidth = 220f, minimumHeight = 200f),
                             DockPanelDescriptor(id = "console", title = "Console", minimumWidth = 200f, minimumHeight = 100f),
                             DockPanelDescriptor(id = "problems", title = "Problems", minimumWidth = 200f, minimumHeight = 100f)

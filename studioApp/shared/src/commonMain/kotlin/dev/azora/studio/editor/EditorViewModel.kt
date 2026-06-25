@@ -18,6 +18,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * Stable id of the central editor dock node (the "middle-top" area, Unreal-style).
+ *
+ * Opened files (Azora Nodes, AzScript, text, scenes) are docked here so they sit
+ * above the bottom utility tabs (Content Browser / Console / Problems) instead of
+ * mixing in with them.
+ */
+const val EDITOR_AREA_NODE_ID = "node_editor_area"
+
+/** Returns a copy of this node tree with every reference to panel [from] replaced by [to]. */
+private fun DockNode.replacePanelId(from: String, to: String): DockNode = when (this) {
+    is DockNode.Leaf -> if (panelId == from) copy(panelId = to) else this
+    is DockNode.TabGroup -> copy(panels = panels.map { if (it == from) to else it })
+    is DockNode.Split -> copy(
+        first = first.replacePanelId(from, to),
+        second = second.replacePanelId(from, to)
+    )
+}
+
 class StudioViewModel(
     private val project: AzoraProjectModel,
     private val projectPath: String,
@@ -37,7 +56,7 @@ class StudioViewModel(
 
     /** All available panel descriptors (never removed, even when panels are closed) */
     val availablePanels: List<DockPanelDescriptor> = listOf(
-        DockPanelDescriptor(id = "project", title = "Project", minimumWidth = 200f, minimumHeight = 150f),
+        DockPanelDescriptor(id = "content_browser", title = "Content Browser", minimumWidth = 220f, minimumHeight = 200f),
         DockPanelDescriptor(id = "console", title = "Console", minimumWidth = 200f, minimumHeight = 100f),
         DockPanelDescriptor(id = "problems", title = "Problems", minimumWidth = 200f, minimumHeight = 100f),
         DockPanelDescriptor(id = "settings", title = "Settings", minimumWidth = 400f, minimumHeight = 300f)
@@ -84,7 +103,7 @@ class StudioViewModel(
         val savedLayout = project.settings.dockLayout
         if (savedLayout != null) {
             try {
-                dockStateManager.loadLayout(savedLayout)
+                dockStateManager.loadLayout(migrateLegacyPanels(savedLayout))
             } catch (e: Exception) {
                 println("Failed to restore saved layout, using default: ${e.message}")
                 setupDefaultLayout()
@@ -92,6 +111,23 @@ class StudioViewModel(
         } else {
             setupDefaultLayout()
         }
+    }
+
+    /**
+     * Migrates layouts saved before the "Project" panel was removed: any lingering
+     * "project" tab is rewritten to the "Welcome" panel so it renders instead of
+     * showing a blank, no-longer-registered tab.
+     */
+    private fun migrateLegacyPanels(layout: DockLayout): DockLayout {
+        if (!layout.panelDescriptors.containsKey("project")) return layout
+        return layout.copy(
+            rootNode = layout.rootNode?.replacePanelId("project", "welcome"),
+            floatingWindows = layout.floatingWindows.map {
+                it.copy(content = it.content.replacePanelId("project", "welcome"))
+            },
+            panelDescriptors = layout.panelDescriptors - "project" +
+                ("welcome" to DockPanelDescriptor("welcome", "Welcome", minimumWidth = 200f, minimumHeight = 150f))
+        )
     }
 
     @OptIn(FlowPreview::class)
@@ -228,10 +264,10 @@ class StudioViewModel(
     private fun registerDefaultPanels() {
         dockStateManager.registerPanel(
             DockPanelDescriptor(
-                id = "project",
-                title = "Project",
-                minimumWidth = 200f,
-                minimumHeight = 150f
+                id = "content_browser",
+                title = "Content Browser",
+                minimumWidth = 220f,
+                minimumHeight = 200f
             )
         )
         dockStateManager.registerPanel(
@@ -261,20 +297,44 @@ class StudioViewModel(
     }
 
     private fun setupDefaultLayout() {
-        // Default layout: bottom tabs with Project + Console
-        // Plugin panels (Features, Navigations) are added via View > Windows
+        // Unreal-style default layout for a freshly created/opened project:
+        //
+        //   ┌───────────────────────────────────────────────┐
+        //   │  Project  (editor tabs open here, middle-top)  │  ← node_editor_area
+        //   ├───────────────────────────────────────────────┤
+        //   │  Content Browser │ Console │ Problems          │  ← bottom utility tabs
+        //   └───────────────────────────────────────────────┘
+        //
+        // Opened files dock into node_editor_area; utility panels added via
+        // View > Windows fall into the bottom group.
 
-        val bottomTabs = DockNode.TabGroup(
-            id = "node_bottom_tabs",
-            panels = listOf("project", "console"),
+        val editorArea = DockNode.TabGroup(
+            id = EDITOR_AREA_NODE_ID,
+            panels = listOf("welcome"),
             activeTabIndex = 0
         )
 
+        val bottomTabs = DockNode.TabGroup(
+            id = "node_bottom_tabs",
+            panels = listOf("content_browser", "console", "problems"),
+            activeTabIndex = 0
+        )
+
+        val rootNode = DockNode.Split(
+            id = "node_root_split",
+            orientation = DockOrientation.VERTICAL,
+            first = editorArea,
+            second = bottomTabs,
+            ratio = 0.7f
+        )
+
         val layout = DockLayout(
-            rootNode = bottomTabs,
+            rootNode = rootNode,
             panelDescriptors = mapOf(
-                "project" to DockPanelDescriptor("project", "Project", minimumWidth = 200f, minimumHeight = 150f),
-                "console" to DockPanelDescriptor("console", "Console", minimumWidth = 200f, minimumHeight = 100f)
+                "welcome" to DockPanelDescriptor("welcome", "Welcome", minimumWidth = 200f, minimumHeight = 150f),
+                "content_browser" to DockPanelDescriptor("content_browser", "Content Browser", minimumWidth = 220f, minimumHeight = 200f),
+                "console" to DockPanelDescriptor("console", "Console", minimumWidth = 200f, minimumHeight = 100f),
+                "problems" to DockPanelDescriptor("problems", "Problems", minimumWidth = 200f, minimumHeight = 100f)
             )
         )
 

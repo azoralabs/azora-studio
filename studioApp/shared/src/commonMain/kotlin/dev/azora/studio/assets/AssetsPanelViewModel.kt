@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.*
 import dev.azora.sdk.core.io.*
 import dev.azora.sdk.docking.domain.*
+import dev.azora.studio.editor.EDITOR_AREA_NODE_ID
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -186,7 +187,8 @@ class AssetsPanelViewModel(
                             id = panelId,
                             title = state.fileName,
                             closeable = true
-                        )
+                        ),
+                        targetNodeId = EDITOR_AREA_NODE_ID
                     )
                 )
             }
@@ -200,7 +202,8 @@ class AssetsPanelViewModel(
             val state = openAzsceneFilesManager.getState(panelId) ?: return@launch
             dockStateManager.dispatch(
                 DockAction.AddPanel(
-                    descriptor = DockPanelDescriptor(id = panelId, title = state.fileName, closeable = true)
+                    descriptor = DockPanelDescriptor(id = panelId, title = state.fileName, closeable = true),
+                    targetNodeId = EDITOR_AREA_NODE_ID
                 )
             )
         }
@@ -237,7 +240,8 @@ class AssetsPanelViewModel(
                             id = panelId,
                             title = state.fileName,
                             closeable = true
-                        )
+                        ),
+                        targetNodeId = EDITOR_AREA_NODE_ID
                     )
                 )
             }
@@ -299,7 +303,8 @@ class AssetsPanelViewModel(
                             id = panelId,
                             title = state.fileName,
                             closeable = true
-                        )
+                        ),
+                        targetNodeId = EDITOR_AREA_NODE_ID
                     )
                 )
             }
@@ -317,7 +322,8 @@ class AssetsPanelViewModel(
                             id = panelId,
                             title = state.fileName,
                             closeable = true
-                        )
+                        ),
+                        targetNodeId = EDITOR_AREA_NODE_ID
                     )
                 )
             }

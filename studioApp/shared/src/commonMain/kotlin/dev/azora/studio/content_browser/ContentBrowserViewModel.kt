@@ -11,6 +11,7 @@ import dev.azora.sdk.docking.domain.DockPanelDescriptor
 import dev.azora.sdk.docking.domain.DockStateManager
 import dev.azora.sdk.docking.domain.DockZone
 import dev.azora.studio.assets.AssetItem
+import dev.azora.studio.editor.EDITOR_AREA_NODE_ID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +48,8 @@ class ContentBrowserViewModel(
     private val fileSystem: FileSystem,
     private val openTextFilesManager: OpenTextFilesManager,
     private val openAzsceneFilesManager: dev.azora.studio.assets.OpenAzsceneFilesManager,
+    private val openAzoraNodesFilesManager: dev.azora.studio.assets.OpenAzoraNodesFilesManager,
+    private val openAzScriptFilesManager: dev.azora.studio.assets.OpenAzScriptFilesManager,
     private val dockStateManager: DockStateManager,
     private val pluginManager: dev.azora.sdk.plugin.presentation.PluginManager? = null
 ) : ViewModel() {
@@ -250,7 +253,7 @@ class ContentBrowserViewModel(
             dockStateManager.dispatch(
                 DockAction.AddPanel(
                     DockPanelDescriptor(id = panelId, title = fileState.fileName, closeable = true),
-                    null,
+                    EDITOR_AREA_NODE_ID,
                     DockZone.CENTER
                 )
             )
@@ -269,7 +272,45 @@ class ContentBrowserViewModel(
             dockStateManager.dispatch(
                 DockAction.AddPanel(
                     DockPanelDescriptor(id = panelId, title = st.fileName, closeable = true),
-                    null,
+                    EDITOR_AREA_NODE_ID,
+                    DockZone.CENTER
+                )
+            )
+            dockStateManager.dispatch(DockAction.SelectPanel(panelId))
+        }
+    }
+
+    /** Opens an `.azn` file in the visual Azora Nodes editor. */
+    fun openAzoraNodesFile(filePath: String) {
+        viewModelScope.launch {
+            val panelId = openAzoraNodesFilesManager.openFile(filePath) ?: run {
+                _state.value = _state.value.copy(error = "Failed to open: ${filePath.substringAfterLast('/')}")
+                return@launch
+            }
+            val st = openAzoraNodesFilesManager.getState(panelId) ?: return@launch
+            dockStateManager.dispatch(
+                DockAction.AddPanel(
+                    DockPanelDescriptor(id = panelId, title = st.fileName, closeable = true),
+                    EDITOR_AREA_NODE_ID,
+                    DockZone.CENTER
+                )
+            )
+            dockStateManager.dispatch(DockAction.SelectPanel(panelId))
+        }
+    }
+
+    /** Opens an `.az` file in the AzScript editor. */
+    fun openAzScriptFile(filePath: String) {
+        viewModelScope.launch {
+            val panelId = openAzScriptFilesManager.openFile(filePath) ?: run {
+                _state.value = _state.value.copy(error = "Failed to open: ${filePath.substringAfterLast('/')}")
+                return@launch
+            }
+            val st = openAzScriptFilesManager.getState(panelId) ?: return@launch
+            dockStateManager.dispatch(
+                DockAction.AddPanel(
+                    DockPanelDescriptor(id = panelId, title = st.fileName, closeable = true),
+                    EDITOR_AREA_NODE_ID,
                     DockZone.CENTER
                 )
             )

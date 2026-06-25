@@ -137,8 +137,10 @@ object DockLayoutOperations {
 
         val rootNode = layout.rootNode
 
-        // Treat "__root__" as null (add to root level)
-        if (targetNodeId == null || targetNodeId == "__root__") {
+        // Treat "__root__", null, or a missing target node as "add to root level".
+        // Falling back when the target no longer exists keeps the panel visible
+        // instead of registering its descriptor against a node that was removed.
+        if (targetNodeId == null || targetNodeId == "__root__" || rootNode.findNode(targetNodeId) == null) {
             val newRoot = addToNode(rootNode, newPanelId, zone, generateId)
             return layout.copy(rootNode = newRoot, panelDescriptors = newDescriptors)
         }
