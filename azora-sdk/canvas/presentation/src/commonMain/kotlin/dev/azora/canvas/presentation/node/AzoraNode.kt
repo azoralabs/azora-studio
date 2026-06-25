@@ -13,6 +13,7 @@ import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.unit.*
 import dev.azora.canvas.domain.model.node.AzoraNodeModel
 import dev.azora.canvas.domain.type.AzoraPortType
+import dev.azora.sdk.core.theme.LocalAzoraPalette
 import dev.azora.sdk.core.theme.palette.AzoraPalette
 import kotlin.math.roundToInt
 
@@ -99,7 +100,7 @@ fun AzoraNode(
     onEndDrag: () -> Unit = {},
     onDismissContextMenus: () -> Unit = {},
     nodeColor: Color? = null,
-    borderColor: Color = AzoraPalette.Neutral70,
+    borderColor: Color = LocalAzoraPalette.current.surfaceLow,
     nodeWidth: Dp? = null,
     showBorder: Boolean = true,
     inputPortDef: AzoraInputPortDef? = null,
@@ -160,7 +161,7 @@ fun AzoraNode(
                         )
                     } else Modifier
                 )
-                .background(AzoraPalette.Neutral85.copy(alpha = 0.8f))
+                .background(LocalAzoraPalette.current.surfaceTop.copy(alpha = 0.8f))
                 // Consume right-clicks to prevent canvas context menu from appearing
                 .pointerInput(Unit) {
                     awaitPointerEventScope {

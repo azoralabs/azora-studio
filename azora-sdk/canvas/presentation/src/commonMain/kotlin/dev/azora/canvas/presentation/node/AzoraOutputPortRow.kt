@@ -9,7 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import dev.azora.canvas.domain.type.AzoraPortType
-import dev.azora.sdk.core.theme.palette.AzoraPalette
+import dev.azora.sdk.core.theme.LocalAzoraPalette
 
 /**
  * Labeled output port row: label on the left, triangular [AzoraOutputPort] on the right.
@@ -37,7 +37,8 @@ fun AzoraOutputPortRow(
     onPositioned: ((Offset) -> Unit)? = null,
     onClick: () -> Unit
 ) {
-    val textColor = if (enabled) AzoraPalette.Neutral30 else AzoraPalette.Neutral60
+    val palette = LocalAzoraPalette.current
+    val textColor = if (enabled) palette.contentMid else palette.disabled
 
     Row(
         modifier = modifier.padding(vertical = 0.dp),

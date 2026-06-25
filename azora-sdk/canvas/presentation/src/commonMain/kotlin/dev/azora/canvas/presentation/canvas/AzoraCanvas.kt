@@ -8,7 +8,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.unit.*
-import dev.azora.sdk.core.theme.palette.AzoraPalette
+import dev.azora.sdk.core.theme.LocalAzoraPalette
 
 /**
  * Foundation composable for the canvas - grid background, pan handling, and mouse tracking.
@@ -61,10 +61,11 @@ fun AzoraCanvas(
         localPanOffset = panOffset
     }
 
+    val palette = LocalAzoraPalette.current
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(AzoraPalette.Neutral90)
+            .background(palette.background)
             .clipToBounds()
             // Track mouse position
             .pointerInput(Unit) {
@@ -140,7 +141,7 @@ fun AzoraCanvas(
             var x = offsetX
             while (x < size.width) {
                 drawLine(
-                    color = AzoraPalette.Neutral80,
+                    color = palette.surfaceMid,
                     start = Offset(x, 0f),
                     end = Offset(x, size.height),
                     strokeWidth = 1f
@@ -151,7 +152,7 @@ fun AzoraCanvas(
             var y = offsetY
             while (y < size.height) {
                 drawLine(
-                    color = AzoraPalette.Neutral80,
+                    color = palette.surfaceMid,
                     start = Offset(0f, y),
                     end = Offset(size.width, y),
                     strokeWidth = 1f

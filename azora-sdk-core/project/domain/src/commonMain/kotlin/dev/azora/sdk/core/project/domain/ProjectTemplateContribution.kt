@@ -12,7 +12,7 @@ const val BUILTIN_TEMPLATE_ID_EMPTY = "empty"
  *   devices/emulators, installs, and launches.
  * - [IOS]: the host enumerates iOS simulators and prints guidance (no automated install).
  */
-enum class ProjectRunTargetKind { GRADLE, ANDROID, IOS }
+enum class ProjectRunTargetKind { GRADLE, ANDROID, IOS, COMMAND }
 
 /**
  * A runnable target a template contributes (e.g. "Run Website" → Kobweb dev server, "Run" → app).
@@ -20,13 +20,21 @@ enum class ProjectRunTargetKind { GRADLE, ANDROID, IOS }
  * Plugins own their build/run logic: [gradleTask] is invoked by the host to run it. When [stopTask]
  * is set, [gradleTask] is expected to launch a detached, long-running process (e.g. a dev server)
  * that is later shut down with [stopTask]; otherwise [gradleTask] is a blocking task the host kills.
+ *
+ * [ProjectRunTargetKind.COMMAND] targets instead run [command] via the OS shell in [workingDir]
+ * (for non-Gradle stacks such as npm/Vite); the host streams the output and kills the process tree
+ * on Stop.
  */
 data class ProjectRunTarget(
     val id: String,
     val label: String,
-    val gradleTask: String,
+    val gradleTask: String = "",
     val stopTask: String? = null,
     val kind: ProjectRunTargetKind = ProjectRunTargetKind.GRADLE,
+    /** [ProjectRunTargetKind.COMMAND]: shell command launched in [workingDir]. */
+    val command: String? = null,
+    /** [ProjectRunTargetKind.COMMAND]: working directory relative to the project root. */
+    val workingDir: String? = null,
 )
 
 /**

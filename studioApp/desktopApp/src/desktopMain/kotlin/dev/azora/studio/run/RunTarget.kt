@@ -5,7 +5,7 @@ import dev.azora.sdk.core.project.domain.ProjectRunTargetKind
 import dev.azora.sdk.plugin.presentation.PluginManager
 import java.io.File
 
-enum class RunTargetKind { JVM, DESKTOP, WEB, ANDROID, IOS }
+enum class RunTargetKind { JVM, DESKTOP, WEB, ANDROID, IOS, COMMAND }
 
 /**
  * A runnable target for the current project (e.g. Desktop, Web, a specific Android
@@ -28,6 +28,10 @@ data class RunTarget(
      * ordinary blocking tasks that are killed by destroying the process.
      */
     val stopTask: String? = null,
+    /** [RunTargetKind.COMMAND]: shell command launched in [workingDir] (npm/Vite, etc.). */
+    val command: String? = null,
+    /** [RunTargetKind.COMMAND]: working directory relative to the project root. */
+    val workingDir: String? = null,
 )
 
 /**
@@ -71,6 +75,9 @@ object RunTargets {
                 )
                 ProjectRunTargetKind.ANDROID -> addAll(androidTargets(target.gradleTask))
                 ProjectRunTargetKind.IOS -> addAll(iosTargets())
+                ProjectRunTargetKind.COMMAND -> add(
+                    RunTarget(target.id, target.label, RunTargetKind.COMMAND, null, command = target.command, workingDir = target.workingDir)
+                )
             }
         }
     }

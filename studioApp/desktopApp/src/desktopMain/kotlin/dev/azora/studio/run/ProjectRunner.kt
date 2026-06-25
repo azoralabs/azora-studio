@@ -54,6 +54,7 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
                         console.info("Open ${projectDir.resolve("iosApp").absolutePath} in Xcode (see iosApp/README.md) and run on \"${target.label}\".")
                     }
                     RunTargetKind.ANDROID -> runAndroid(projectDir, target, appId)
+                    RunTargetKind.COMMAND -> runCommand(projectDir, target)
                     else -> {
                         val result = runGradle(projectDir, target.gradleTask ?: "run", emptyMap())
                         // Detached server (e.g. kobwebStart): task returns but the server keeps running.
@@ -105,6 +106,27 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
             console.error("Exited with code $code")
             GradleResult(false, output.toString())
         }
+    }
+
+    /** [RunTargetKind.COMMAND]: launches a shell command (e.g. an npm/Vite dev server) in
+     *  [target.workingDir], streams its output, opens the browser at the first localhost URL it
+     *  prints, and stays "running" until Stop kills the process tree. */
+    private fun runCommand(projectDir: File, target: RunTarget) {
+        val command = target.command
+        if (command.isNullOrBlank()) { console.error("Run target \"${target.label}\" has no command."); return }
+        val dir = target.workingDir?.let { File(projectDir, it) } ?: projectDir
+        if (!dir.isDirectory) { console.error("Working directory not found: ${dir.absolutePath}"); return }
+        val full = if (isWindows) listOf("cmd", "/c", command) else listOf("sh", "-lc", command)
+        console.info("> $command   (in ${target.workingDir ?: "."})")
+        val proc = ProcessBuilder(full).directory(dir).redirectErrorStream(true).start()
+        process = proc
+        var opened = false
+        proc.inputStream.bufferedReader().forEachLine { line ->
+            console.println(line)
+            if (!opened) URL_REGEX.find(line)?.value?.let { url -> opened = true; openInBrowser(url) }
+        }
+        val code = proc.waitFor()
+        if (code != 0) console.error("Exited with code $code")
     }
 
     /** Opens [url] in the platform default browser (best-effort). */

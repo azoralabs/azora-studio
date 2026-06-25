@@ -9,7 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import dev.azora.canvas.domain.type.AzoraPortType
-import dev.azora.sdk.core.theme.palette.AzoraPalette
+import dev.azora.sdk.core.theme.LocalAzoraPalette
 
 /**
  * Labeled input port row: triangular [AzoraInputPort] on the left, followed by a label.
@@ -54,7 +54,7 @@ fun AzoraInputPortRow(
 
             Text(
                 text = label,
-                color = AzoraPalette.Neutral30,
+                color = LocalAzoraPalette.current.contentMid,
                 fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

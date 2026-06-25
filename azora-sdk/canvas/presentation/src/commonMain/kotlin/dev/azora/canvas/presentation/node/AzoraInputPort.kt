@@ -22,6 +22,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.dp
 import dev.azora.canvas.domain.type.AzoraPortType
 import dev.azora.canvas.presentation.util.createRoundedTrianglePath
+import dev.azora.sdk.core.theme.LocalAzoraPalette
 import dev.azora.sdk.core.theme.palette.AzoraPalette
 
 /**
@@ -53,6 +54,7 @@ fun AzoraInputPort(
     onPositioned: ((Offset) -> Unit)? = null,
     onClick: () -> Unit
 ) {
+    val socketColor = LocalAzoraPalette.current.surfaceTop
     val currentOnClick by rememberUpdatedState(onClick)
     val currentOnPositioned by rememberUpdatedState(onPositioned)
     var isHovered by remember { mutableStateOf(false) }
@@ -141,7 +143,7 @@ fun AzoraInputPort(
                 val offsetY = (height - innerH) / 2
 
                 val innerPath = createRoundedTrianglePath(innerW, innerH, innerR, offsetX, offsetY)
-                drawPath(innerPath, AzoraPalette.Neutral85)
+                drawPath(innerPath, socketColor)
                 drawPath(innerPath, notConnectedCenterColor.copy(alpha = 0.3f))
             }
         }
