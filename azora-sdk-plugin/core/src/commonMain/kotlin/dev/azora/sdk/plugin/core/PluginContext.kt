@@ -34,4 +34,12 @@ interface PluginContext {
      * in-memory project store. Safe to call from any thread.
      */
     fun saveProject(project: AzoraProjectModel)
+
+    /**
+     * Open an Azora document (e.g. a `.azscene` file at [filePath]) in a Studio editor tab, routed to
+     * the plugin registered for the document's `type` — the same as double-clicking the file in the
+     * content browser. Used by a plugin to jump to another scene (e.g. a component's implementation).
+     * Default no-op so hosts that don't support it (or other [PluginContext] impls) still compile.
+     */
+    fun openScene(filePath: String) {}
 }

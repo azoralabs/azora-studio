@@ -51,6 +51,19 @@ class OpenAzsceneFilesManager(private val fileSystem: FileSystem) {
 
     fun getState(panelId: String): OpenAzsceneFileState? = _openFiles.value[panelId]
 
+    /** Reads only the top-level `type` discriminator of [filePath] (without opening a panel), or null
+     *  if the file can't be read or has no `type`. Used to decide whether a generic document (e.g. a
+     *  `.azn`) belongs to a plugin editor. */
+    suspend fun peekType(filePath: String): String? {
+        val content = when (val r = fileSystem.readFromFile(filePath)) {
+            is FileReadResult.Success -> r.content
+            is FileReadResult.Error -> return null
+        }
+        return runCatching {
+            json.parseToJsonElement(content).jsonObject["type"]?.jsonPrimitive?.content
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
+
     private suspend fun load(panelId: String, filePath: String): Boolean {
         val content = when (val r = fileSystem.readFromFile(filePath)) {
             is FileReadResult.Success -> r.content

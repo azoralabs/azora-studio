@@ -155,7 +155,9 @@ fun StudioView(
                     fileSystem = fileSystem,
                     logger = pluginLogger,
                     scope = pluginScope,
-                    repository = projectRepository
+                    repository = projectRepository,
+                    openAzsceneFilesManager = openAzsceneFilesManager,
+                    dockStateManager = dockStateManager
                 )
 
                 // Register dynamic panels for .azorascene files (delegated to Scene Studio plugin)
@@ -356,7 +358,9 @@ fun StudioFloatingWindowsProvider(
                     fileSystem = fileSystem,
                     logger = pluginLogger,
                     scope = pluginScope,
-                    repository = projectRepository
+                    repository = projectRepository,
+                    openAzsceneFilesManager = openAzsceneFilesManager,
+                    dockStateManager = dockStateManager
                 )
 
                 // Register dynamic panels for .azorascene files (delegated to Scene Studio plugin)

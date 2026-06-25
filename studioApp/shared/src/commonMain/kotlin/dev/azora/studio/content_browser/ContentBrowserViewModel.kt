@@ -58,11 +58,11 @@ class ContentBrowserViewModel(
     fun azsceneTemplates(): List<dev.azora.sdk.plugin.core.AzsceneTemplate> =
         pluginManager?.azsceneTemplates().orEmpty()
 
-    /** Creates a new `.azscene` file of [type] (content from the owning plugin) and opens it. */
+    /** Creates a new `.azn` document of [type] (content from the owning plugin) and opens it. */
     fun createSceneFile(type: String, name: String) {
         viewModelScope.launch {
             val parent = resolveCreateParent()
-            val fileName = if (name.endsWith(".azscene")) name else "$name.azscene"
+            val fileName = if (name.endsWith(".azn")) name else "$name.azn"
             val path = "$parent/$fileName"
             val content = pluginManager?.newAzsceneContent(type) ?: "{\n  \"type\": \"$type\"\n}\n"
             when (fileSystem.writeToFile(path, content)) {
@@ -277,6 +277,20 @@ class ContentBrowserViewModel(
                 )
             )
             dockStateManager.dispatch(DockAction.SelectPanel(panelId))
+        }
+    }
+
+    /** Opens a `.azn` file. `.azn` is a generic Azora node document: if its top-level `type` is owned
+     *  by a plugin (e.g. a Website page/component), it opens in that plugin's editor; otherwise it
+     *  opens in the built-in Azora Nodes editor. */
+    fun openAznFile(filePath: String) {
+        viewModelScope.launch {
+            val type = openAzsceneFilesManager.peekType(filePath)
+            if (type != null && pluginManager?.getAzsceneEditor(type, filePath) != null) {
+                openAzsceneFile(filePath)
+            } else {
+                openAzoraNodesFile(filePath)
+            }
         }
     }
 

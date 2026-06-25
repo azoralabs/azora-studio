@@ -148,10 +148,10 @@ private fun handleActivate(item: AssetItem, viewModel: ContentBrowserViewModel) 
     when (item) {
         is AssetItem.Folder -> viewModel.navigateInto(item.path)
         is AssetItem.File -> when {
-            // Generic .azscene → the plugin editor registered for the file's `type`.
-            item.name.endsWith(".azscene") -> viewModel.openAzsceneFile(item.path)
             // Azora-specific files open in their visual editors, not as plain text.
-            item.name.endsWith(".azn") -> viewModel.openAzoraNodesFile(item.path)
+            // `.azn` is generic: a plugin document (by its `type`, e.g. a Website page) opens in that
+            // plugin's editor; any other `.azn` opens in the built-in Azora Nodes editor.
+            item.name.endsWith(".azn") -> viewModel.openAznFile(item.path)
             item.name.endsWith(".az") -> viewModel.openAzScriptFile(item.path)
             isProbablyTextFile(item.name) -> viewModel.openTextFile(item.path)
         }
