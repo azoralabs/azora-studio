@@ -81,4 +81,25 @@ interface AzoraPlugin {
      * @param project The currently open project.
      */
     fun handleAction(action: String, project: AzoraProjectModel) {}
+
+    /**
+     * The set of `.azscene` document *types* this plugin provides an editor for.
+     *
+     * `.azscene` is a generic Azora file: the host reads its top-level `type` field and routes the
+     * file to whichever plugin lists that type here. The host itself stays agnostic of what the
+     * types mean. Defaults to none.
+     */
+    fun azsceneEditorTypes(): Set<String> = emptySet()
+
+    /**
+     * Renders the editor for an `.azscene` file of one of [azsceneEditorTypes]. The host opens the
+     * file's dock panel and calls this; the plugin owns loading, saving and any side effects (it has
+     * the file system, project and [PluginContext.saveProject] via [context]).
+     *
+     * @param type The document's `type` (one of [azsceneEditorTypes]).
+     * @param filePath Absolute path of the `.azscene` file to edit.
+     * @param context Host context for this render.
+     */
+    @Composable
+    fun AzsceneEditor(type: String, filePath: String, context: PluginContext) {}
 }

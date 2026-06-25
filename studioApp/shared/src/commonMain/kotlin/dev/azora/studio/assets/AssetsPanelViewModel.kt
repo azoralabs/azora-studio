@@ -17,6 +17,7 @@ class AssetsPanelViewModel(
     private val openSceneFilesManager: OpenAzoraSceneFilesManager,
     private val openTileMapFilesManager: OpenAzoraTileMapFilesManager,
     private val openAzScriptFilesManager: OpenAzScriptFilesManager,
+    private val openAzsceneFilesManager: OpenAzsceneFilesManager,
     private val dockStateManager: DockStateManager
 ) : ViewModel() {
 
@@ -189,6 +190,19 @@ class AssetsPanelViewModel(
                     )
                 )
             }
+        }
+    }
+
+    /** Opens a generic `.azscene` file; the registered plugin (by its `type`) renders the editor. */
+    fun openAzsceneFile(filePath: String) {
+        viewModelScope.launch {
+            val panelId = openAzsceneFilesManager.openFile(filePath) ?: return@launch
+            val state = openAzsceneFilesManager.getState(panelId) ?: return@launch
+            dockStateManager.dispatch(
+                DockAction.AddPanel(
+                    descriptor = DockPanelDescriptor(id = panelId, title = state.fileName, closeable = true)
+                )
+            )
         }
     }
 

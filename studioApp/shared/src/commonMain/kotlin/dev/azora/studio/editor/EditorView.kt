@@ -64,6 +64,8 @@ fun StudioView(
     val dockStateManager: DockStateManager = koinInject()
     val openTextFilesManager: OpenTextFilesManager = koinInject()
     val openTextFiles by openTextFilesManager.openFiles.collectAsState()
+    val openAzsceneFilesManager: OpenAzsceneFilesManager = koinInject()
+    val openAzsceneFiles by openAzsceneFilesManager.openFiles.collectAsState()
 
     // Host context dependencies handed to plugin content
     val pluginLogger: AzoraLogger = koinInject()
@@ -79,6 +81,7 @@ fun StudioView(
             openSceneFilesManager = openSceneFilesManager,
             openTileMapFilesManager = openTileMapFilesManager,
             openAzScriptFilesManager = openAzScriptFilesManager,
+            openAzsceneFilesManager = openAzsceneFilesManager,
             dockStateManager = dockStateManager
         )
     }
@@ -89,6 +92,7 @@ fun StudioView(
             projectPath = projectPath,
             fileSystem = fileSystem,
             openTextFilesManager = openTextFilesManager,
+            openAzsceneFilesManager = openAzsceneFilesManager,
             dockStateManager = dockStateManager
         )
     }
@@ -109,6 +113,10 @@ fun StudioView(
             .toSet()
     }
 
+    val azscenePanelIds = remember(dockState.layout.panelDescriptors, openAzsceneFiles) {
+        dockState.layout.panelDescriptors.keys.filter { it.startsWith("azscene_") }.toSet() + openAzsceneFiles.keys
+    }
+
     val azScriptPanelIds = remember(dockState.layout.panelDescriptors, azScriptOpenFiles) {
         val layoutIds = dockState.layout.panelDescriptors.keys.filter { it.startsWith("azs_") }.toSet()
         val openIds = azScriptOpenFiles.keys
@@ -122,7 +130,7 @@ fun StudioView(
     }
 
     // Register panel content synchronously so it's available on first render
-    val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azScriptPanelIds, textPanelIds) {
+    val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azscenePanelIds, azScriptPanelIds, textPanelIds) {
         DockPanelRegistry().apply {
             register("project") { AssetsPanel(viewModel = assetsPanelViewModel) }
             register("console") { ConsolePanel() }
@@ -167,6 +175,25 @@ fun StudioView(
                     register(panelId) {
                         pluginManager.getPluginPanelContent("dev.azora.scene_studio", panelId)
                             ?.invoke(pluginContext)
+                    }
+                }
+
+                // Generic .azscene panels: route to the plugin registered for the file's `type`.
+                azscenePanelIds.forEach { panelId ->
+                    register(panelId) {
+                        val st = openAzsceneFilesManager.getState(panelId)
+                        val editor = st?.let { pluginManager.getAzsceneEditor(it.type, it.filePath) }
+                        if (editor != null) {
+                            editor(pluginContext)
+                        } else {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = st?.let { "No plugin handles '${it.type}'" } ?: "Unknown .azscene file",
+                                    color = palette.contentLow,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -262,6 +289,8 @@ fun StudioFloatingWindowsProvider(
     val dockStateManager: DockStateManager = koinInject()
     val openTextFilesManager: OpenTextFilesManager = koinInject()
     val openTextFiles by openTextFilesManager.openFiles.collectAsState()
+    val openAzsceneFilesManager: OpenAzsceneFilesManager = koinInject()
+    val openAzsceneFiles by openAzsceneFilesManager.openFiles.collectAsState()
 
     // Host context dependencies handed to plugin content
     val pluginLogger: AzoraLogger = koinInject()
@@ -277,6 +306,7 @@ fun StudioFloatingWindowsProvider(
             openSceneFilesManager = openSceneFilesManager,
             openTileMapFilesManager = openTileMapFilesManager,
             openAzScriptFilesManager = openAzScriptFilesManager,
+            openAzsceneFilesManager = openAzsceneFilesManager,
             dockStateManager = dockStateManager
         )
     }
@@ -287,6 +317,7 @@ fun StudioFloatingWindowsProvider(
             projectPath = projectPath,
             fileSystem = fileSystem,
             openTextFilesManager = openTextFilesManager,
+            openAzsceneFilesManager = openAzsceneFilesManager,
             dockStateManager = dockStateManager
         )
     }
@@ -307,6 +338,10 @@ fun StudioFloatingWindowsProvider(
             .toSet()
     }
 
+    val azscenePanelIds = remember(dockState.layout.panelDescriptors, openAzsceneFiles) {
+        dockState.layout.panelDescriptors.keys.filter { it.startsWith("azscene_") }.toSet() + openAzsceneFiles.keys
+    }
+
     val azScriptPanelIds = remember(dockState.layout.panelDescriptors, azScriptOpenFiles) {
         val layoutIds = dockState.layout.panelDescriptors.keys.filter { it.startsWith("azs_") }.toSet()
         val openIds = azScriptOpenFiles.keys
@@ -320,7 +355,7 @@ fun StudioFloatingWindowsProvider(
     }
 
     // Register panel content synchronously so it's available on first render
-    val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azScriptPanelIds, textPanelIds) {
+    val panelRegistry = remember(projectPath, enabledPlugins, azoraNodesPanelIds, azoraScenePanelIds, azscenePanelIds, azScriptPanelIds, textPanelIds) {
         DockPanelRegistry().apply {
             register("project") { AssetsPanel(viewModel = assetsPanelViewModel) }
             register("console") { ConsolePanel() }
@@ -365,6 +400,25 @@ fun StudioFloatingWindowsProvider(
                     register(panelId) {
                         pluginManager.getPluginPanelContent("dev.azora.scene_studio", panelId)
                             ?.invoke(pluginContext)
+                    }
+                }
+
+                // Generic .azscene panels: route to the plugin registered for the file's `type`.
+                azscenePanelIds.forEach { panelId ->
+                    register(panelId) {
+                        val st = openAzsceneFilesManager.getState(panelId)
+                        val editor = st?.let { pluginManager.getAzsceneEditor(it.type, it.filePath) }
+                        if (editor != null) {
+                            editor(pluginContext)
+                        } else {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = st?.let { "No plugin handles '${it.type}'" } ?: "Unknown .azscene file",
+                                    color = palette.contentLow,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
                     }
                 }
 

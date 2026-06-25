@@ -82,6 +82,13 @@ interface PluginManager {
     ): (@Composable (PluginContext) -> Unit)? = null
 
     /**
+     * Resolve the editor for an `.azscene` document [type] (read from the file's top-level `type`
+     * field) to whichever loaded plugin registered for it via `AzoraPlugin.azsceneEditorTypes()`.
+     * The returned content edits [filePath]. Returns null when no plugin handles the type.
+     */
+    fun getAzsceneEditor(type: String, filePath: String): (@Composable (PluginContext) -> Unit)? = null
+
+    /**
      * Project templates contributed by all currently loaded (enabled) plugins. The host surfaces
      * these in the create-project UI and resolves generators through them.
      */

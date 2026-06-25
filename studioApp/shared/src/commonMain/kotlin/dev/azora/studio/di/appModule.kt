@@ -4,6 +4,7 @@ import dev.azora.studio.assets.OpenAzScriptFilesManager
 import dev.azora.studio.assets.OpenAzoraNodesFilesManager
 import dev.azora.studio.assets.OpenAzoraSceneFilesManager
 import dev.azora.studio.assets.OpenAzoraTileMapFilesManager
+import dev.azora.studio.assets.OpenAzsceneFilesManager
 import dev.azora.studio.az_script.DiagnosticsManager
 import dev.azora.studio.content_browser.OpenTextFilesManager
 import dev.azora.studio.azora_nodes.AzoraNodesViewModel
@@ -48,6 +49,7 @@ val appModule = module {
     single { OpenAzoraTileMapFilesManager(get()) }
     single { OpenAzScriptFilesManager(get()) }
     single { OpenTextFilesManager(get()) }
+    single { OpenAzsceneFilesManager(get()) }
     single { DiagnosticsManager() }
 
     viewModelOf(::ProjectManagerViewModel)

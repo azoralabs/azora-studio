@@ -46,6 +46,7 @@ class ContentBrowserViewModel(
     projectPath: String,
     private val fileSystem: FileSystem,
     private val openTextFilesManager: OpenTextFilesManager,
+    private val openAzsceneFilesManager: dev.azora.studio.assets.OpenAzsceneFilesManager,
     private val dockStateManager: DockStateManager
 ) : ViewModel() {
 
@@ -229,6 +230,25 @@ class ContentBrowserViewModel(
             dockStateManager.dispatch(
                 DockAction.AddPanel(
                     DockPanelDescriptor(id = panelId, title = fileState.fileName, closeable = true),
+                    null,
+                    DockZone.CENTER
+                )
+            )
+            dockStateManager.dispatch(DockAction.SelectPanel(panelId))
+        }
+    }
+
+    /** Opens a generic `.azscene` file in the plugin editor registered for its `type`. */
+    fun openAzsceneFile(filePath: String) {
+        viewModelScope.launch {
+            val panelId = openAzsceneFilesManager.openFile(filePath) ?: run {
+                _state.value = _state.value.copy(error = "No editor for: ${filePath.substringAfterLast('/')}")
+                return@launch
+            }
+            val st = openAzsceneFilesManager.getState(panelId) ?: return@launch
+            dockStateManager.dispatch(
+                DockAction.AddPanel(
+                    DockPanelDescriptor(id = panelId, title = st.fileName, closeable = true),
                     null,
                     DockZone.CENTER
                 )

@@ -169,6 +169,7 @@ fun AssetsPanel(
                                     "az" -> viewModel.openAzScriptFile(item.path)
                                     "azorascene" -> viewModel.openAzoraSceneFile(item.path)
                                     "azoratilemap" -> viewModel.openAzoraTileMapFile(item.path)
+                                    "azscene" -> viewModel.openAzsceneFile(item.path)
                                 }
                             }
                         },

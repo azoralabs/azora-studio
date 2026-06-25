@@ -211,6 +211,13 @@ class DesktopPluginManager : PluginManager {
         return { context -> loaded.plugin.PanelContent(panelId, context) }
     }
 
+    override fun getAzsceneEditor(type: String, filePath: String): (@Composable (PluginContext) -> Unit)? {
+        val loaded = loadedPlugins.values.firstOrNull {
+            runCatching { it.plugin.azsceneEditorTypes().contains(type) }.getOrDefault(false)
+        } ?: return null
+        return { context -> loaded.plugin.AzsceneEditor(type, filePath, context) }
+    }
+
     override fun templateContributions(): List<ProjectTemplateContribution> =
         loadedPlugins.values.flatMap { runCatching { it.plugin.projectTemplates() }.getOrElse { emptyList() } }
 

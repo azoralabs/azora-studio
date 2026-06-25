@@ -145,7 +145,11 @@ fun ContentBrowserPanel(
 private fun handleActivate(item: AssetItem, viewModel: ContentBrowserViewModel) {
     when (item) {
         is AssetItem.Folder -> viewModel.navigateInto(item.path)
-        is AssetItem.File -> if (isProbablyTextFile(item.name)) viewModel.openTextFile(item.path)
+        is AssetItem.File -> when {
+            // Generic .azscene → the plugin editor registered for the file's `type`.
+            item.name.endsWith(".azscene") -> viewModel.openAzsceneFile(item.path)
+            isProbablyTextFile(item.name) -> viewModel.openTextFile(item.path)
+        }
     }
 }
 
