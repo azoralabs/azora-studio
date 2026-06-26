@@ -485,7 +485,9 @@ fun main() {
 
                 // Main Studio Window - undecorated with custom title bar on Windows only
                 Window(
-                    onCloseRequest = ::exitApplication,
+                    // Stop any running dev server (kill its process tree) before quitting, so
+                    // localhost doesn't outlive Studio. A shutdown hook backs this up for other exits.
+                    onCloseRequest = { onStopProject(); exitApplication() },
                     title = "${state.project.name} - Azora Studio ${BuildConfig.STUDIO_VERSION}",
                     state = windowState,
                     icon = painterResource("azora_icon.png"),

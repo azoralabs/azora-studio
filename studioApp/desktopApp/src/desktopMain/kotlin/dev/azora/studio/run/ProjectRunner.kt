@@ -37,6 +37,18 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
 
     private val isWindows = System.getProperty("os.name").lowercase().contains("windows")
 
+    init {
+        // Make sure a running dev server (e.g. Vite on localhost) never outlives Studio: child
+        // processes are not killed automatically when the JVM exits, so force-kill the process tree
+        // on shutdown. Covers every exit path — window close, Cmd+Q, or process termination.
+        Runtime.getRuntime().addShutdownHook(Thread {
+            process?.let { proc ->
+                runCatching { proc.descendants().forEach { it.destroyForcibly() } }
+                proc.destroyForcibly()
+            }
+        })
+    }
+
     fun run(projectDir: File, target: RunTarget, appId: String) {
         stop()
         if (!projectDir.isDirectory) {
