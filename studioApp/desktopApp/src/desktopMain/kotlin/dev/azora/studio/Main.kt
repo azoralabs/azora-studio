@@ -467,6 +467,20 @@ fun main() {
                     }
                 }
                 val onStopProject: () -> Unit = { projectRunner.stop() }
+                // Hot reload: while the project is running (e.g. the Vite dev server), regenerate the
+                // project from its source files; the dev server's HMR then refreshes the browser. Unlike
+                // Run, this does not restart the process.
+                val onHotReload: () -> Unit = {
+                    runScope.launch {
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                templateGeneratorResolver.generatorFor(state.project.template)
+                                    ?.generate(state.project, state.projectPath, runFileSystem)
+                            }.onFailure { consoleOutputManager.error("Hot reload (generate) failed: ${it.message}") }
+                        }
+                        consoleOutputManager.info("Hot reload ▸ regenerated — the dev server will refresh the browser.")
+                    }
+                }
 
 
                 // Main Studio Window - undecorated with custom title bar on Windows only
@@ -898,7 +912,8 @@ fun main() {
                                         onRefreshTargets = refreshTargets,
                                         isProjectRunning = projectRunner.isRunning,
                                         onRunProject = onRunProject,
-                                        onStopProject = onStopProject
+                                        onStopProject = onStopProject,
+                                        onHotReloadProject = onHotReload
                                     )
                                 }
                             } else {
@@ -924,7 +939,8 @@ fun main() {
                                     onRefreshTargets = refreshTargets,
                                     isProjectRunning = projectRunner.isRunning,
                                     onRunProject = onRunProject,
-                                    onStopProject = onStopProject
+                                    onStopProject = onStopProject,
+                                    onHotReloadProject = onHotReload
                                 )
                             }
 
@@ -1293,6 +1309,7 @@ private fun ProjectRunControls(
     isRunning: Boolean,
     onRun: () -> Unit,
     onStop: () -> Unit,
+    onHotReload: () -> Unit,
     buttonSize: Dp,
     iconSize: Dp,
     tint: androidx.compose.ui.graphics.Color
@@ -1351,6 +1368,16 @@ private fun ProjectRunControls(
             modifier = Modifier.size(iconSize)
         )
     }
+    // Hot reload — enabled only while the project is running. Pressing it regenerates the project so
+    // the dev server's HMR refreshes the browser.
+    IconButton(onClick = onHotReload, enabled = isRunning, modifier = Modifier.size(buttonSize)) {
+        Icon(
+            painter = composeResourcePainter(AppRes.drawable.ic_hot_reload),
+            contentDescription = "Hot reload",
+            tint = tint,
+            modifier = Modifier.size(iconSize)
+        )
+    }
 }
 
 /**
@@ -1379,7 +1406,8 @@ private fun MacOSToolbar(
     onRefreshTargets: () -> Unit = {},
     isProjectRunning: Boolean = false,
     onRunProject: () -> Unit = {},
-    onStopProject: () -> Unit = {}
+    onStopProject: () -> Unit = {},
+    onHotReloadProject: () -> Unit = {}
 ) {
     val palette = LocalAzoraPalette.current
     val titleBarBackground = if (isDarkMode) AzoraPalette.Neutral90 else palette.surfaceTop
@@ -1461,6 +1489,7 @@ private fun MacOSToolbar(
                 isRunning = isProjectRunning,
                 onRun = onRunProject,
                 onStop = onStopProject,
+                onHotReload = onHotReloadProject,
                 buttonSize = 20.dp,
                 iconSize = 14.dp,
                 tint = palette.contentTop.copy(alpha = 0.7f)
@@ -1512,7 +1541,8 @@ private fun MainWindowTitleBar(
     onRefreshTargets: () -> Unit = {},
     isProjectRunning: Boolean = false,
     onRunProject: () -> Unit = {},
-    onStopProject: () -> Unit = {}
+    onStopProject: () -> Unit = {},
+    onHotReloadProject: () -> Unit = {}
 ) {
     val palette = LocalAzoraPalette.current
     val titleBarBackground = if (isDarkMode) AzoraPalette.Neutral90 else palette.surfaceTop
@@ -1593,6 +1623,7 @@ private fun MainWindowTitleBar(
                 isRunning = isProjectRunning,
                 onRun = onRunProject,
                 onStop = onStopProject,
+                onHotReload = onHotReloadProject,
                 buttonSize = 28.dp,
                 iconSize = 14.dp,
                 tint = palette.contentTop.copy(alpha = 0.5f)

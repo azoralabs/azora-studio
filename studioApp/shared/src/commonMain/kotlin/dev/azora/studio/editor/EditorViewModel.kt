@@ -1,22 +1,14 @@
 package dev.azora.studio.editor
 
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import dev.azora.studio.assets.OpenAzoraNodesFilesManager
-import dev.azora.studio.assets.openAzoraNodesFiles
-import dev.azora.studio.assets.withOpenAzoraNodesFiles
-import dev.azora.studio.content_browser.OpenTextFilesManager
-import dev.azora.studio.content_browser.openTextFiles
-import dev.azora.studio.content_browser.withOpenTextFiles
-import dev.azora.sdk.docking.domain.*
+import androidx.lifecycle.*
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
 import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
-import kotlinx.coroutines.FlowPreview
+import dev.azora.sdk.docking.domain.*
+import dev.azora.studio.assets.*
+import dev.azora.studio.content_browser.*
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * Stable id of the central editor dock node (the "middle-top" area, Unreal-style).
