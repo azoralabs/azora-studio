@@ -19,7 +19,7 @@ import dev.azora.canvas.domain.type.AzoraPortType
  * - When [isCreatingLink] is true, [linkSourceNodeId] and [linkPortType] are non-null.
  *
  * Context-menu invariants:
- * - At most one of the three menu groups (link, reroute-point, canvas) is shown at a time;
+ * - At most one menu group (link, reroute-point, canvas, node, port) is shown at a time;
  *   [hasOpenContextMenu] is the cheap "any menu open?" check.
  *
  * @property panOffset Current pan in pixels; applied to nodes, links and reroute points by the renderer.
@@ -39,6 +39,11 @@ import dev.azora.canvas.domain.type.AzoraPortType
  * @property contextMenuRerouteLinkId Id of the link owning [contextMenuReroutePointId].
  * @property contextMenuReroutePosition Canvas-space position of the reroute-point context menu.
  * @property canvasContextMenuPosition Screen-space position of the canvas (empty area) context menu, if open.
+ * @property nodeContextMenuNodeId Node whose body context menu is open, if any.
+ * @property nodeContextMenuPosition Root-coordinate position of the node context menu, if open.
+ * @property portContextMenuNodeId Node whose output-port context menu is open, if any.
+ * @property portContextMenuPortIndex Output port index the port context menu was opened on.
+ * @property portContextMenuPosition Root-coordinate position of the port context menu, if open.
  */
 data class AzoraCanvasState(
     val panOffset: Offset = Offset.Zero,
@@ -61,11 +66,20 @@ data class AzoraCanvasState(
     val contextMenuRerouteLinkId: String? = null,
     val contextMenuReroutePosition: Offset? = null,
 
-    val canvasContextMenuPosition: Offset? = null
+    val canvasContextMenuPosition: Offset? = null,
+
+    val nodeContextMenuNodeId: String? = null,
+    val nodeContextMenuPosition: Offset? = null,
+
+    val portContextMenuNodeId: String? = null,
+    val portContextMenuPortIndex: Int = 0,
+    val portContextMenuPosition: Offset? = null
 ) {
-    /** True iff any context menu (link, reroute-point, or canvas) is currently open. */
+    /** True iff any context menu (link, reroute-point, canvas, node, or port) is currently open. */
     val hasOpenContextMenu: Boolean
         get() = contextMenuLinkId != null ||
                 contextMenuReroutePointId != null ||
-                canvasContextMenuPosition != null
+                canvasContextMenuPosition != null ||
+                nodeContextMenuNodeId != null ||
+                portContextMenuNodeId != null
 }

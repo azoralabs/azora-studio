@@ -24,6 +24,8 @@ import dev.azora.sdk.core.theme.LocalAzoraPalette
  * @param enabled Forwarded to the underlying [AzoraOutputPort]; also dims the label.
  * @param modifier Modifier applied to the row.
  * @param onPositioned Forwarded to the underlying [AzoraOutputPort].
+ * @param onContextMenu Forwarded to the underlying [AzoraOutputPort]; when non-null a right-click
+ *   opens a per-port context menu instead of starting a link.
  * @param onClick Forwarded to the underlying [AzoraOutputPort].
  */
 @Composable
@@ -35,13 +37,14 @@ fun AzoraOutputPortRow(
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
     onPositioned: ((Offset) -> Unit)? = null,
+    onContextMenu: ((Offset) -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val palette = LocalAzoraPalette.current
     val textColor = if (enabled) palette.contentMid else palette.disabled
 
     Row(
-        modifier = modifier.padding(vertical = 0.dp),
+        modifier = modifier.padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -63,6 +66,7 @@ fun AzoraOutputPortRow(
             notConnectedCenterColor = notConnectedCenterColor,
             enabled = enabled,
             onPositioned = onPositioned,
+            onContextMenu = onContextMenu,
             onClick = onClick
         )
     }

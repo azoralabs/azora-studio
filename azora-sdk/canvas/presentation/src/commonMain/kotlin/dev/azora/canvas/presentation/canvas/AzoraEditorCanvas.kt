@@ -88,11 +88,18 @@ fun AzoraEditorCanvas(
         onDismissAllContextMenus: () -> Unit
     ) -> Unit = { _, _ -> },
     canvasContextMenuContent: @Composable (position: Offset, onDismiss: () -> Unit) -> Unit = { _, _ -> },
+    // Host-supplied node/port right-click menus. The canvas anchors them at the click (in canvas-local
+    // coordinates) and owns open/dismiss state; the host only supplies the menu body.
+    nodeContextMenuContent: @Composable (nodeId: String, position: Offset, onDismiss: () -> Unit) -> Unit = { _, _, _ -> },
+    portContextMenuContent: @Composable (nodeId: String, portIndex: Int, position: Offset, onDismiss: () -> Unit) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     // Local hover state (not persisted)
     var hoveredLinkId by remember { mutableStateOf<String?>(null) }
     var hoveredSegmentIndex by remember { mutableStateOf(0) }
+    // The canvas's own position in root coordinates — used to convert node/port menu anchors (reported
+    // in root coords by AzoraNode/AzoraOutputPort) back into this overlay's canvas-local space.
+    var canvasPositionInRoot by remember { mutableStateOf(Offset.Zero) }
 
     val dismissAllContextMenus = { onCanvasAction(AzoraCanvasAction.DismissAllContextMenus) }
 
@@ -139,7 +146,9 @@ fun AzoraEditorCanvas(
             }
         },
         modifier = modifier.onGloballyPositioned { coordinates ->
-            currentOnCanvasPositioned?.invoke(coordinates.positionInRoot())
+            val pos = coordinates.positionInRoot()
+            canvasPositionInRoot = pos
+            currentOnCanvasPositioned?.invoke(pos)
         }
     ) { mousePosition ->
         val selectedNodeId = canvasState.selectedNodeId
@@ -395,6 +404,35 @@ fun AzoraEditorCanvas(
                 )
             }
         }
+
+        // Node-body context menu (host-supplied). Anchor comes in root coords; convert to canvas-local.
+        if (canvasState.nodeContextMenuNodeId != null && canvasState.nodeContextMenuPosition != null) {
+            val pos = canvasState.nodeContextMenuPosition
+            val nodeId = canvasState.nodeContextMenuNodeId
+            Box(modifier = Modifier.zIndex(100f)) {
+                val local = Offset(pos.x - canvasPositionInRoot.x, pos.y - canvasPositionInRoot.y)
+                nodeContextMenuContent(
+                    nodeId,
+                    local,
+                    { onCanvasAction(AzoraCanvasAction.DismissNodeContextMenu) }
+                )
+            }
+        }
+
+        // Output-port context menu (host-supplied).
+        if (canvasState.portContextMenuNodeId != null && canvasState.portContextMenuPosition != null) {
+            val pos = canvasState.portContextMenuPosition
+            val nodeId = canvasState.portContextMenuNodeId
+            Box(modifier = Modifier.zIndex(100f)) {
+                val local = Offset(pos.x - canvasPositionInRoot.x, pos.y - canvasPositionInRoot.y)
+                portContextMenuContent(
+                    nodeId,
+                    canvasState.portContextMenuPortIndex,
+                    local,
+                    { onCanvasAction(AzoraCanvasAction.DismissPortContextMenu) }
+                )
+            }
+        }
     }
 }
 
@@ -542,6 +580,10 @@ private fun NodeRenderer(
         { onCanvasAction(AzoraCanvasAction.EndNodeDrag) },
         dismissAllContextMenus,
         onInputPortPositioned?.let { callback -> { position: Offset -> callback(node.id, position) } },
-        onOutputPortPositioned?.let { callback -> { index: Int, position: Offset -> callback(node.id, index, position) } }
+        onOutputPortPositioned?.let { callback -> { index: Int, position: Offset -> callback(node.id, index, position) } },
+        // Right-click on the node body / an output port → open the host-supplied menu (root coords;
+        // the canvas overlay converts to canvas-local). The host opts in via the menu-content slots.
+        { rootPosition -> onCanvasAction(AzoraCanvasAction.ShowNodeContextMenu(node.id, rootPosition)) },
+        { portIndex, rootPosition -> onCanvasAction(AzoraCanvasAction.ShowPortContextMenu(node.id, portIndex, rootPosition)) }
     )
 }

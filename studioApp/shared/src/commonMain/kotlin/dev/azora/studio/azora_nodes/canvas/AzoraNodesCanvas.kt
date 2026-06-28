@@ -216,7 +216,9 @@ fun AzoraNodesCanvas(
                         linkTransitionType, panOffset, isInputConnected,
                         connectedOutputPortIndices, onSelect, onStartLink,
                         onEndLink, onMove, onEndDrag, onDismissContextMenus,
-                        onInputPortPositioned, onOutputPortPositioned ->
+                        onInputPortPositioned, onOutputPortPositioned,
+                        // Node/port right-click menus (unused by the Azora Nodes editor).
+                        _, _ ->
 
             val scriptNode = graph.nodes[node.id] ?: return@AzoraEditorCanvas
             val properties = scriptNode.properties

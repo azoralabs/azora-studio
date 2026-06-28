@@ -86,6 +86,18 @@ sealed interface AzoraCanvasAction {
     /** Close the canvas context menu. */
     data object DismissCanvasContextMenu : AzoraCanvasAction
 
+    /** Open the context menu for [nodeId]'s body at root-coordinate [position] (the overlay converts
+     *  to canvas-local). Opens exclusively (closes any other open menu). */
+    data class ShowNodeContextMenu(val nodeId: String, val position: Offset) : AzoraCanvasAction
+    /** Close the node-body context menu. */
+    data object DismissNodeContextMenu : AzoraCanvasAction
+
+    /** Open the context menu for output port [portIndex] on [nodeId] at root-coordinate [position].
+     *  Opens exclusively (closes any other open menu). */
+    data class ShowPortContextMenu(val nodeId: String, val portIndex: Int, val position: Offset) : AzoraCanvasAction
+    /** Close the output-port context menu. */
+    data object DismissPortContextMenu : AzoraCanvasAction
+
     /** Close every open context menu in one shot - used when the user starts a new interaction. */
     data object DismissAllContextMenus : AzoraCanvasAction
 }

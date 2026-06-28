@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -39,6 +40,8 @@ import dev.azora.sdk.core.theme.palette.AzoraPalette
  * @param notConnectedCenterColor Tint for the inner "empty socket" indicator.
  * @param enabled When false the port is dimmed and non-interactive.
  * @param onPositioned Reports the port's center in **root** coordinates.
+ * @param onContextMenu When non-null, a secondary (right) click invokes it with the click position
+ *   local to the port (instead of starting a link). Used by hosts that want a per-port context menu.
  * @param onClick Fires on left-click; used by the canvas to begin link creation from this port.
  */
 @Composable
@@ -48,12 +51,17 @@ fun AzoraOutputPort(
     notConnectedCenterColor: Color,
     enabled: Boolean = true,
     onPositioned: ((Offset) -> Unit)? = null,
+    onContextMenu: ((Offset) -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val socketColor = LocalAzoraPalette.current.surfaceTop
     val currentOnClick by rememberUpdatedState(onClick)
     val currentOnPositioned by rememberUpdatedState(onPositioned)
+    val currentOnContextMenu by rememberUpdatedState(onContextMenu)
     var isHovered by remember { mutableStateOf(false) }
+    // Top-left position in root coordinates, so a right-click can be reported in root space to the
+    // canvas overlay (which converts it back to canvas-local).
+    var positionInRoot by remember { mutableStateOf(Offset.Zero) }
 
     val color = when (type) {
         AzoraPortType.NAV_ROOT -> AzoraPalette.AccentRed
@@ -71,6 +79,7 @@ fun AzoraOutputPort(
             .size(16.dp)
             .onGloballyPositioned { coordinates ->
                 val position = coordinates.positionInRoot()
+                positionInRoot = position
                 val center = Offset(
                     position.x + coordinates.size.width / 2f,
                     position.y + coordinates.size.height / 2f
@@ -85,6 +94,24 @@ fun AzoraOutputPort(
                             PointerEventType.Enter -> isHovered = true
                             PointerEventType.Exit -> isHovered = false
                             else -> {}
+                        }
+                    }
+                }
+            }
+            // Secondary (right) click: route to the host's context menu (root coords — the canvas
+            // overlay converts to canvas-local) when one is requested, and consume it so the click
+            // handler below never starts a link from a right-click. Placed before the click handler so
+            // the consumed down is skipped by awaitFirstDown(). The handler is read from the
+            // rememberUpdatedState each event so a changing lambda doesn't relaunch this pointerInput.
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val handler = currentOnContextMenu ?: continue
+                        if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                            val change = event.changes.firstOrNull() ?: continue
+                            change.consume()
+                            handler(Offset(positionInRoot.x + change.position.x, positionInRoot.y + change.position.y))
                         }
                     }
                 }

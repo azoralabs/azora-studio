@@ -254,6 +254,9 @@ class AzoraNodesViewModel(
                 )
             }
             is AzoraCanvasAction.DeleteReroutePoint -> handleDeleteReroutePoint(action.linkId, action.reroutePointId)
+            // Node/port context menus (ShowNodeContextMenu/Dismiss*/ShowPortContextMenu) are unused by
+            // the Azora Nodes editor — it supplies no node/port menu content.
+            else -> {}
         }
     }
 

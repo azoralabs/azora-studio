@@ -4,12 +4,17 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
 import dev.azora.canvas.domain.model.node.AzoraNodeModel
 import dev.azora.canvas.domain.type.AzoraPortType
@@ -82,6 +87,12 @@ data class AzoraOutputPortDef(
  *   canvas can anchor links to it.
  * @param onOutputPortPositioned Reports each output port's center in **root** coordinates,
  *   keyed by [AzoraOutputPortDef.index].
+ * @param onPortContextMenu When non-null, a secondary click on an output port invokes this with the
+ *   port's index and the click position local to the port. Hosts use it to show a per-port menu.
+ * @param canAddOutputPort When true, renders an `+` add-slot row after the output ports (Unreal
+ *   array-pin style). The host receives the click via [onAddOutputPort].
+ * @param onAddOutputPort Invoked when the `+` add-slot row is clicked; only shown when
+ *   [canAddOutputPort] is true.
  * @param headerContent Slot for the node's interior. Receives two `@Composable () -> Unit` slots
  *   (`inputPorts`, `outputPorts`) that the host places in its own layout - typically using
  *   [InputPortsWrapper] and [OutputPortsWrapper].
@@ -109,6 +120,10 @@ fun AzoraNode(
     connectedOutputPortIndices: Set<Int> = emptySet(),
     onInputPortPositioned: ((Offset) -> Unit)? = null,
     onOutputPortPositioned: ((index: Int, position: Offset) -> Unit)? = null,
+    onPortContextMenu: ((portIndex: Int, rootPosition: Offset) -> Unit)? = null,
+    onContextMenu: ((rootPosition: Offset) -> Unit)? = null,
+    canAddOutputPort: Boolean = false,
+    onAddOutputPort: (() -> Unit)? = null,
     headerContent: @Composable (
         inputPorts: @Composable () -> Unit,
         outputPorts: @Composable () -> Unit
@@ -130,6 +145,15 @@ fun AzoraNode(
 
     val currentOnStartLink by rememberUpdatedState(onStartLink)
     val currentOnEndLink by rememberUpdatedState(onEndLink)
+
+    val currentOnPortContextMenu by rememberUpdatedState(onPortContextMenu)
+    val currentOnContextMenu by rememberUpdatedState(onContextMenu)
+    val currentCanAddOutputPort by rememberUpdatedState(canAddOutputPort)
+    val currentOnAddOutputPort by rememberUpdatedState(onAddOutputPort)
+
+    // The body's position in root coordinates, so a right-click can be reported in root space to the
+    // canvas overlay (which converts it back to canvas-local).
+    var bodyPositionInRoot by remember { mutableStateOf(Offset.Zero) }
 
     Box(
         modifier = Modifier
@@ -162,14 +186,24 @@ fun AzoraNode(
                     } else Modifier
                 )
                 .background(LocalAzoraPalette.current.surfaceTop.copy(alpha = 0.8f))
-                // Consume right-clicks to prevent canvas context menu from appearing
+                .onGloballyPositioned { bodyPositionInRoot = it.positionInRoot() }
+                // Right-click: open the node's context menu (root coords) when the host supports it;
+                // otherwise fall back to closing any open menu. Skips when a child (e.g. an output port)
+                // already consumed the click, so a port right-click opens the port menu, not this one.
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
                             if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
-                                event.changes.firstOrNull()?.consume()
-                                currentOnDismissContextMenus()
+                                val change = event.changes.firstOrNull() ?: continue
+                                if (change.isConsumed) continue
+                                change.consume()
+                                val handler = currentOnContextMenu
+                                if (handler != null) {
+                                    handler(Offset(bodyPositionInRoot.x + change.position.x, bodyPositionInRoot.y + change.position.y))
+                                } else {
+                                    currentOnDismissContextMenus()
+                                }
                             }
                         }
                     }
@@ -232,13 +266,42 @@ fun AzoraNode(
                         onPositioned = { position: Offset ->
                             currentOnOutputPortPositioned?.invoke(port.index, position)
                         },
+                        onContextMenu = currentOnPortContextMenu?.let { handler ->
+                            { localClick: Offset -> handler(port.index, localClick) }
+                        },
                         onClick = { currentOnStartLink(port.type, port.index) }
                     )
+                }
+                if (currentCanAddOutputPort) {
+                    AzoraAddOutputPortRow(onClick = { currentOnAddOutputPort?.invoke() })
                 }
             }
 
             // Ports are rendered inside headerContent
             headerContent(inputPortsContent, outputPortsContent)
+        }
+    }
+}
+
+/**
+ * The `+` add-slot row appended after a node's output ports (Unreal array-pin style). Sized to match
+ * an [AzoraOutputPortRow] so the column stays aligned; clicking invokes [onClick].
+ */
+@Composable
+private fun AzoraAddOutputPortRow(onClick: () -> Unit) {
+    val palette = LocalAzoraPalette.current
+    Row(
+        modifier = Modifier.clickable { onClick() }.padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("+", color = palette.contentMid, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.width(4.dp))
+        Box(
+            modifier = Modifier.size(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("+", color = palette.contentMid, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         }
     }
 }

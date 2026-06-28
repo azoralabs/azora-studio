@@ -89,6 +89,10 @@ class AzoraCanvasStateHolder(
             // Canvas context menu
             is AzoraCanvasAction.ShowCanvasContextMenu -> showCanvasContextMenu(action.position)
             is AzoraCanvasAction.DismissCanvasContextMenu -> dismissCanvasContextMenu()
+            is AzoraCanvasAction.ShowNodeContextMenu -> showNodeContextMenu(action.nodeId, action.position)
+            is AzoraCanvasAction.DismissNodeContextMenu -> dismissNodeContextMenu()
+            is AzoraCanvasAction.ShowPortContextMenu -> showPortContextMenu(action.nodeId, action.portIndex, action.position)
+            is AzoraCanvasAction.DismissPortContextMenu -> dismissPortContextMenu()
             is AzoraCanvasAction.DismissAllContextMenus -> dismissAllContextMenus()
         }
     }
@@ -276,18 +280,41 @@ class AzoraCanvasStateHolder(
         _state.update { it.copy(canvasContextMenuPosition = null) }
     }
 
+    // Node / port context menus open exclusively (close any other menu first), matching the canvas
+    // and link menus which are always preceded by dismissAllContextMenus on right-click.
+    private fun showNodeContextMenu(nodeId: String, position: Offset) {
+        _state.update { dismissAllMenusExcept(it).copy(nodeContextMenuNodeId = nodeId, nodeContextMenuPosition = position) }
+    }
+
+    private fun dismissNodeContextMenu() {
+        _state.update { it.copy(nodeContextMenuNodeId = null, nodeContextMenuPosition = null) }
+    }
+
+    private fun showPortContextMenu(nodeId: String, portIndex: Int, position: Offset) {
+        _state.update { dismissAllMenusExcept(it).copy(portContextMenuNodeId = nodeId, portContextMenuPortIndex = portIndex, portContextMenuPosition = position) }
+    }
+
+    private fun dismissPortContextMenu() {
+        _state.update { it.copy(portContextMenuNodeId = null, portContextMenuPosition = null) }
+    }
+
+    /** Clears every menu field on [state] in one go (helper for exclusive open + dismiss-all). */
+    private fun dismissAllMenusExcept(state: AzoraCanvasState): AzoraCanvasState = state.copy(
+        contextMenuLinkId = null,
+        contextMenuPosition = null,
+        contextMenuSegmentIndex = 0,
+        contextMenuRerouteLinkId = null,
+        contextMenuReroutePointId = null,
+        contextMenuReroutePosition = null,
+        canvasContextMenuPosition = null,
+        nodeContextMenuNodeId = null,
+        nodeContextMenuPosition = null,
+        portContextMenuNodeId = null,
+        portContextMenuPosition = null
+    )
+
     private fun dismissAllContextMenus() {
-        _state.update {
-            it.copy(
-                contextMenuLinkId = null,
-                contextMenuPosition = null,
-                contextMenuSegmentIndex = 0,
-                contextMenuRerouteLinkId = null,
-                contextMenuReroutePointId = null,
-                contextMenuReroutePosition = null,
-                canvasContextMenuPosition = null
-            )
-        }
+        _state.update { dismissAllMenusExcept(it) }
     }
 
     /**

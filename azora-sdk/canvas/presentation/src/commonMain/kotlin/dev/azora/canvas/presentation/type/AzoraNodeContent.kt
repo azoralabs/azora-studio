@@ -33,6 +33,10 @@ import dev.azora.canvas.domain.type.AzoraPortType
  * - `onInputPortPositioned` - when non-null, report the input port's center in root coordinates so
  *   the canvas can draw links to it accurately.
  * - `onOutputPortPositioned` - same as above for output ports, keyed by port index.
+ * - `onContextMenu` - call with the click's root-coordinate position when the user right-clicks the node
+ *   body; the canvas opens a host-supplied node context menu there. Pass a no-op if unsupported.
+ * - `onPortContextMenu` - same as [onContextMenu] but for a right-click on an output port, keyed by
+ *   port index.
  */
 typealias AzoraNodeContent = @Composable (
     node: AzoraNodeModel,
@@ -50,5 +54,7 @@ typealias AzoraNodeContent = @Composable (
     onEndDrag: () -> Unit,
     onDismissContextMenus: () -> Unit,
     onInputPortPositioned: ((Offset) -> Unit)?,
-    onOutputPortPositioned: ((index: Int, position: Offset) -> Unit)?
+    onOutputPortPositioned: ((index: Int, position: Offset) -> Unit)?,
+    onContextMenu: (rootPosition: Offset) -> Unit,
+    onPortContextMenu: (portIndex: Int, rootPosition: Offset) -> Unit
 ) -> Unit
