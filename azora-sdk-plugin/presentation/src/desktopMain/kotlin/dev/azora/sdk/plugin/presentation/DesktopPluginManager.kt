@@ -227,6 +227,22 @@ class DesktopPluginManager : PluginManager {
     override fun templateContributions(): List<ProjectTemplateContribution> =
         loadedPlugins.values.flatMap { runCatching { it.plugin.projectTemplates() }.getOrElse { emptyList() } }
 
+    override fun getSettingsTabs(): List<Pair<String, SettingsTabDescriptor>> =
+        loadedPlugins.entries.flatMap { (id, loaded) ->
+            runCatching { loaded.plugin.settingsTabs() }.getOrElse { emptyList() }.map { id to it }
+        }
+
+    override fun getSettingsTabContent(
+        pluginId: String,
+        tabId: String,
+        context: PluginContext
+    ): (@Composable () -> Unit)? {
+        val loaded = loadedPlugins[pluginId] ?: return null
+        val hasTab = runCatching { loaded.plugin.settingsTabs().any { it.id == tabId } }.getOrDefault(false)
+        if (!hasTab) return null
+        return { loaded.plugin.settingsTabContent(tabId, context) }
+    }
+
     override fun getLoadedPlugin(pluginId: String): AzoraPlugin? {
         return loadedPlugins[pluginId]?.plugin
     }

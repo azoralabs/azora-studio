@@ -123,7 +123,19 @@ fun StudioView(
             register("welcome") { WelcomePanel(projectPath = projectPath) }
             register("console") { ConsolePanel() }
             register("problems") { ProblemsPanel() }
-            register("settings") { SettingsScreen(projectPath = projectPath) }
+            register("settings") {
+                SettingsScreen(
+                    projectPath = projectPath,
+                    pluginManager = pluginManager,
+                    pluginContext = if (project != null && pluginManager != null)
+                        StudioPluginContext(
+                            project = project, projectPath = projectPath, fileSystem = fileSystem,
+                            logger = pluginLogger, scope = pluginScope, repository = projectRepository,
+                            openAzsceneFilesManager = openAzsceneFilesManager, dockStateManager = dockStateManager
+                        )
+                    else null
+                )
+            }
             register("content_browser") { ContentBrowserPanel(viewModel = contentBrowserViewModel) }
 
             // Register dynamic panels for .azn files (from layout and openFiles)
@@ -326,7 +338,19 @@ fun StudioFloatingWindowsProvider(
             register("welcome") { WelcomePanel(projectPath = projectPath) }
             register("console") { ConsolePanel() }
             register("problems") { ProblemsPanel() }
-            register("settings") { SettingsScreen(projectPath = projectPath) }
+            register("settings") {
+                SettingsScreen(
+                    projectPath = projectPath,
+                    pluginManager = pluginManager,
+                    pluginContext = if (project != null && pluginManager != null)
+                        StudioPluginContext(
+                            project = project, projectPath = projectPath, fileSystem = fileSystem,
+                            logger = pluginLogger, scope = pluginScope, repository = projectRepository,
+                            openAzsceneFilesManager = openAzsceneFilesManager, dockStateManager = dockStateManager
+                        )
+                    else null
+                )
+            }
             register("content_browser") { ContentBrowserPanel(viewModel = contentBrowserViewModel) }
 
             // Register dynamic panels for .azn files (from layout and openFiles)

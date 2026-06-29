@@ -290,18 +290,11 @@ fun AzoraNode(
 @Composable
 private fun AzoraAddOutputPortRow(onClick: () -> Unit) {
     val palette = LocalAzoraPalette.current
-    Row(
-        modifier = Modifier.clickable { onClick() }.padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically
+    // A single `+` glyph in a port-sized (16.dp) box, aligned to the end like the port rows above it.
+    Box(
+        modifier = Modifier.clickable { onClick() }.padding(vertical = 2.dp).size(16.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text("+", color = palette.contentMid, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.width(4.dp))
-        Box(
-            modifier = Modifier.size(16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("+", color = palette.contentMid, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-        }
+        Text("+", color = palette.contentMid, fontSize = 16.sp, fontWeight = FontWeight.Medium)
     }
 }

@@ -62,6 +62,22 @@ interface AzoraPlugin {
     fun projectTemplates(): List<ProjectTemplateContribution> = emptyList()
 
     /**
+     * Settings tabs this plugin contributes, surfaced by the host in its Settings screen alongside the
+     * built-in tabs. Return empty (the default) to contribute none. The host stays agnostic of tab
+     * content — [settingsTabContent] renders it.
+     */
+    fun settingsTabs(): List<SettingsTabDescriptor> = emptyList()
+
+    /**
+     * Renders the content of the settings tab identified by [tabId] (one of the ids returned by
+     * [settingsTabs]). Only invoked for plugins that contribute settings tabs; the default is empty.
+     * The plugin receives [context] so it can read/write the project (e.g. via
+     * [PluginContext.saveProject]) and access the file system.
+     */
+    @Composable
+    fun settingsTabContent(tabId: String, context: PluginContext) {}
+
+    /**
      * Called when the plugin is loaded/enabled.
      * Override to perform initialization.
      */

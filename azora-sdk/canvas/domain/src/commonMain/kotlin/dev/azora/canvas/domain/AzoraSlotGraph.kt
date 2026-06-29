@@ -21,6 +21,10 @@ interface AzoraSlotNodeAdapter<N> {
     fun withSlots(node: N, slots: List<AzoraNodeSlot>): N
     /** A fresh, unique id for a new empty slot. */
     fun newSlotId(): String
+    /** A copy of [node] carrying the same content/slots but identified by [id] (for duplication). */
+    fun withId(node: N, id: String): N
+    /** A fresh, unique id for a new (duplicated) node. */
+    fun newNodeId(): String
 }
 
 /**
@@ -119,4 +123,16 @@ class AzoraSlotGraph<N>(val nodes: List<N>, private val adapter: AzoraSlotNodeAd
                 .map { c -> if (adapter.isContainer(c)) adapter.withSlots(c, adapter.slots(c).map { s -> if (s.childId == id) s.copy(childId = null) else s }) else c },
             adapter = adapter
         )
+
+    /**
+     * Duplicates node [id] under a fresh id (same content; a duplicated container keeps its slot
+     * `childId`s, i.e. it shares the original's children) and appends the copy to the pool as a
+     * free-floating node. Returns the new graph paired with the new node's id (or `null` if [id] was
+     * not found), so the host can select the duplicate.
+     */
+    fun duplicate(nodeId: String): Pair<AzoraSlotGraph<N>, String?> {
+        val original = node(nodeId) ?: return this to null
+        val newId = adapter.newNodeId()
+        return AzoraSlotGraph(nodes + adapter.withId(original, newId), adapter) to newId
+    }
 }

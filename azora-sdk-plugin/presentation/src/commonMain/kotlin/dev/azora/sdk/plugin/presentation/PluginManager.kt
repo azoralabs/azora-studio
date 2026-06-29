@@ -101,6 +101,22 @@ interface PluginManager {
     fun templateContributions(): List<ProjectTemplateContribution> = emptyList()
 
     /**
+     * Settings tabs contributed by all currently loaded (enabled) plugins, for the host's Settings
+     * screen. Each entry pairs the contributing plugin's id with its [SettingsTabDescriptor].
+     */
+    fun getSettingsTabs(): List<Pair<String, SettingsTabDescriptor>> = emptyList()
+
+    /**
+     * Renders the content of a plugin-contributed settings tab ([pluginId], [tabId]). Returns null
+     * when the plugin/tab is not found.
+     */
+    fun getSettingsTabContent(
+        pluginId: String,
+        tabId: String,
+        context: PluginContext
+    ): (@Composable () -> Unit)? = null
+
+    /**
      * Get a loaded plugin instance by ID.
      *
      * @param pluginId The plugin ID
