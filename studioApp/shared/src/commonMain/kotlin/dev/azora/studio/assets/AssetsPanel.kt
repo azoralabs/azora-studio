@@ -18,9 +18,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
-import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import dev.azora.studio.util.currentTimeMillis
+import dev.azora.studio.util.isSecondaryClick
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,7 +48,7 @@ fun AssetsPanel(
                         val event = awaitPointerEvent()
                         if (event.type == PointerEventType.Press) {
                             val position = event.changes.firstOrNull()?.position ?: Offset.Zero
-                            val isRightClick = event.button == PointerButton.Secondary
+                            val isRightClick = event.isSecondaryClick()
                             if (isRightClick) {
                                 viewModel.showContextMenu(position, null)
                             }
@@ -305,7 +306,7 @@ private fun AssetTreeItem(
                         val event = awaitPointerEvent()
                         if (event.type == PointerEventType.Press) {
                             val position = event.changes.firstOrNull()?.position ?: Offset.Zero
-                            val isRightClick = event.button == PointerButton.Secondary
+                            val isRightClick = event.isSecondaryClick()
                             if (isRightClick) {
                                 onSelect()
                                 onContextMenu(position)
@@ -318,7 +319,7 @@ private fun AssetTreeItem(
                 interactionSource = interactionSource,
                 indication = null
             ) {
-                val currentTime = System.currentTimeMillis()
+                val currentTime = currentTimeMillis()
                 if (currentTime - lastClickTime < 300) {
                     // Double click
                     onDoubleClick()

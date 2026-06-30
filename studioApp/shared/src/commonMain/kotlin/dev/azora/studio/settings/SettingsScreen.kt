@@ -12,9 +12,9 @@ import dev.azora.sdk.plugin.presentation.PluginManager
 import dev.azora.studio.assets.OpenAzsceneFilesManager
 import dev.azora.studio.editor.StudioPluginContext
 import kotlinx.coroutines.delay
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
 
 @Composable
@@ -27,10 +27,12 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
+    val koin = getKoin()
+
     // Bypass the parameter chain (which can capture null from a stale remember block) by falling
     // back to the Koin singleton.
     val pm: PluginManager? = pluginManager
-        ?: runCatching { GlobalContext.get().getOrNull<PluginManager>() }.getOrNull()
+        ?: runCatching { koin.getOrNull<PluginManager>() }.getOrNull()
 
     // Build a PluginContext from Koin deps if the param is null (same stale-capture issue).
     val fileSystem: FileSystem = koinInject()

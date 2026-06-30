@@ -134,7 +134,7 @@ class SettingsViewModel(
     }
 
     private fun setAzoraLangPath(path: String) {
-        val valid = path.isNotEmpty() && java.io.File(path, "lib").isDirectory
+        val valid = azoraLangHasLib(path)
         _state.update { it.copy(azoraLangPath = path, azoraLangDetected = valid) }
         saveSettings()
     }
@@ -151,13 +151,7 @@ class SettingsViewModel(
         saveSettings()
     }
 
-    private fun detectAzoraLangPath(): String {
-        val envHome = System.getenv("AZORA_HOME")
-        if (envHome != null && java.io.File(envHome, "lib").isDirectory) return envHome
-        val defaultHome = java.io.File(System.getProperty("user.home"), ".azoralang")
-        if (defaultHome.isDirectory && java.io.File(defaultHome, "lib").isDirectory) return defaultHome.absolutePath
-        return ""
-    }
+    private fun detectAzoraLangPath(): String = detectAzoraLangHome()
 
     private fun saveSettings() {
         viewModelScope.launch {

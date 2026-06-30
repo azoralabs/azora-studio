@@ -23,6 +23,10 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
         }
 
+        androidMain.dependencies {
+            implementation(libs.koin.android)
+        }
+
         appleMain.dependencies {
             implementation(libs.ktor.client.darwin)
         }

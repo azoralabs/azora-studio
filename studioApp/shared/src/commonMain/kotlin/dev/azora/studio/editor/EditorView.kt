@@ -12,6 +12,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.*
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -69,6 +71,7 @@ fun StudioView(
     // Host context dependencies handed to plugin content
     val pluginLogger: AzoraLogger = koinInject()
     val projectRepository: AzoraProjectRepository = koinInject()
+    val undoRedoCoordinator: dev.azora.sdk.core.presentation.undoredo.GlobalUndoRedoCoordinator = koinInject()
     val pluginScope = rememberCoroutineScope()
 
     // Create ContentBrowserViewModel (the project's single file browser)
@@ -131,7 +134,8 @@ fun StudioView(
                         StudioPluginContext(
                             project = project, projectPath = projectPath, fileSystem = fileSystem,
                             logger = pluginLogger, scope = pluginScope, repository = projectRepository,
-                            openAzsceneFilesManager = openAzsceneFilesManager, dockStateManager = dockStateManager
+                            openAzsceneFilesManager = openAzsceneFilesManager, dockStateManager = dockStateManager,
+                            undoRedoCoordinator = undoRedoCoordinator
                         )
                     else null
                 )
@@ -169,7 +173,8 @@ fun StudioView(
                     scope = pluginScope,
                     repository = projectRepository,
                     openAzsceneFilesManager = openAzsceneFilesManager,
-                    dockStateManager = dockStateManager
+                    dockStateManager = dockStateManager,
+                    undoRedoCoordinator = undoRedoCoordinator
                 )
 
                 // Register dynamic panels for .azorascene files (delegated to Scene Studio plugin)
@@ -284,6 +289,7 @@ fun StudioFloatingWindowsProvider(
     // Host context dependencies handed to plugin content
     val pluginLogger: AzoraLogger = koinInject()
     val projectRepository: AzoraProjectRepository = koinInject()
+    val undoRedoCoordinator: dev.azora.sdk.core.presentation.undoredo.GlobalUndoRedoCoordinator = koinInject()
     val pluginScope = rememberCoroutineScope()
 
     // Create ContentBrowserViewModel (the project's single file browser)
@@ -346,7 +352,8 @@ fun StudioFloatingWindowsProvider(
                         StudioPluginContext(
                             project = project, projectPath = projectPath, fileSystem = fileSystem,
                             logger = pluginLogger, scope = pluginScope, repository = projectRepository,
-                            openAzsceneFilesManager = openAzsceneFilesManager, dockStateManager = dockStateManager
+                            openAzsceneFilesManager = openAzsceneFilesManager, dockStateManager = dockStateManager,
+                            undoRedoCoordinator = undoRedoCoordinator
                         )
                     else null
                 )
@@ -384,7 +391,8 @@ fun StudioFloatingWindowsProvider(
                     scope = pluginScope,
                     repository = projectRepository,
                     openAzsceneFilesManager = openAzsceneFilesManager,
-                    dockStateManager = dockStateManager
+                    dockStateManager = dockStateManager,
+                    undoRedoCoordinator = undoRedoCoordinator
                 )
 
                 // Register dynamic panels for .azorascene files (delegated to Scene Studio plugin)
@@ -600,6 +608,7 @@ internal fun ProblemsPanel() {
                 fontWeight = FontWeight.SemiBold
             )
             if (allDiagnostics.isNotEmpty()) {
+                val clipboardManager = LocalClipboardManager.current
                 Text(
                     text = "${allDiagnostics.size} error${if (allDiagnostics.size != 1) "s" else ""}",
                     color = Color(0xFFFF6666),
@@ -621,8 +630,7 @@ internal fun ProblemsPanel() {
                                 val ln = if (d.diagnostic.line > 0) ":${d.diagnostic.line}" else ""
                                 "${d.fileName}$ln  ${d.diagnostic.message}"
                             }
-                            val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
-                            clipboard.setContents(java.awt.datatransfer.StringSelection(text), null)
+                            clipboardManager.setText(AnnotatedString(text))
                         }
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 )

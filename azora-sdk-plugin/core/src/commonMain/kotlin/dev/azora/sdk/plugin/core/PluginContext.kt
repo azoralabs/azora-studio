@@ -42,4 +42,8 @@ interface PluginContext {
      * Default no-op so hosts that don't support it (or other [PluginContext] impls) still compile.
      */
     fun openScene(filePath: String) {}
+
+    /** Host undo/redo facade — register a [PluginUndoRedoProvider] so the toolbar buttons drive the
+     *  plugin's undo/redo stacks. Null when the host doesn't support it. */
+    val undoRedo: PluginUndoRedoFacade? get() = null
 }

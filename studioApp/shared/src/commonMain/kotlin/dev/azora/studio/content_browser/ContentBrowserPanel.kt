@@ -20,9 +20,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import dev.azora.studio.util.currentTimeMillis
+import dev.azora.studio.util.isSecondaryClick
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -306,7 +307,7 @@ private fun ContentViewGrid(
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
-                        if (event.type == PointerEventType.Press && event.button == PointerButton.Secondary) {
+                        if (event.type == PointerEventType.Press && event.isSecondaryClick()) {
                             onBackgroundRightClick(event.changes.firstOrNull()?.position ?: Offset.Zero)
                         }
                     }
@@ -362,7 +363,7 @@ private fun GridTile(
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
-                        if (event.type == PointerEventType.Press && event.button == PointerButton.Secondary) {
+                        if (event.type == PointerEventType.Press && event.isSecondaryClick()) {
                             onSelect()
                             onContextMenu(event.changes.firstOrNull()?.position ?: Offset.Zero)
                         }
@@ -370,7 +371,7 @@ private fun GridTile(
                 }
             }
             .clickable(interactionSource = interactionSource, indication = null) {
-                val now = System.currentTimeMillis()
+                val now = currentTimeMillis()
                 if (now - lastClickTime < 300) onActivate() else onSelect()
                 lastClickTime = now
             }
@@ -412,7 +413,7 @@ private fun ContentViewList(
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
-                        if (event.type == PointerEventType.Press && event.button == PointerButton.Secondary) {
+                        if (event.type == PointerEventType.Press && event.isSecondaryClick()) {
                             onBackgroundRightClick(event.changes.firstOrNull()?.position ?: Offset.Zero)
                         }
                     }
@@ -466,7 +467,7 @@ private fun ListRow(
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
-                        if (event.type == PointerEventType.Press && event.button == PointerButton.Secondary) {
+                        if (event.type == PointerEventType.Press && event.isSecondaryClick()) {
                             onSelect()
                             onContextMenu(event.changes.firstOrNull()?.position ?: Offset.Zero)
                         }
@@ -474,7 +475,7 @@ private fun ListRow(
                 }
             }
             .clickable(interactionSource = interactionSource, indication = null) {
-                val now = System.currentTimeMillis()
+                val now = currentTimeMillis()
                 if (now - lastClickTime < 300) onActivate() else onSelect()
                 lastClickTime = now
             }
