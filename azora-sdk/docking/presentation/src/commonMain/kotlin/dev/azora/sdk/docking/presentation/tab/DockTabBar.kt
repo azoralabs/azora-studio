@@ -102,7 +102,10 @@ fun DockTabBar(
             // Measure all tabs
             panels.forEachIndexed { index, panel ->
                 val isBeingDragged = draggedTabIndex == index
-                val showDropIndicator = potentialDropIndex == index && draggedTabIndex != null && draggedTabIndex != index
+                // Inserting before the dragged tab or before its right neighbor keeps the
+                // order unchanged, so no indicator for those positions
+                val showDropIndicator = potentialDropIndex == index && draggedTabIndex != null &&
+                    draggedTabIndex != index && draggedTabIndex != index - 1
 
                 var isExternalDragging by remember { mutableStateOf(false) }
 
@@ -132,19 +135,29 @@ fun DockTabBar(
                         onClick = { onTabSelect(index) },
                         onClose = { onTabClose(panel.id) },
                         onDragStart = { offset ->
+                            // A drag consumes the pointer events, so clickable never fires;
+                            // select here so a click with slight movement still switches tabs
+                            onTabSelect(index)
                             draggedTabIndex = index
                             dragOffset = Offset.Zero
                         },
                         onDrag = { delta ->
                             dragOffset += delta
-                            val currentX = (tabBounds[index]?.left ?: 0f) + dragOffset.x
-                            potentialDropIndex = findDropIndex(currentX, tabBounds, visibleCount, index)
+                            val bounds = tabBounds[index]
+                            val currentCenterX = (bounds?.left ?: 0f) + (bounds?.width ?: 0f) / 2 + dragOffset.x
+                            potentialDropIndex = findDropIndex(currentCenterX, tabBounds, visibleCount, index)
                         },
                         onDragEnd = {
                             val from = draggedTabIndex
                             val to = potentialDropIndex
-                            if (from != null && to != null && from != to) {
-                                onTabReorder(from, to)
+                            if (from != null && to != null) {
+                                // findDropIndex returns an insertion position ("before tab i");
+                                // convert to the final index after removal so that dropping a tab
+                                // next to itself is a no-op instead of a swap
+                                val target = if (to > from) to - 1 else to
+                                if (target != from) {
+                                    onTabReorder(from, target)
+                                }
                             }
                             draggedTabIndex = null
                             dragOffset = Offset.Zero
@@ -252,9 +265,10 @@ fun DockTabBar(
  * Calculates the target drop index for a tab being dragged.
  *
  * Compares the drag position against tab midpoints to determine
- * where the dragged tab should be inserted.
+ * where the dragged tab should be inserted. The returned value is an
+ * insertion position ("before tab i"), not a final index.
  *
- * @param dragX Current X position of the dragged tab
+ * @param dragX Current X position of the dragged tab's center
  * @param tabBounds Map of tab indices to their bounding rectangles
  * @param visibleCount Number of visible (non-overflow) tabs
  * @param draggedIndex Index of the tab being dragged

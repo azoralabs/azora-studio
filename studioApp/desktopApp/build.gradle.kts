@@ -85,6 +85,10 @@ compose.desktop {
             description = "Azora Studio"
             vendor = "DoubleGArts"
 
+            // jdk.unsupported: sun.misc.Unsafe used by datastore/atomicfu at runtime;
+            // java.sql: needed by the bundled database driver. Neither is detected by jlink.
+            modules("jdk.unsupported", "java.sql")
+
             macOS {
                 bundleID = "com.azoralabs.azorastudio"
                 dockName = "Azora Studio"
