@@ -76,26 +76,35 @@ compose.desktop {
             targetFormats(
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Dmg,
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi,
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe,
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb,
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Rpm,
             )
             packageName = "Azora Studio"
             packageVersion = "1.0.0"
             description = "Azora Studio"
             vendor = "DoubleGArts"
 
-            // TODO: add azora_icon.icns / azora_icon.ico to src/desktopMain/resources
-            // before running the Dmg/Msi packaging tasks (only azora_icon.png exists today).
             macOS {
+                bundleID = "com.azoralabs.azorastudio"
                 dockName = "Azora Studio"
-                iconFile.set(project.file("src/desktopMain/resources/azora_icon.icns"))
+                iconFile.set(project.file("icons/azora_icon.icns"))
             }
 
             windows {
-                iconFile.set(project.file("src/desktopMain/resources/azora_icon.ico"))
+                // Stable GUID so MSI upgrades replace previous installs
+                upgradeUuid = "F94ED144-7796-4061-B035-4BDFC7979A45"
+                menuGroup = "Azora"
+                perUserInstall = true
+                dirChooser = true
+                shortcut = true
+                iconFile.set(project.file("icons/azora_icon.ico"))
             }
 
             linux {
-                iconFile.set(project.file("src/desktopMain/resources/azora_icon.png"))
+                packageName = "azora-studio"
+                menuGroup = "Development"
+                iconFile.set(project.file("icons/azora_icon.png"))
             }
         }
 
