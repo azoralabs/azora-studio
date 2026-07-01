@@ -5,7 +5,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import dev.azora.sdk.core.component.debug.AzoraPreview
 import dev.azora.sdk.core.theme.palette.AzoraPalette
 
 /**
@@ -53,4 +55,34 @@ fun AzoraLoadingIndicator(
             )
         }
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun AzoraLoadingIndicator_IndeterminatePreview() = AzoraPreview {
+    AzoraLoadingIndicator(
+        color = AzoraPalette.White,
+        modifier = Modifier.padding(8.dp)
+    )
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun AzoraLoadingIndicator_LargePreview() = AzoraPreview {
+    AzoraLoadingIndicator(
+        color = AzoraPalette.White,
+        large = true,
+        modifier = Modifier.padding(8.dp)
+    )
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun AzoraLoadingIndicator_DeterminatePreview() = AzoraPreview {
+    AzoraLoadingIndicator(
+        color = AzoraPalette.White,
+        large = true,
+        progress = 0.65f,
+        modifier = Modifier.padding(8.dp)
+    )
 }

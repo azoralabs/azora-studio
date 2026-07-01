@@ -80,22 +80,21 @@ fun AzoraDashWrapper(
 
 @Preview(showBackground = true)
 @Composable
-private fun AzoraDashWrapper_Preview() =
-    AzoraPreview {
-        Card(
-            modifier = Modifier
-                .padding(32.dp)
-                .size(128.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = AzoraPalette.Neutral20
+private fun AzoraDashWrapper_Preview() = AzoraPreview {
+    Card(
+        modifier = Modifier
+            .padding(32.dp)
+            .size(128.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = AzoraPalette.Neutral20
+        )
+    ) {
+        AzoraDashWrapper {
+            Text(
+                text = "Content",
+                color = AzoraPalette.Neutral90
             )
-        ) {
-            AzoraDashWrapper {
-                Text(
-                    text = "Content",
-                    color = AzoraPalette.Neutral90
-                )
-            }
         }
     }
+}

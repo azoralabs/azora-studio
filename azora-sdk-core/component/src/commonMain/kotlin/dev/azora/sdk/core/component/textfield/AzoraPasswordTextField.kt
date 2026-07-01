@@ -37,7 +37,7 @@ import org.jetbrains.compose.resources.*
  * @param placeholder Optional placeholder text shown when field is empty
  * @param supportingText Optional helper or error text shown below the field
  * @param isError Whether the field is in an error state (changes border color)
- * @param enabled Whether the field is enabled for input
+ * @param isEnabled Whether the field is enabled for input
  * @param onFocusChanged Callback invoked when focus state changes
  */
 @Composable
@@ -134,52 +134,49 @@ fun AzoraPasswordTextField(
 
 @Composable
 @Preview(showBackground = true)
-private fun AzoraPasswordTextField_EmptyPreview() =
-    AzoraPreview {
-        var text by remember { mutableStateOf("") }
+private fun AzoraPasswordTextField_EmptyPreview() = AzoraPreview {
+    var text by remember { mutableStateOf("") }
 
-        AzoraPasswordTextField(
-            value = text,
-            onValueChange = { text = it },
-            isPasswordVisible = true,
-            onToggleVisibilityClick = {},
-            modifier = Modifier.width(300.dp),
-            placeholder = "Password",
-            supportingText = "Use 9+ characters, at least one digit and one uppercase letter",
-        )
-    }
-
-@Composable
-@Preview(showBackground = true)
-private fun AzoraPasswordTextFieldFilled_Preview() =
-    AzoraPreview {
-        var text by remember { mutableStateOf("password123") }
-
-        AzoraPasswordTextField(
-            value = text,
-            onValueChange = { text = it },
-            isPasswordVisible = false,
-            onToggleVisibilityClick = {},
-            modifier = Modifier.width(300.dp),
-            placeholder = "Password",
-            supportingText = "Use 9+ characters, at least one digit and one uppercase letter",
-        )
-    }
+    AzoraPasswordTextField(
+        value = text,
+        onValueChange = { text = it },
+        isPasswordVisible = true,
+        onToggleVisibilityClick = {},
+        modifier = Modifier.width(300.dp),
+        placeholder = "Password",
+        supportingText = "Use 9+ characters, at least one digit and one uppercase letter",
+    )
+}
 
 @Composable
 @Preview(showBackground = true)
-private fun AzoraPasswordTextField_ErrorPreview() =
-    AzoraPreview {
-        var text by remember { mutableStateOf("password123") }
+private fun AzoraPasswordTextFieldFilled_Preview() = AzoraPreview {
+    var text by remember { mutableStateOf("password123") }
 
-        AzoraPasswordTextField(
-            value = text,
-            onValueChange = { text = it },
-            isPasswordVisible = true,
-            onToggleVisibilityClick = {},
-            modifier = Modifier.width(300.dp),
-            placeholder = "Password",
-            supportingText = "Doesn't contain an uppercase character",
-            isError = true,
-        )
-    }
+    AzoraPasswordTextField(
+        value = text,
+        onValueChange = { text = it },
+        isPasswordVisible = false,
+        onToggleVisibilityClick = {},
+        modifier = Modifier.width(300.dp),
+        placeholder = "Password",
+        supportingText = "Use 9+ characters, at least one digit and one uppercase letter",
+    )
+}
+
+@Composable
+@Preview(showBackground = true)
+private fun AzoraPasswordTextField_ErrorPreview() = AzoraPreview {
+    var text by remember { mutableStateOf("password123") }
+
+    AzoraPasswordTextField(
+        value = text,
+        onValueChange = { text = it },
+        isPasswordVisible = true,
+        onToggleVisibilityClick = {},
+        modifier = Modifier.width(300.dp),
+        placeholder = "Password",
+        supportingText = "Doesn't contain an uppercase character",
+        isError = true,
+    )
+}

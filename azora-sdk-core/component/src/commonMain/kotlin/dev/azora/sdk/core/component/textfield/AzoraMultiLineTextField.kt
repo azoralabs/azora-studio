@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.azora.sdk.core.component.button.AzoraButton
+import dev.azora.sdk.core.component.debug.AzoraPreview
 import dev.azora.sdk.core.theme.palette.AzoraPalette
 
 /**
@@ -120,7 +121,7 @@ fun AzoraMultiLineTextField(
 
 @Preview(showBackground = true)
 @Composable
-private fun AzoraMultiLineTextField_Preview() {
+private fun AzoraMultiLineTextField_Preview() = AzoraPreview {
     var text by remember {
         mutableStateOf("This is some text field content that maybe spans multiple lines")
     }

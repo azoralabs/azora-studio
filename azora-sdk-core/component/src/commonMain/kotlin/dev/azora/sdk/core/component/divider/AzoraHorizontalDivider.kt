@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.*
-import dev.azora.sdk.core.component.divider.AzoraHorizontalDivider
+import dev.azora.sdk.core.component.debug.AzoraPreview
 import dev.azora.sdk.core.theme.palette.AzoraPalette
 
 /**
@@ -36,7 +36,7 @@ fun ColumnScope.AzoraHorizontalDivider(
 
 @Preview
 @Composable
-private fun AzoraHorizontalDivider_Preview() {
+private fun AzoraHorizontalDivider_Preview() = AzoraPreview {
     Column(
         modifier = Modifier
             .width(200.dp)

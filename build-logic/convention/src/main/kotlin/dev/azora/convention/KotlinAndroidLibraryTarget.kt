@@ -15,7 +15,7 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
  *
  * Configuration:
  * - Namespace derived from the project path (see [pathToPackageName])
- * - Compile/Min SDK versions from `projectCompileSdkVersion` / `projectMinSdkVersion`
+ * - Compile/Min SDK versions from `android-compileSdk` / `android-minSdk`
  *   in the version catalog
  * - JVM target set to Java 17
  * - Android resources enabled (required for Compose resources on Android)
@@ -24,8 +24,8 @@ internal fun Project.configureAndroidLibraryTarget() {
     extensions.configure<KotlinMultiplatformExtension> {
         (this as ExtensionAware).extensions.configure<KotlinMultiplatformAndroidLibraryTarget>("androidLibrary") {
             namespace = this@configureAndroidLibraryTarget.pathToPackageName()
-            compileSdk = libs.findVersion("projectCompileSdkVersion").get().toString().toInt()
-            minSdk = libs.findVersion("projectMinSdkVersion").get().toString().toInt()
+            compileSdk = libs.findVersion("android-compileSdk").get().toString().toInt()
+            minSdk = libs.findVersion("android-minSdk").get().toString().toInt()
 
             compilerOptions {
                 jvmTarget.set(JvmTarget.JVM_17)

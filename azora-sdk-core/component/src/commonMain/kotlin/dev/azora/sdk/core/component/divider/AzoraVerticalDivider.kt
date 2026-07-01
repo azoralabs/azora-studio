@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.*
-import dev.azora.sdk.core.component.divider.AzoraVerticalDivider
+import dev.azora.sdk.core.component.debug.AzoraPreview
 import dev.azora.sdk.core.theme.palette.AzoraPalette
 
 /**
@@ -36,7 +36,7 @@ fun RowScope.AzoraVerticalDivider(
 
 @Preview
 @Composable
-private fun AzoraVerticalDivider_Preview() {
+private fun AzoraVerticalDivider_Preview() = AzoraPreview {
     Row(
         modifier = Modifier
             .height(100.dp)

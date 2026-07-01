@@ -43,7 +43,7 @@ fun SplashScreen(
             ) {
                 AzoraBrandLogo(
                     modifier = Modifier.padding(end = 4.dp),
-                    width = 160.dp
+                    imageWidth = 160.dp
                 )
 
                 Text(

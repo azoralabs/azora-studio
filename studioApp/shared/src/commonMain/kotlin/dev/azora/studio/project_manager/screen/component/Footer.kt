@@ -27,7 +27,7 @@ internal fun Footer() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            AzoraBrandLogo(width = 80.dp)
+            AzoraBrandLogo(imageWidth = 80.dp)
 
             Text(
                 text = BuildConfig.STUDIO_VERSION,

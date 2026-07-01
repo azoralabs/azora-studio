@@ -7,10 +7,14 @@ kotlin {
         commonMain.dependencies {
             implementation(libs.kotlin.stdlib)
             implementation(libs.compose.components.resources)
-            implementation(libs.compose.uiToolingPreview)
+            implementation(libs.compose.ui.tooling.preview)
 
             implementation(projects.azoraSdkCore.presentation)
             implementation(projects.azoraSdkCore.theme)
+        }
+
+        androidMain.dependencies {
+            implementation(libs.compose.ui.tooling)
         }
     }
 }

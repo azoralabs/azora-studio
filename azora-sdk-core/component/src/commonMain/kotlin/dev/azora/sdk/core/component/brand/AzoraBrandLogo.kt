@@ -7,6 +7,7 @@ import androidx.compose.ui.*
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.*
 import azorastudio.azora_sdk_core.component.generated.resources.*
+import dev.azora.sdk.core.component.debug.AzoraPreview
 import dev.azora.sdk.core.theme.palette.AzoraPalette
 import org.jetbrains.compose.resources.painterResource
 
@@ -17,14 +18,14 @@ import org.jetbrains.compose.resources.painterResource
  * Use this for branding in headers, sidebars, or splash screens.
  *
  * @param modifier Modifier to apply to the logo container.
- * @param width The width of the logo. Height scales proportionally.
+ * @param imageWidth The width of the logo. Height scales proportionally.
  *
  * @see dev.azora.sdk.core.component.brand.AzoraLogo For the icon-only version.
  */
 @Composable
 fun AzoraBrandLogo(
     modifier: Modifier = Modifier,
-    width: Dp = 256.dp
+    imageWidth: Dp = 256.dp
 ) {
     Box(
         modifier = modifier,
@@ -33,14 +34,14 @@ fun AzoraBrandLogo(
         Image(
             painter = painterResource(Res.drawable.azora_brand_logo),
             contentDescription = "Azora",
-            modifier = Modifier.width(width)
+            modifier = Modifier.width(imageWidth)
         )
     }
 }
 
 @Preview
 @Composable
-private fun AzoraBrandLogo_Preview() {
+private fun AzoraBrandLogo_Preview() = AzoraPreview {
     AzoraBrandLogo(
         modifier = Modifier.background(AzoraPalette.Neutral90)
     )

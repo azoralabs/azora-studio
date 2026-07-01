@@ -7,6 +7,7 @@ import androidx.compose.ui.*
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.*
 import azorastudio.azora_sdk_core.component.generated.resources.*
+import dev.azora.sdk.core.component.debug.AzoraPreview
 import dev.azora.sdk.core.theme.palette.AzoraPalette
 import org.jetbrains.compose.resources.painterResource
 
@@ -40,7 +41,7 @@ fun AzoraLogo(
 
 @Preview
 @Composable
-private fun AzoraLogo_Preview() {
+private fun AzoraLogo_Preview() = AzoraPreview {
     AzoraLogo(
         modifier = Modifier.background(AzoraPalette.Neutral90)
     )

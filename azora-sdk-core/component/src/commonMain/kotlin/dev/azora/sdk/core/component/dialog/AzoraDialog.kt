@@ -12,7 +12,6 @@ import androidx.compose.ui.window.*
 import dev.azora.sdk.core.component.button.AzoraButton
 import dev.azora.sdk.core.component.debug.AzoraPreview
 import dev.azora.sdk.core.theme.LocalAzoraPalette
-import dev.azora.sdk.core.theme.palette.AzoraPalette
 
 /**
  * A reusable Azora dialog with a centered card layout.
@@ -130,41 +129,40 @@ fun AzoraDialog(
 
 @Preview
 @Composable
-private fun AzoraDialog_Preview() =
-    AzoraPreview {
-        val palette = LocalAzoraPalette.current
+private fun AzoraDialog_Preview() = AzoraPreview {
+    val palette = LocalAzoraPalette.current
 
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier.width(400.dp),
+            shape = RoundedCornerShape(8.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = palette.background
+            )
         ) {
-            Card(
-                modifier = Modifier.width(400.dp),
-                shape = RoundedCornerShape(8.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = palette.background
+            AzoraDialogColumn {
+                Text(
+                    text = "Dialog Title",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = palette.contentTop
                 )
-            ) {
-                AzoraDialogColumn {
-                    Text(
-                        text = "Dialog Title",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = palette.contentTop
-                    )
 
-                    Text(
-                        text = "This is the dialog content.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = palette.contentMid
-                    )
+                Text(
+                    text = "This is the dialog content.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.contentMid
+                )
 
-                    Spacer(Modifier)
+                Spacer(Modifier)
 
-                    AzoraButton(
-                        text = "Confirm",
-                        {})
-                }
+                AzoraButton(
+                    text = "Confirm",
+                    {})
             }
         }
     }
+}

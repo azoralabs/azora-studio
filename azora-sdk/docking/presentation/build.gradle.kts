@@ -13,7 +13,7 @@ kotlin {
             implementation(libs.compose.material3)
             implementation(libs.compose.ui)
             implementation(libs.compose.components.resources)
-            implementation(libs.compose.uiToolingPreview)
+            implementation(libs.compose.ui.tooling.preview)
 
             implementation(projects.azoraSdk.docking.domain)
             implementation(projects.azoraSdk.docking.data)

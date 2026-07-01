@@ -39,19 +39,18 @@ fun AzoraDialogColumn(
 
 @Preview
 @Composable
-private fun AzoraDialogColumn_Preview() =
-    AzoraPreview {
-        Box(Modifier.background(AzoraPalette.Neutral80)) {
-            AzoraDialogColumn {
-                Text(
-                    text = "Dialog Title",
-                    color = AzoraPalette.Neutral10
-                )
+private fun AzoraDialogColumn_Preview() = AzoraPreview {
+    Box(Modifier.background(AzoraPalette.Neutral80)) {
+        AzoraDialogColumn {
+            Text(
+                text = "Dialog Title",
+                color = AzoraPalette.Neutral10
+            )
 
-                Text(
-                    text = "This is the dialog content with automatic spacing.",
-                    color = AzoraPalette.Neutral40
-                )
-            }
+            Text(
+                text = "This is the dialog content with automatic spacing.",
+                color = AzoraPalette.Neutral40
+            )
         }
     }
+}

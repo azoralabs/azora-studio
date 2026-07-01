@@ -1,7 +1,7 @@
 package dev.azora.sdk.core.component.textfield
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.*
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme.typography
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -12,7 +12,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.azora.sdk.core.component.debug.AzoraPreview
-import dev.azora.sdk.core.theme.*
+import dev.azora.sdk.core.theme.LocalAzoraPalette
 
 /**
  * A styled text input field with support for validation, placeholders, and supporting text.
@@ -101,61 +101,57 @@ fun AzoraTextField(
 
 @Composable
 @Preview(showBackground = true)
-private fun AzoraTextField_EmptyPreview() =
-    AzoraPreview {
-        var text by remember { mutableStateOf("") }
+private fun AzoraTextField_EmptyPreview() = AzoraPreview {
+    var text by remember { mutableStateOf("") }
 
-        AzoraTextField(
-            value = text,
-            onValueChange = { text = it },
-            modifier = Modifier.width(300.dp),
-            placeholder = "Email",
-            supportingText = "Please enter your email",
-        )
-    }
+    AzoraTextField(
+        value = text,
+        onValueChange = { text = it },
+        modifier = Modifier.width(300.dp),
+        placeholder = "Email",
+        supportingText = "Please enter your email",
+    )
+}
 
 @Composable
 @Preview(showBackground = true)
-private fun AzoraTextField_FilledPreview() =
-    AzoraPreview {
-        var text by remember { mutableStateOf("test@test.com") }
+private fun AzoraTextField_FilledPreview() = AzoraPreview {
+    var text by remember { mutableStateOf("test@test.com") }
 
-        AzoraTextField(
-            value = text,
-            onValueChange = { text = it },
-            modifier = Modifier.width(300.dp),
-            placeholder = "Email",
-            supportingText = "Please enter your email",
-        )
-    }
+    AzoraTextField(
+        value = text,
+        onValueChange = { text = it },
+        modifier = Modifier.width(300.dp),
+        placeholder = "Email",
+        supportingText = "Please enter your email",
+    )
+}
 
 @Composable
 @Preview
-private fun AzoraTextField_DisabledPreview() =
-    AzoraPreview {
-        var text by remember { mutableStateOf("") }
+private fun AzoraTextField_DisabledPreview() = AzoraPreview {
+    var text by remember { mutableStateOf("") }
 
-        AzoraTextField(
-            value = text,
-            onValueChange = { text = it },
-            modifier = Modifier.width(300.dp),
-            placeholder = "Email",
-            supportingText = "Please enter your email",
-            isEnabled = false
-        )
-    }
+    AzoraTextField(
+        value = text,
+        onValueChange = { text = it },
+        modifier = Modifier.width(300.dp),
+        placeholder = "Email",
+        supportingText = "Please enter your email",
+        isEnabled = false
+    )
+}
 
 @Composable
 @Preview(showBackground = true)
-private fun AzoraTextField_ErrorPreview() =
-    AzoraPreview {
-        var text by remember { mutableStateOf("aaa%fg5") }
+private fun AzoraTextField_ErrorPreview() = AzoraPreview {
+    var text by remember { mutableStateOf("aaa%fg5") }
 
-        AzoraTextField(
-            value = text,
-            onValueChange = { text = it },
-            modifier = Modifier.width(300.dp),
-            supportingText = "This is not a valid email",
-            isError = true,
-        )
-    }
+    AzoraTextField(
+        value = text,
+        onValueChange = { text = it },
+        modifier = Modifier.width(300.dp),
+        supportingText = "This is not a valid email",
+        isError = true,
+    )
+}

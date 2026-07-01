@@ -133,48 +133,44 @@ fun AzoraButton(
 
 @Preview(showBackground = true)
 @Composable
-private fun AzoraButton_PrimaryPreview() =
-    AzoraPreview {
-        AzoraButton(
-            text = "Primary",
-            onClick = {},
-            modifier = Modifier.padding(8.dp)
-        )
-    }
+private fun AzoraButton_PrimaryPreview() = AzoraPreview {
+    AzoraButton(
+        text = "Primary",
+        onClick = {},
+        modifier = Modifier.padding(8.dp)
+    )
+}
 
 @Preview(showBackground = true)
 @Composable
-private fun AzoraButton_PrimaryProcessingPreview() =
-    AzoraPreview {
-        AzoraButton(
-            text = "Primary",
-            onClick = {},
-            processing = true,
-            modifier = Modifier.padding(8.dp)
-        )
-    }
+private fun AzoraButton_PrimaryProcessingPreview() = AzoraPreview {
+    AzoraButton(
+        text = "Primary",
+        onClick = {},
+        processing = true,
+        modifier = Modifier.padding(8.dp)
+    )
+}
 
 @Preview(showBackground = true)
 @Composable
-private fun AzoraButton_SecondaryPreview() =
-    AzoraPreview {
-        AzoraButton(
-            text = "Secondary",
-            onClick = {},
-            style = AzoraButtonStyle.SECONDARY,
-            modifier = Modifier.padding(8.dp)
-        )
-    }
+private fun AzoraButton_SecondaryPreview() = AzoraPreview {
+    AzoraButton(
+        text = "Secondary",
+        onClick = {},
+        style = AzoraButtonStyle.SECONDARY,
+        modifier = Modifier.padding(8.dp)
+    )
+}
 
 @Preview(showBackground = true)
 @Composable
-private fun AzoraButton_SecondaryProcessingPreview() =
-    AzoraPreview {
-        AzoraButton(
-            text = "Primary",
-            onClick = {},
-            style = AzoraButtonStyle.SECONDARY,
-            processing = true,
-            modifier = Modifier.padding(8.dp)
-        )
-    }
+private fun AzoraButton_SecondaryProcessingPreview() = AzoraPreview {
+    AzoraButton(
+        text = "Primary",
+        onClick = {},
+        style = AzoraButtonStyle.SECONDARY,
+        processing = true,
+        modifier = Modifier.padding(8.dp)
+    )
+}

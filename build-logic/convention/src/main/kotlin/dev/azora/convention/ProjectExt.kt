@@ -16,7 +16,7 @@ import org.gradle.kotlin.dsl.getByType
  *     implementation(libs.findLibrary("kotlinx-coroutines").get())
  * }
  *
- * val sdkVersion = libs.findVersion("projectCompileSdkVersion").get().toString()
+ * val sdkVersion = libs.findVersion("android-compileSdk").get().toString()
  * ```
  *
  * @see VersionCatalog For available lookup methods
