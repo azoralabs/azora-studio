@@ -22,6 +22,12 @@ kotlin {
             implementation(projects.azoraSdk.canvas.domain)
             implementation(projects.azoraSdk.canvas.presentation)
 
+            // Universal compiler SDK — not used by Studio directly, but plugin JARs (React/KMP
+            // generators) link against these classes at runtime via the parent classloader.
+            implementation(projects.azoraSdk.compiler.scaffold)
+            implementation(projects.azoraSdk.compiler.scene.data)
+            implementation(projects.azoraSdk.compiler.scene.domain)
+
             implementation(projects.azoraSdk.color.presentation)
 
             implementation(projects.azoraSdk.docking.data)

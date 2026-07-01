@@ -115,7 +115,6 @@ internal fun HueWheelWithTriangle(
         modifier = modifier
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
-                    println("[HueWheelDebug] tap offset=$offset")
                     // Convert offset to triangle coordinate space
                     val triangleOffset = Offset(
                         offset.x - (size.width - triangleSize.width) / 2,
@@ -147,13 +146,11 @@ internal fun HueWheelWithTriangle(
                             isInsideWheelRing(offset) -> ColorDragTarget.Wheel
                             else -> ColorDragTarget.None
                         }
-                        println("[HueWheelDebug] dragStart offset=$offset target=$dragTarget triangleSize=$triangleSize")
                     },
-                    onDragEnd = { println("[HueWheelDebug] dragEnd"); dragTarget = ColorDragTarget.None },
-                    onDragCancel = { println("[HueWheelDebug] dragCancel"); dragTarget = ColorDragTarget.None },
+                    onDragEnd = { dragTarget = ColorDragTarget.None },
+                    onDragCancel = { dragTarget = ColorDragTarget.None },
                     onDrag = { change, _ ->
                         change.consume()
-                        println("[HueWheelDebug] drag pos=${change.position} target=$dragTarget")
                         when (dragTarget) {
                             ColorDragTarget.Triangle -> {
                                 val triangleOffset = Offset(

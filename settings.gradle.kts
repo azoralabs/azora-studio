@@ -50,6 +50,10 @@ include(":azora-sdk:canvas:presentation")
 
 include(":azora-sdk:color:presentation")
 
+include(":azora-sdk:compiler:scaffold")
+include(":azora-sdk:compiler:scene:data")
+include(":azora-sdk:compiler:scene:domain")
+
 include(":azora-sdk:docking:data")
 include(":azora-sdk:docking:domain")
 include(":azora-sdk:docking:presentation")
