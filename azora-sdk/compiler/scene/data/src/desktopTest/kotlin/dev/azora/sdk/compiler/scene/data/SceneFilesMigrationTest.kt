@@ -83,4 +83,46 @@ class SceneFilesMigrationTest {
         assertFalse("\"root\":" in out, "pool-shaped input must not gain a root key, got:\n$out")
         assertTrue("\"rootId\":" in out)
     }
+
+    // AI agents/scripts write CSS-style numbers into .azn modifiers (opacity 0.85, fontSize 16.5).
+    // The schema wants ints (opacity is a percent), and one bad field used to fail the whole doc.
+    @Test
+    fun `externally written fractional numbers are normalized to schema ints`() {
+        val agentWritten = """
+            { "type": "azora-website-page", "name": "Home", "route": "/",
+              "nodes": [
+                { "type": "column", "id": "c_root", "modifier": {}, "arrangement": "START",
+                  "slots": [ { "id": "s_1", "childId": "c_t1", "reroutePoints": [] } ] },
+                { "type": "text", "id": "c_t1",
+                  "modifier": { "opacity": 0.85, "fontSize": 16.5, "padding": 12.0, "textColor": "#FFFFFF" },
+                  "text": "hi" }
+              ],
+              "rootId": "c_root",
+              "positions": { "c_root": { "x": 10.5, "y": 4.25 } },
+              "instances": {}, "nav": [], "settings": {} }
+        """.trimIndent()
+
+        val doc = SceneFiles.json.decodeFromString<SceneDocument>(
+            SceneFiles.normalizeNumericJson(agentWritten)
+        )
+        val text = doc.nodes.first { it.id == "c_t1" }
+        assertEquals(85, text.modifier.opacity)
+        assertEquals(17, text.modifier.fontSize)
+        assertEquals(12, text.modifier.padding)
+        // Canvas positions live outside modifiers and keep their float precision.
+        assertEquals(10.5f, doc.positions["c_root"]?.x)
+    }
+
+    @Test
+    fun `integer opacity written by the editor is left untouched`() {
+        val editorWritten = """
+            { "type": "azora-website-page", "name": "H", "route": "/",
+              "nodes": [ { "type": "text", "id": "c_t", "modifier": { "opacity": 85 }, "text": "x" } ],
+              "rootId": "c_t", "positions": {}, "instances": {}, "nav": [], "settings": {} }
+        """.trimIndent()
+        val doc = SceneFiles.json.decodeFromString<SceneDocument>(
+            SceneFiles.normalizeNumericJson(editorWritten)
+        )
+        assertEquals(85, doc.nodes.first().modifier.opacity)
+    }
 }

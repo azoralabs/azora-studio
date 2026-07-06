@@ -209,8 +209,17 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
         detachedProjectDir = null
 
         process?.let { proc ->
-            runCatching { proc.descendants().forEach { it.destroy() } }
+            val children = runCatching { proc.descendants().toList() }.getOrDefault(emptyList())
+            children.forEach { it.destroy() }
             proc.destroy()
+            // Escalate to a hard kill after a grace period: a dev server that ignores SIGTERM can
+            // survive half-dead, keeping its port open without ever responding — which makes the
+            // browser (and the next Run on that port) hang forever.
+            thread(isDaemon = true, name = "azora-run-kill") {
+                Thread.sleep(1500)
+                children.forEach { child -> if (child.isAlive) child.destroyForcibly() }
+                if (proc.isAlive) proc.destroyForcibly()
+            }
             console.info("Stopped.")
         }
         process = null

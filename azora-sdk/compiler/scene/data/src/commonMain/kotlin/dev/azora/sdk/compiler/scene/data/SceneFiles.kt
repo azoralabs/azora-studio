@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlin.math.roundToInt
 
 /**
  * Reads/writes `.azn` scene documents anywhere in a project.
@@ -83,7 +84,7 @@ object SceneFiles {
         val baseName = path.substringAfterLast('/').removeSuffix(EXT)
         return when (val r = fs.readFromFile(path)) {
             is FileReadResult.Success -> runCatching {
-                json.decodeFromString<SceneDocument>(migrateLegacyJson(r.content))
+                json.decodeFromString<SceneDocument>(normalizeNumericJson(migrateLegacyJson(r.content)))
                     .let { if (it.name.isBlank()) it.copy(name = baseName) else it }
             }.getOrNull()
             is FileReadResult.Error -> null
@@ -111,6 +112,71 @@ object SceneFiles {
             doc != null && doc.type == type &&
                 (doc.name == name || path.substringAfterLast('/').removeSuffix(EXT) == name)
         }
+
+    /**
+     * Makes externally-written `.azn` JSON parseable where numbers don't match the strict schema.
+     * `.azn` files are edited by tools other than Studio (AI agents, scripts), which tend to write
+     * CSS-style numbers: `"opacity": 0.85` (the schema wants an integer percent 0–100) or fractional
+     * px values (`"fontSize": 16.5`). Instead of failing the whole document over one such field —
+     * which blanks the editor and drops the page from previews — this pass rewrites, inside
+     * `modifier` objects only:
+     * - `opacity` written as a fraction ≤ 1 → integer percent (`0.85` → `85`);
+     * - other integer-typed fields written with a fractional part → rounded.
+     * Values written as integers are left untouched (an editor-written `opacity: 85` stays 85), and
+     * canvas position floats live outside `modifier` so they keep full precision.
+     */
+    internal fun normalizeNumericJson(content: String): String {
+        val parsed = runCatching { json.parseToJsonElement(content) }.getOrNull() ?: return content
+        return normalizeElement(parsed).toString()
+    }
+
+    private val modifierIntKeys =
+        setOf("width", "height", "padding", "gap", "fontSize", "cornerRadius", "borderWidth")
+
+    private fun normalizeElement(el: JsonElement): JsonElement = when (el) {
+        is JsonObject -> buildJsonObject {
+            el.forEach { (k, v) ->
+                put(k, if (k == "modifier" && v is JsonObject) normalizeModifier(v) else normalizeElement(v))
+            }
+        }
+        is JsonArray -> buildJsonArray { el.forEach { add(normalizeElement(it)) } }
+        else -> el
+    }
+
+    /** True when the primitive was written as a non-integer number literal (`0.85`, `16.5`, `1e2`). */
+    private fun JsonPrimitive.isFractionalNumber(): Boolean =
+        !isString && (content.contains('.') || content.contains('e') || content.contains('E'))
+
+    private fun roundedInt(prim: JsonPrimitive): JsonElement =
+        prim.content.toDoubleOrNull()?.let { JsonPrimitive(it.roundToInt()) } ?: prim
+
+    private fun normalizeModifier(mod: JsonObject): JsonObject = buildJsonObject {
+        mod.forEach { (k, v) ->
+            val prim = v as? JsonPrimitive
+            put(k, when {
+                k == "opacity" && prim != null && prim.isFractionalNumber() -> {
+                    val d = prim.content.toDoubleOrNull()
+                    when {
+                        d == null -> v
+                        d <= 1.0 -> JsonPrimitive((d * 100).roundToInt())
+                        else -> JsonPrimitive(d.roundToInt())
+                    }
+                }
+                k in modifierIntKeys && prim != null && prim.isFractionalNumber() -> roundedInt(prim)
+                k == "corners" && v is JsonObject -> buildJsonObject {
+                    v.forEach { (corner, cv) ->
+                        put(corner, if (cv is JsonObject) buildJsonObject {
+                            cv.forEach { (axis, av) ->
+                                val ap = av as? JsonPrimitive
+                                put(axis, if (ap != null && ap.isFractionalNumber()) roundedInt(ap) else av)
+                            }
+                        } else cv)
+                    }
+                }
+                else -> v
+            })
+        }
+    }
 
     /**
      * Converts a legacy `.azn` JSON (parent-child `root` tree + `freeNodes`, inline `children`) into
