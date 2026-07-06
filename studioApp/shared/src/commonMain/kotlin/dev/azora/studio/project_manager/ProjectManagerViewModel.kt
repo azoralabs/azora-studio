@@ -6,6 +6,7 @@ import dev.azora.sdk.core.domain.util.Res
 import dev.azora.sdk.core.presentation.util.*
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
 import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
+import dev.azora.sdk.library.presentation.LibraryManager
 import dev.azora.sdk.plugin.presentation.PluginManager
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
@@ -14,7 +15,8 @@ import kotlinx.coroutines.launch
 class ProjectManagerViewModel(
     private val projectRepository: AzoraProjectRepository,
     private val logger: AzoraLogger,
-    private val pluginManager: PluginManager
+    private val pluginManager: PluginManager,
+    private val libraryManager: LibraryManager
 ) : ViewModel() {
 
     private val clazz = this::class.simpleName
@@ -26,21 +28,28 @@ class ProjectManagerViewModel(
     val state = _state.asStateFlow()
 
     init {
-        // Load installed plugins, then keep the available-template list in sync as plugins are
-        // installed/enabled/disabled. With no contributing plugins, only the Empty template shows.
+        // Load installed plugins and libraries, then keep the available-template list in sync as
+        // they are installed/enabled/removed. With no contributors, only the Empty template shows.
         viewModelScope.launch {
             runCatching { pluginManager.loadInstalledPlugins() }
             refreshAvailableTemplates()
             pluginManager.installedPlugins.collect { refreshAvailableTemplates() }
         }
+        viewModelScope.launch {
+            runCatching { libraryManager.loadInstalledLibraries() }
+            refreshAvailableTemplates()
+            libraryManager.installedLibraries.collect { refreshAvailableTemplates() }
+        }
     }
 
     /**
-     * Recompute [ProjectManagerState.availableTemplates] from the plugin manager's contributions:
-     * the builtin Empty template plus every contribution a plugin declares.
+     * Recompute [ProjectManagerState.availableTemplates]: the builtin Empty template plus every
+     * contribution declared by enabled plugins and installed libraries (e.g. the Azora Engine's
+     * "App" and "Game" templates).
      */
     private fun refreshAvailableTemplates() {
-        val contributed = pluginManager.templateContributions().map { contribution ->
+        val contributions = pluginManager.templateContributions() + libraryManager.templateContributions()
+        val contributed = contributions.map { contribution ->
             AvailableTemplate(
                 templateId = contribution.id,
                 label = contribution.label,

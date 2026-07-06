@@ -6,6 +6,7 @@ import dev.azora.sdk.core.domain.logging.AzoraLogger
 import dev.azora.sdk.core.io.di.coreIoModule
 import dev.azora.sdk.core.presentation.di.corePresentationModule
 import dev.azora.sdk.core.project.data.di.azoraProjectDataModule
+import dev.azora.sdk.library.presentation.di.libraryPresentationModule
 import dev.azora.sdk.plugin.presentation.di.pluginPresentationModule
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
@@ -34,6 +35,7 @@ fun initKoin(config: KoinAppDeclaration? = null) {
             corePresentationModule,
             azoraProjectDataModule,
             pluginPresentationModule,
+            libraryPresentationModule,
         )
     }
 }

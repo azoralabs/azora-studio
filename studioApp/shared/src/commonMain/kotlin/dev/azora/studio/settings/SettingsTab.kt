@@ -8,5 +8,6 @@ enum class SettingsTab(val label: String) {
     THEME("Theme"),
     AZORA_SCRIPT("Azora Script"),
     SCENE_STUDIO("Scene Settings"),
-    PLUGINS("Plugins")
+    PLUGINS("Plugins"),
+    LIBRARIES("Libraries")
 }

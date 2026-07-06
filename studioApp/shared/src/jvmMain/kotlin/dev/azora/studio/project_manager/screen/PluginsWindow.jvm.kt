@@ -10,12 +10,13 @@ import java.awt.Dimension
 @Composable
 actual fun PluginsWindow(
     onCloseRequest: () -> Unit,
+    title: String,
     content: @Composable () -> Unit
 ) {
     DialogWindow(
         onCloseRequest = onCloseRequest,
         state = rememberDialogState(width = 580.dp, height = 560.dp),
-        title = "Plugins",
+        title = title,
         resizable = true
     ) {
         LaunchedEffect(window) {

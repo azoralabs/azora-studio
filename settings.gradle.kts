@@ -73,4 +73,7 @@ include(":azora-sdk-plugin:core")
 include(":azora-sdk-plugin:domain")
 include(":azora-sdk-plugin:presentation")
 
+include(":azora-sdk-library:core")
+include(":azora-sdk-library:presentation")
+
 include(":azora-shared")

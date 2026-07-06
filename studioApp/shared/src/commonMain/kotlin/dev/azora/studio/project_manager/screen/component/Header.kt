@@ -19,7 +19,8 @@ import org.jetbrains.compose.resources.painterResource
 @Composable
 internal fun Header(
     onNewProjectClick: () -> Unit,
-    onPluginsClick: () -> Unit = {}
+    onPluginsClick: () -> Unit = {},
+    onLibrariesClick: () -> Unit = {}
 ) {
     val palette = LocalAzoraPalette.current
 
@@ -54,6 +55,20 @@ internal fun Header(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AzoraButton(
+                    text = "Libraries",
+                    style = AzoraButtonStyle.SECONDARY,
+                    leadingIcon = {
+                        Icon(
+                            painter = painterResource(Res.drawable.ic_inventory),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = AzoraPalette.White
+                        )
+                    },
+                    onClick = onLibrariesClick
+                )
+
                 AzoraButton(
                     text = "Plugins",
                     style = AzoraButtonStyle.SECONDARY,

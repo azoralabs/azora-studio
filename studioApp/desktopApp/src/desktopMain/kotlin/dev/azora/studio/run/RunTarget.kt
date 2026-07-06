@@ -2,6 +2,7 @@ package dev.azora.studio.run
 
 import dev.azora.sdk.core.project.domain.BUILTIN_TEMPLATE_ID_EMPTY
 import dev.azora.sdk.core.project.domain.ProjectRunTargetKind
+import dev.azora.sdk.library.presentation.LibraryManager
 import dev.azora.sdk.plugin.presentation.PluginManager
 import java.io.File
 
@@ -50,24 +51,27 @@ object RunTargets {
     private fun emulator(): File? = sdkDir()?.resolve("emulator/emulator")?.takeIf { it.canExecute() }
 
     /** Whether the template can be run from Studio at all (drives toolbar visibility). Cheap (no subprocess). */
-    fun isRunnable(templateId: String, pluginManager: PluginManager): Boolean =
+    fun isRunnable(templateId: String, pluginManager: PluginManager, libraryManager: LibraryManager): Boolean =
         templateId == BUILTIN_TEMPLATE_ID_EMPTY ||
-            pluginManager.templateContributions()
+            (pluginManager.templateContributions() + libraryManager.templateContributions())
                 .firstOrNull { it.id == templateId }
                 ?.runTargets
                 ?.isNotEmpty() == true
 
     /**
      * Targets for [templateId]. The builtin "empty" template contributes a plain "Run"; every other
-     * template's targets come from the matching plugin's contribution. Android/iOS-kind targets are
-     * expanded to per-device/per-simulator targets. Performs subprocess calls — run off the UI thread.
+     * template's targets come from the matching plugin's or library's contribution (library targets
+     * are always shell commands, e.g. the Azora Engine's build-and-run script). Android/iOS-kind
+     * targets are expanded to per-device/per-simulator targets. Performs subprocess calls — run off
+     * the UI thread.
      */
-    fun targetsFor(templateId: String, pluginManager: PluginManager): List<RunTarget> = buildList {
+    fun targetsFor(templateId: String, pluginManager: PluginManager, libraryManager: LibraryManager): List<RunTarget> = buildList {
         if (templateId == BUILTIN_TEMPLATE_ID_EMPTY) {
             add(RunTarget("run", "Run", RunTargetKind.JVM, "run"))
             return@buildList
         }
-        val contribution = pluginManager.templateContributions().firstOrNull { it.id == templateId } ?: return@buildList
+        val contribution = (pluginManager.templateContributions() + libraryManager.templateContributions())
+            .firstOrNull { it.id == templateId } ?: return@buildList
         contribution.runTargets.forEach { target ->
             when (target.kind) {
                 ProjectRunTargetKind.GRADLE -> add(

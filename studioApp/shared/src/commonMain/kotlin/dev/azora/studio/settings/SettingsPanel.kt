@@ -63,6 +63,7 @@ fun SettingsPanel(
                     SettingsTab.AZORA_SCRIPT -> AzScriptSettingsContent(state = state, onAction = onAction)
                     SettingsTab.SCENE_STUDIO -> SceneStudioSettingsContent(state = state, onAction = onAction)
                     SettingsTab.PLUGINS -> PluginsSettingsContent(onLaunchPlugin = onLaunchPlugin)
+                    SettingsTab.LIBRARIES -> LibrariesSettingsContent()
                 }
             } else {
                 // Plugin-contributed tab

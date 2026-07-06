@@ -77,6 +77,8 @@ kotlin {
 
             implementation(projects.azoraSdkPlugin.core)
             implementation(projects.azoraSdkPlugin.presentation)
+            implementation(projects.azoraSdkLibrary.core)
+            implementation(projects.azoraSdkLibrary.presentation)
         }
     }
 }

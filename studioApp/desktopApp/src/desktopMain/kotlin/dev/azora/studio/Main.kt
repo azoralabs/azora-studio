@@ -420,32 +420,36 @@ fun main() {
                     java.io.File(System.getProperty("user.home") + "/Documents", state.projectPath)
                 }
 
-                // Inject PluginManager (needed for run-target enumeration + plugin menu/windows).
+                // Inject PluginManager (needed for run-target enumeration + plugin menu/windows)
+                // and LibraryManager (library-contributed templates, e.g. Azora Engine App/Game).
                 val pluginManager: dev.azora.sdk.plugin.presentation.PluginManager = koinInject()
+                val libraryManager: dev.azora.sdk.library.presentation.LibraryManager = koinInject()
                 val installedPlugins by pluginManager.installedPlugins.collectAsState()
+                val installedLibraries by libraryManager.installedLibraries.collectAsState()
                 val enabledPlugins = installedPlugins.filter { it.enabled }
 
-                // Load external plugins on startup
+                // Load external plugins + libraries on startup
                 LaunchedEffect(Unit) {
                     pluginManager.loadInstalledPlugins()
+                    runCatching { libraryManager.loadInstalledLibraries() }
                 }
 
                 val runScope = rememberCoroutineScope()
                 var runTargets by remember(state.project.template) { mutableStateOf<List<RunTarget>>(emptyList()) }
                 var selectedTarget by remember(state.project.template) { mutableStateOf<RunTarget?>(null) }
-                val templateRunnable = RunTargets.isRunnable(state.project.template, pluginManager)
+                val templateRunnable = RunTargets.isRunnable(state.project.template, pluginManager, libraryManager)
                 val refreshTargets: () -> Unit = {
                     runScope.launch {
-                        val targets = withContext(Dispatchers.IO) { RunTargets.targetsFor(state.project.template, pluginManager) }
+                        val targets = withContext(Dispatchers.IO) { RunTargets.targetsFor(state.project.template, pluginManager, libraryManager) }
                         runTargets = targets
                         if (selectedTarget == null || targets.none { it.id == selectedTarget?.id }) {
                             selectedTarget = targets.firstOrNull()
                         }
                     }
                 }
-                // Re-enumerate when the template or the set of enabled plugins changes (plugins may
-                // load asynchronously after the project opens).
-                LaunchedEffect(state.project.template, enabledPlugins) { refreshTargets() }
+                // Re-enumerate when the template or the set of enabled plugins/installed libraries
+                // changes (both may load asynchronously after the project opens).
+                LaunchedEffect(state.project.template, enabledPlugins, installedLibraries) { refreshTargets() }
                 // Regenerate the project from its source files before each run, then launch the
                 // selected target — so "Run" always reflects the latest edits. For the Website
                 // template this re-emits generated/ from the current .azscene pages/components;
