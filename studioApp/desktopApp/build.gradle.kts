@@ -76,6 +76,33 @@ kotlin {
     }
 }
 
+// ── Bundled Azora Engine library ─────────────────────────────────────────
+// Embeds the engine's .azlib bundle (built by ../azora-engine/tools/package.sh)
+// as an app resource under bundled-libraries/; BundledLibraries installs it to
+// ~/.azora/libraries on startup. Skipped gracefully when the dist isn't built.
+val embedBundledLibraries = tasks.register<Copy>("embedBundledLibraries") {
+    val engineDist = rootProject.projectDir.resolve("../azora-engine/dist")
+    val outputDir = layout.buildDirectory.dir("generated/bundledLibraries/bundled-libraries").get().asFile
+    from(engineDist) { include("*.azlib") }
+    into(outputDir)
+    doLast {
+        outputDir.mkdirs()
+        val names = outputDir.listFiles { f -> f.extension == "azlib" }?.map { it.name }?.sorted() ?: emptyList()
+        outputDir.resolve("index.txt").writeText(names.joinToString("\n"))
+        if (names.isEmpty()) {
+            logger.warn("azora-engine dist not found at $engineDist — no library bundled (run azora-engine/tools/package.sh)")
+        }
+    }
+}
+
+kotlin.sourceSets.named("desktopMain") {
+    resources.srcDir(layout.buildDirectory.dir("generated/bundledLibraries"))
+}
+
+tasks.matching { it.name == "desktopProcessResources" }.configureEach {
+    dependsOn(embedBundledLibraries)
+}
+
 compose.desktop {
     application {
         mainClass = "dev.azora.studio.MainKt"

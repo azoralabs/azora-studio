@@ -71,6 +71,18 @@ data class ProjectTemplateContribution(
     val supportsOptionalServer: Boolean = false,
     val generator: ProjectTemplateGenerator,
     val runTargets: List<ProjectRunTarget> = emptyList(),
+    /**
+     * Variant grouping: contributions sharing a [groupId] are presented as ONE
+     * template card whose variants are picked from a dropdown (e.g. the Azora
+     * Engine "Game" template with Tetris / Runner / Shapes / Empty variants).
+     * [groupLabel]/[groupDescription] describe the card; [variantLabel] is the
+     * dropdown entry; [isDefaultVariant] marks the initially selected variant.
+     */
+    val groupId: String? = null,
+    val groupLabel: String? = null,
+    val groupDescription: String? = null,
+    val variantLabel: String? = null,
+    val isDefaultVariant: Boolean = false,
 )
 
 /**

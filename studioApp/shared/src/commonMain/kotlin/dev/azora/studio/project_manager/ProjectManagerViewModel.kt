@@ -45,18 +45,37 @@ class ProjectManagerViewModel(
     /**
      * Recompute [ProjectManagerState.availableTemplates]: the builtin Empty template plus every
      * contribution declared by enabled plugins and installed libraries (e.g. the Azora Engine's
-     * "App" and "Game" templates).
+     * "App" and "Game" templates). Contributions sharing a groupId collapse into one card whose
+     * variants are picked from a dropdown.
      */
     private fun refreshAvailableTemplates() {
         val contributions = pluginManager.templateContributions() + libraryManager.templateContributions()
-        val contributed = contributions.map { contribution ->
-            AvailableTemplate(
-                templateId = contribution.id,
-                label = contribution.label,
-                description = contribution.description,
-                pluginId = null,
-                supportsOptionalServer = contribution.supportsOptionalServer
-            )
+        val contributed = mutableListOf<AvailableTemplate>()
+        val seenGroups = mutableSetOf<String>()
+        for (contribution in contributions) {
+            val groupId = contribution.groupId
+            if (groupId == null) {
+                contributed += AvailableTemplate(
+                    templateId = contribution.id,
+                    label = contribution.label,
+                    description = contribution.description,
+                    pluginId = null,
+                    supportsOptionalServer = contribution.supportsOptionalServer
+                )
+            } else if (seenGroups.add(groupId)) {
+                val members = contributions.filter { it.groupId == groupId }
+                val default = members.firstOrNull { it.isDefaultVariant } ?: members.first()
+                contributed += AvailableTemplate(
+                    templateId = default.id,
+                    label = contribution.groupLabel ?: contribution.label,
+                    description = contribution.groupDescription ?: contribution.description,
+                    pluginId = null,
+                    supportsOptionalServer = contribution.supportsOptionalServer,
+                    variants = members.map {
+                        TemplateVariant(it.id, it.variantLabel ?: it.label, it.description)
+                    }
+                )
+            }
         }
         _state.update { it.copy(availableTemplates = listOf(AvailableTemplate.EMPTY) + contributed) }
     }

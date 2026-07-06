@@ -109,7 +109,16 @@ class DesktopLibraryManagerTest {
         assertEquals("azora-engine", installed.id)
 
         val templates = manager.templateContributions()
-        assertEquals(setOf("azora-engine-app", "azora-engine-game"), templates.map { it.id }.toSet())
+        val ids = templates.map { it.id }.toSet()
+        assertTrue("azora-engine-app" in ids, "App template contributed")
+        assertTrue("azora-engine-game" in ids, "Game (Empty variant) keeps its stable id")
         assertTrue(templates.all { it.runTargets.isNotEmpty() })
+
+        // Game variants (Tetris / Runner / Shapes / Empty) group into one card.
+        val gameVariants = templates.filter { it.groupId == "azora-engine-game" }
+        if (gameVariants.isNotEmpty()) {
+            assertTrue(gameVariants.size >= 4, "expected at least 4 game variants, got ${gameVariants.size}")
+            assertTrue(gameVariants.count { it.isDefaultVariant } == 1, "exactly one default variant")
+        }
     }
 }

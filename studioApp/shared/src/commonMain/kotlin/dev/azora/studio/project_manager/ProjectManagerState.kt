@@ -15,7 +15,18 @@ data class AvailableTemplate(
     val description: String,
     val pluginId: String? = null,
     val supportsOptionalServer: Boolean = false,
+    /**
+     * Selectable variants of this template (e.g. Game → Tetris / Temple Run /
+     * Shapes / Empty). When non-empty, [templateId] is the default variant and
+     * the create-project dialog shows a dropdown; the chosen variant's id is
+     * what gets stored on the project.
+     */
+    val variants: List<TemplateVariant> = emptyList(),
 ) {
+    /** True when [id] selects this card (directly or via one of its variants). */
+    fun matches(id: String): Boolean =
+        templateId == id || variants.any { it.templateId == id }
+
     companion object {
         /** The single builtin template, always available. */
         val EMPTY = AvailableTemplate(
@@ -26,6 +37,13 @@ data class AvailableTemplate(
         )
     }
 }
+
+/** One dropdown entry of an [AvailableTemplate] with variants. */
+data class TemplateVariant(
+    val templateId: String,
+    val label: String,
+    val description: String,
+)
 
 data class ProjectManagerState(
     val projectName: FieldState<String> = FieldState.textField("NewProject"),

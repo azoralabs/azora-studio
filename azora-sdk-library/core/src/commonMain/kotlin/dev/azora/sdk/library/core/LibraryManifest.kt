@@ -40,9 +40,28 @@ data class LibraryTemplateSpec(
     val id: String,
     val label: String,
     val description: String = "",
-    val path: String,
+    /** Template file tree; ignored when [variants] are declared (each variant has its own path). */
+    val path: String = "",
     val accentColor: String = "#FF9C27B0",
     val runTargets: List<LibraryRunTargetSpec> = emptyList(),
+    /**
+     * Optional variants shown as a dropdown on this template's card in the
+     * create-project dialog (e.g. Game → Tetris / Temple Run / Shapes / Empty).
+     * Each variant is a full template (own id + file tree); run targets are
+     * inherited from this spec.
+     */
+    val variants: List<LibraryTemplateVariantSpec> = emptyList(),
+)
+
+/** One selectable variant of a library template. */
+@Serializable
+data class LibraryTemplateVariantSpec(
+    val id: String,
+    val label: String,
+    val description: String = "",
+    val path: String,
+    /** The variant initially selected in the dropdown. */
+    val default: Boolean = false,
 )
 
 /**

@@ -120,25 +120,59 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
         }
     }
 
-    /** [RunTargetKind.COMMAND]: launches a shell command (e.g. an npm/Vite dev server) in
-     *  [target.workingDir], streams its output, opens the browser at the first localhost URL it
-     *  prints, and stays "running" until Stop kills the process tree. */
+    /** [RunTargetKind.COMMAND]: launches a shell command (e.g. an npm/Vite dev server or an
+     *  Azora Engine build script) in [target.workingDir], streams its output, opens the browser
+     *  at the first localhost URL it prints, and stays "running" until Stop kills the process tree. */
     private fun runCommand(projectDir: File, target: RunTarget) {
         val command = target.command
         if (command.isNullOrBlank()) { console.error("Run target \"${target.label}\" has no command."); return }
         val dir = target.workingDir?.let { File(projectDir, it) } ?: projectDir
         if (!dir.isDirectory) { console.error("Working directory not found: ${dir.absolutePath}"); return }
+
+        // Projects usually live under ~/Documents, which may be iCloud-synced: between Studio
+        // sessions iCloud can evict files to dataless placeholders. /bin/sh then fails reading
+        // the script with "Interrupted system call" (exit 126), while JVM reads block until the
+        // file is materialized — so touch every shell script first, and retry a failed launch.
+        materializeScripts(dir)
+
         val full = if (isWindows) listOf("cmd", "/c", command) else listOf("sh", "-lc", command)
-        console.info("> $command   (in ${target.workingDir ?: "."})")
-        val proc = ProcessBuilder(full).directory(dir).redirectErrorStream(true).start()
-        process = proc
-        var opened = false
-        proc.inputStream.bufferedReader().forEachLine { line ->
-            console.println(line)
-            if (!opened) URL_REGEX.find(line)?.value?.let { url -> opened = true; openInBrowser(url) }
+        var attempt = 0
+        while (true) {
+            attempt++
+            console.info("> $command   (in ${target.workingDir ?: "."})")
+            val proc = ProcessBuilder(full).directory(dir).redirectErrorStream(true).start()
+            process = proc
+            var opened = false
+            var sawEintr = false
+            proc.inputStream.bufferedReader().forEachLine { line ->
+                console.println(line)
+                if (line.contains("Interrupted system call")) sawEintr = true
+                if (!opened) URL_REGEX.find(line)?.value?.let { url -> opened = true; openInBrowser(url) }
+            }
+            val code = proc.waitFor()
+            if (code == 0) return
+            // 126 = "found but cannot execute" — with EINTR that's the iCloud eviction race.
+            if (attempt < 3 && (code == 126 || sawEintr)) {
+                console.info("Script wasn't readable yet (iCloud sync) — retrying…")
+                materializeScripts(dir)
+                Thread.sleep(400)
+                continue
+            }
+            console.error("Exited with code $code")
+            return
         }
-        val code = proc.waitFor()
-        if (code != 0) console.error("Exited with code $code")
+    }
+
+    /** Forces iCloud-evicted project files back onto disk by reading them via the JVM
+     *  (scripts + small sources; build output and assets are regenerated anyway). */
+    private fun materializeScripts(dir: File) {
+        val extensions = setOf("sh", "az", "json", "toml")
+        runCatching {
+            dir.walkTopDown()
+                .onEnter { it.name != ".azora-build" && it.name != "node_modules" && it.name != "build" }
+                .filter { it.isFile && it.extension in extensions && it.length() < 1_000_000 }
+                .forEach { file -> runCatching { file.readBytes() } }
+        }
     }
 
     /** Opens [url] in the platform default browser (best-effort). */

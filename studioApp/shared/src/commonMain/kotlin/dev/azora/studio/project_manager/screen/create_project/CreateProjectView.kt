@@ -7,9 +7,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme.typography
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -73,7 +79,17 @@ fun ColumnScope.CreateProjectView(
         )
 
         // Optional Ktor server — only for templates that opt in (via their contribution).
-        val selectedTemplate = state.availableTemplates.firstOrNull { it.templateId == state.template }
+        val selectedTemplate = state.availableTemplates.firstOrNull { it.matches(state.template) }
+
+        // Variant dropdown — for templates that ship multiple starting points
+        // (e.g. Game → Tetris / Temple Run / Shapes / Empty).
+        if (selectedTemplate != null && selectedTemplate.variants.isNotEmpty()) {
+            TemplateVariantDropdown(
+                template = selectedTemplate,
+                selectedId = state.template,
+                onSelect = { onAction(ProjectManagerAction.OnTemplateChange(it)) }
+            )
+        }
         if (selectedTemplate?.supportsOptionalServer == true) {
             ServerCheckbox(
                 checked = state.includeServer,
@@ -163,7 +179,7 @@ private fun TemplateSelector(
                 rowTemplates.forEach { template ->
                     TemplateCard(
                         template = template,
-                        isSelected = template.templateId == selected,
+                        isSelected = template.matches(selected),
                         onSelect = onSelect,
                         modifier = Modifier.weight(1f)
                     )
@@ -210,6 +226,99 @@ private fun TemplateCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/**
+ * Dropdown picking a starting point among a template's variants (shown when
+ * the selected card contributes more than one, e.g. the Azora Engine Game
+ * template's Tetris / Temple Run / Shapes / Empty).
+ */
+@Composable
+private fun TemplateVariantDropdown(
+    template: AvailableTemplate,
+    selectedId: String,
+    onSelect: (String) -> Unit
+) {
+    val palette = LocalAzoraPalette.current
+    var expanded by remember { mutableStateOf(false) }
+    val selected = template.variants.firstOrNull { it.templateId == selectedId }
+        ?: template.variants.first()
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = "${template.label} starting point",
+            style = typography.labelMedium,
+            color = palette.contentMid
+        )
+        Box {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(palette.surfaceMid)
+                    .border(1.dp, palette.surfaceDisabled, RoundedCornerShape(8.dp))
+                    .clickable { expanded = true }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = selected.label,
+                        style = typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = palette.contentTop
+                    )
+                    if (selected.description.isNotBlank()) {
+                        Text(
+                            text = selected.description,
+                            style = typography.labelSmall,
+                            color = palette.contentMid,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                Text(text = "▾", color = palette.contentMid)
+            }
+
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                containerColor = palette.surfaceMid
+            ) {
+                template.variants.forEach { variant ->
+                    DropdownMenuItem(
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = variant.label,
+                                    style = typography.bodyMedium,
+                                    fontWeight = if (variant.templateId == selected.templateId)
+                                        FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (variant.templateId == selected.templateId)
+                                        palette.primary else palette.contentTop
+                                )
+                                if (variant.description.isNotBlank()) {
+                                    Text(
+                                        text = variant.description,
+                                        style = typography.labelSmall,
+                                        color = palette.contentMid,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        },
+                        onClick = {
+                            expanded = false
+                            onSelect(variant.templateId)
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 

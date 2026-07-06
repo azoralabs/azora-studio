@@ -121,6 +121,16 @@ fun main() {
         modules(dev.azora.studio.di.desktopModule)
     }
 
+    // Install the library bundles shipped with the Studio (the Azora Engine)
+    // into ~/.azora/libraries so their templates are available out of the box.
+    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+        runCatching {
+            dev.azora.studio.library.BundledLibraries.installIfMissing(
+                org.koin.core.context.GlobalContext.get().get()
+            )
+        }.onFailure { println("libraries: bundled install failed: ${it.message}") }
+    }
+
     // Initialise a theme up-front so AzoraTheme.current is set before the first frame;
     // the persisted preference is applied reactively once it loads.
     AzoraTheme.apply(if (isSystemInDarkMode()) AzoraTheme.Dark else AzoraTheme.Light)

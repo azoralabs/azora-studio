@@ -101,28 +101,52 @@ class DesktopLibraryManager(
 
     override fun templateContributions(): List<ProjectTemplateContribution> =
         _installedLibraries.value.flatMap { library ->
-            library.templates.map { spec ->
-                ProjectTemplateContribution(
-                    id = spec.id,
-                    label = spec.label,
-                    description = spec.description,
-                    accentColor = spec.accentColor,
-                    generator = LibraryTemplateGenerator(
-                        libraryDir = File(library.installPath),
-                        templatePath = spec.path,
-                        libraryId = library.id,
-                        libraryVersion = library.version,
-                    ),
-                    runTargets = spec.runTargets.map { rt ->
-                        ProjectRunTarget(
-                            id = rt.id,
-                            label = rt.label,
-                            kind = ProjectRunTargetKind.COMMAND,
-                            command = rt.command,
-                            workingDir = rt.workingDir,
-                        )
-                    },
+            library.templates.flatMap { spec ->
+                val runTargets = spec.runTargets.map { rt ->
+                    ProjectRunTarget(
+                        id = rt.id,
+                        label = rt.label,
+                        kind = ProjectRunTargetKind.COMMAND,
+                        command = rt.command,
+                        workingDir = rt.workingDir,
+                    )
+                }
+                fun generator(path: String) = LibraryTemplateGenerator(
+                    libraryDir = File(library.installPath),
+                    templatePath = path,
+                    libraryId = library.id,
+                    libraryVersion = library.version,
                 )
+                if (spec.variants.isEmpty()) {
+                    listOf(
+                        ProjectTemplateContribution(
+                            id = spec.id,
+                            label = spec.label,
+                            description = spec.description,
+                            accentColor = spec.accentColor,
+                            generator = generator(spec.path),
+                            runTargets = runTargets,
+                        )
+                    )
+                } else {
+                    // Each variant is a full template; the host groups them
+                    // into one card with a variant dropdown.
+                    spec.variants.map { variant ->
+                        ProjectTemplateContribution(
+                            id = variant.id,
+                            label = variant.label,
+                            description = variant.description,
+                            accentColor = spec.accentColor,
+                            generator = generator(variant.path),
+                            runTargets = runTargets,
+                            groupId = spec.id,
+                            groupLabel = spec.label,
+                            groupDescription = spec.description,
+                            variantLabel = variant.label,
+                            isDefaultVariant = variant.default,
+                        )
+                    }
+                }
             }
         }
 
