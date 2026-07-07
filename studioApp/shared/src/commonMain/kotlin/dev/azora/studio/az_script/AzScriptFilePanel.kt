@@ -3,6 +3,7 @@ package dev.azora.studio.az_script
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -13,6 +14,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +37,10 @@ import dev.azora.sdk.docking.domain.DockAction
 import dev.azora.sdk.docking.domain.DockPanelDescriptor
 import dev.azora.sdk.docking.domain.DockStateManager
 import dev.azora.sdk.docking.domain.DockZone
+import dev.azora.sdk.core.domain.util.Res
+import dev.azora.sdk.core.project.domain.SettingsModel
+import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
+import dev.azora.sdk.core.project.domain.repository.SettingsRepository
 import dev.azora.studio.assets.OpenAzScriptFilesManager
 import dev.azora.studio.assets.OpenAzoraNodesFilesManager
 import dev.azora.studio.editor.EDITOR_AREA_NODE_ID
@@ -58,12 +66,25 @@ import org.koin.compose.koinInject
 fun AzScriptFilePanel(panelId: String, projectPath: String) {
     val manager: OpenAzScriptFilesManager = koinInject()
     val intel: AzoraLanguageIntel = koinInject()
+    val debugger: AzoraScriptDebugger = koinInject()
     val diagnosticsManager: DiagnosticsManager = koinInject()
     val fileSystem: FileSystem = koinInject()
     val nodesFilesManager: OpenAzoraNodesFilesManager = koinInject()
     val dockStateManager: DockStateManager = koinInject()
     val console: ConsoleOutputManager = koinInject()
+    val settingsRepository: SettingsRepository = koinInject()
+    val projectRepository: AzoraProjectRepository = koinInject()
     val openFiles by manager.openFiles.collectAsState()
+
+    // Live editor preferences (Settings ▸ Editor) — open editors react immediately.
+    var prefs by remember { mutableStateOf(SettingsModel.default("")) }
+    LaunchedEffect(Unit) {
+        val project = projectRepository.getProject()
+        if (project is Res.Success) {
+            settingsRepository.observeSettings(project.data.id).collect { prefs = it }
+        }
+    }
+    val indentUnit = " ".repeat(prefs.editorTabSize)
     val scope = rememberCoroutineScope()
     val state = openFiles[panelId]
 
@@ -91,6 +112,81 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
             selection = fieldValue.selection.coerceIn(state.sourceCode.length)
         )
     }
+
+    // ---- undo / redo ---------------------------------------------------
+    val undoStack = remember(panelId) { mutableStateListOf<TextFieldValue>() }
+    val redoStack = remember(panelId) { mutableStateListOf<TextFieldValue>() }
+    var lastUndoPush by remember(panelId) { mutableStateOf<kotlin.time.TimeMark?>(null) }
+
+    /** Central edit application: smart-typing pipeline + undo history + persistence. */
+    fun applyEdit(proposed: TextFieldValue, viaPipeline: Boolean = true) {
+        val processed = if (viaPipeline) {
+            AzEditorText.processEdit(
+                fieldValue, proposed,
+                indent = indentUnit,
+                autoCloseBrackets = prefs.editorAutoCloseBrackets,
+                smartIndent = prefs.editorSmartIndent,
+            )
+        } else proposed
+        if (processed.text != fieldValue.text) {
+            val sinceLastPush = lastUndoPush?.elapsedNow()?.inWholeMilliseconds ?: Long.MAX_VALUE
+            if (sinceLastPush > 400 || undoStack.isEmpty()) {
+                undoStack.add(fieldValue)
+                if (undoStack.size > 200) undoStack.removeAt(0)
+                lastUndoPush = kotlin.time.TimeSource.Monotonic.markNow()
+            }
+            redoStack.clear()
+            manager.updateSource(panelId, processed.text)
+        }
+        fieldValue = processed
+    }
+
+    fun undo() {
+        val previous = undoStack.removeLastOrNull() ?: return
+        redoStack.add(fieldValue)
+        fieldValue = previous
+        manager.updateSource(panelId, previous.text)
+    }
+
+    fun redo() {
+        val next = redoStack.removeLastOrNull() ?: return
+        undoStack.add(fieldValue)
+        fieldValue = next
+        manager.updateSource(panelId, next.text)
+    }
+
+    // ---- find / replace --------------------------------------------------
+    var findVisible by remember(panelId) { mutableStateOf(false) }
+    var findQuery by remember(panelId) { mutableStateOf("") }
+    var replaceQuery by remember(panelId) { mutableStateOf("") }
+    var activeMatch by remember(panelId) { mutableStateOf(0) }
+    val searchMatches = remember(findQuery, fieldValue.text) {
+        if (findQuery.isBlank()) emptyList()
+        else buildList {
+            var index = fieldValue.text.indexOf(findQuery, ignoreCase = true)
+            while (index >= 0 && size < 2000) {
+                add(index to index + findQuery.length)
+                index = fieldValue.text.indexOf(findQuery, index + 1, ignoreCase = true)
+            }
+        }
+    }
+
+    fun gotoMatch(index: Int) {
+        if (searchMatches.isEmpty()) return
+        val wrapped = ((index % searchMatches.size) + searchMatches.size) % searchMatches.size
+        activeMatch = wrapped
+        val (start, end) = searchMatches[wrapped]
+        fieldValue = fieldValue.copy(selection = androidx.compose.ui.text.TextRange(start, end))
+    }
+
+    var fontSize by remember { mutableStateOf(13) }
+    LaunchedEffect(prefs.editorFontSize) { fontSize = prefs.editorFontSize }
+
+    // ---- hover docs ------------------------------------------------------
+    var textLayout by remember(panelId) { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+    var hoverText by remember(panelId) { mutableStateOf<String?>(null) }
+    var hoverPosition by remember(panelId) { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    var hoverJob by remember(panelId) { mutableStateOf<Job?>(null) }
 
     var spans by remember(panelId) { mutableStateOf(emptyList<AzHighlightSpan>()) }
     var diagnostics by remember(panelId) { mutableStateOf(emptyList<Diagnostic>()) }
@@ -146,11 +242,64 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
         closeCompletions()
     }
 
+    // ---- debugger ------------------------------------------------------
+    var breakpoints by remember(panelId) { mutableStateOf(setOf<Int>()) }
+    var debugActive by remember(panelId) { mutableStateOf(false) }
+    var debugState by remember(panelId) { mutableStateOf(AzDebugStatus()) }
+
+    fun toggleBreakpoint(line: Int) {
+        breakpoints = if (line in breakpoints) breakpoints - line else breakpoints + line
+        if (debugActive) scope.launch { debugger.setBreakpoints(breakpoints) }
+    }
+
+    fun startDebug() {
+        scope.launch {
+            console.info("Debug ▸ ${state.fileName}.az")
+            val started = debugger.start(fieldValue.text, state.filePath, projectPath, breakpoints)
+            if (started.status == "failed") {
+                console.error("Debug failed: ${started.error}")
+            } else {
+                debugState = AzDebugStatus(status = "running")
+                debugActive = true
+            }
+        }
+    }
+
+    // Poll the session while it is active; stream output to the console.
+    LaunchedEffect(debugActive) {
+        while (debugActive) {
+            val polled = debugger.status()
+            if (polled.output.isNotEmpty()) {
+                polled.output.trimEnd('\n').lines().forEach { console.println(it) }
+            }
+            debugState = polled
+            if (polled.status == "terminated" || polled.status == "failed" || polled.status == "none") {
+                polled.error?.let { console.error("Debug: $it") }
+                console.info("Debug ▸ finished")
+                debugActive = false
+            }
+            delay(120)
+        }
+    }
+    DisposableEffect(panelId) {
+        onDispose { if (debugActive) scope.launch { debugger.stop() } }
+    }
+
     // ---- layout --------------------------------------------------------
     val errorLines = diagnostics.filter { it.severity == "error" }.map { it.line }.toSet()
     val warningLines = diagnostics.filter { it.severity == "warning" }.map { it.line }.toSet()
-    val transformation = remember(spans, errorLines, warningLines) {
-        AzSyntaxTransformation(spans, errorLines, warningLines)
+    val debugLine = if (debugActive && debugState.status == "paused") debugState.line else null
+    val cursorLine = AzEditorText.lineColumn(fieldValue.text, fieldValue.selection.start).first
+    val bracketPair = if (fieldValue.selection.collapsed)
+        AzEditorText.matchingBracket(fieldValue.text, fieldValue.selection.start) else null
+    val transformation = remember(spans, errorLines, warningLines, debugLine, cursorLine, bracketPair, searchMatches, activeMatch) {
+        AzSyntaxTransformation(
+            spans, errorLines, warningLines, debugLine,
+            cursorLine = cursorLine,
+            bracketPair = bracketPair,
+            searchMatches = if (findVisible) searchMatches else emptyList(),
+            activeMatch = activeMatch,
+        )
     }
 
     // Caret position in dp for the popup (monospace metrics from one glyph).
@@ -158,10 +307,11 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
     val editorTextStyle = TextStyle(
         color = AzoraPalette.Neutral10,
         fontFamily = FontFamily.Monospace,
-        fontSize = 13.sp,
-        lineHeight = 18.sp
+        fontSize = fontSize.sp,
+        lineHeight = (fontSize + 5).sp
     )
-    val glyph = remember(measurer) { measurer.measure("M", editorTextStyle) }
+    val glyph = remember(measurer, fontSize) { measurer.measure("M", editorTextStyle) }
+    val lineHeightDp = with(androidx.compose.ui.platform.LocalDensity.current) { (fontSize + 5).sp.toDp() }
 
     // Converts the current buffer into a sibling .azn node graph and opens it.
     fun convertToNodes() {
@@ -206,31 +356,90 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
             intelAvailable = intel.available,
             errorCount = errorLines.size,
             warningCount = warningLines.size,
+            debugActive = debugActive,
+            debugStatus = debugState.status,
+            debugLine = debugState.line,
+            onDebug = { startDebug() },
+            onContinue = { scope.launch { debugger.resume() } },
+            onStep = { scope.launch { debugger.step() } },
+            onStopDebug = { scope.launch { debugger.stop() } },
             onConvertToNodes = { convertToNodes() },
             onSave = { scope.launch { manager.saveFile(panelId) } }
         )
 
+        if (findVisible) {
+            AzFindBar(
+                query = findQuery,
+                replace = replaceQuery,
+                matchCount = searchMatches.size,
+                activeMatch = if (searchMatches.isEmpty()) 0 else activeMatch + 1,
+                onQueryChange = { findQuery = it; activeMatch = 0 },
+                onReplaceChange = { replaceQuery = it },
+                onNext = { gotoMatch(activeMatch + 1) },
+                onPrevious = { gotoMatch(activeMatch - 1) },
+                onReplaceOne = {
+                    if (searchMatches.isNotEmpty()) {
+                        val (start, end) = searchMatches[activeMatch.coerceIn(searchMatches.indices)]
+                        val text = fieldValue.text.substring(0, start) + replaceQuery + fieldValue.text.substring(end)
+                        applyEdit(TextFieldValue(text, androidx.compose.ui.text.TextRange(start + replaceQuery.length)), viaPipeline = false)
+                    }
+                },
+                onReplaceAll = {
+                    if (findQuery.isNotBlank()) {
+                        val text = fieldValue.text.replace(findQuery, replaceQuery, ignoreCase = true)
+                        applyEdit(TextFieldValue(text, fieldValue.selection.coerceIn(text.length)), viaPipeline = false)
+                    }
+                },
+                onClose = { findVisible = false }
+            )
+        }
+
         val scrollState = rememberScrollState()
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .background(AzoraPalette.Neutral90)
                 .verticalScroll(scrollState)
-                .padding(12.dp)
         ) {
+            if (prefs.editorShowLineNumbers) BreakpointGutter(
+                lineCount = fieldValue.text.count { it == '\n' } + 1,
+                breakpoints = breakpoints,
+                debugLine = debugLine,
+                rowHeight = lineHeightDp,
+                fontSize = (fontSize - 3).coerceAtLeast(8),
+                onToggle = { toggleBreakpoint(it) }
+            )
+            // Without word wrap, long lines scroll horizontally: the field is laid
+            // out at max(viewport, widest line) width — exact for monospace text.
+            val hScroll = rememberScrollState()
+            val widestLineChars = remember(fieldValue.text) {
+                fieldValue.text.lineSequence().maxOfOrNull { it.length } ?: 0
+            }
+            BoxWithConstraints(modifier = Modifier.weight(1f).padding(top = 12.dp, end = 12.dp, bottom = 12.dp)) {
+            val viewportWidth = maxWidth
+            val contentWidth = if (prefs.editorWordWrap) viewportWidth else {
+                val textWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+                    (widestLineChars * glyph.size.width).toDp() + 24.dp
+                }
+                maxOf(viewportWidth, textWidth)
+            }
+            Box(
+                modifier = if (prefs.editorWordWrap) Modifier else Modifier.horizontalScroll(hScroll)
+            ) {
+            Box(modifier = Modifier.width(contentWidth)) {
             BasicTextField(
                 value = fieldValue,
                 onValueChange = { newValue ->
                     val textChanged = newValue.text != fieldValue.text
                     val grewByTyping = newValue.text.length == fieldValue.text.length + 1
-                    fieldValue = newValue
+                    applyEdit(newValue)
                     if (textChanged) {
-                        manager.updateSource(panelId, newValue.text)
                         val cursor = newValue.selection.start
                         val typed = if (grewByTyping && cursor > 0) newValue.text[cursor - 1] else null
                         when {
-                            typed != null && (typed.isLetterOrDigit() || typed == '_' || typed == '.') ->
+                            prefs.editorAutoCompletion && typed != null &&
+                                (typed.isLetterOrDigit() || typed == '_' || typed == '.') ->
                                 requestCompletions(debounceMs = 120)
                             else -> closeCompletions()
                         }
@@ -238,11 +447,42 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                 },
                 textStyle = editorTextStyle,
                 visualTransformation = transformation,
+                onTextLayout = { textLayout = it },
                 cursorBrush = androidx.compose.ui.graphics.SolidColor(AzoraPalette.AccentBlue),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .pointerInput(panelId) {
+                        // Hover docs: after the pointer rests ~400ms over a symbol,
+                        // ask the language server for its signature.
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.type == PointerEventType.Move) {
+                                    val position = event.changes.firstOrNull()?.position ?: continue
+                                    hoverText = null
+                                    hoverJob?.cancel()
+                                    hoverJob = scope.launch {
+                                        if (!prefs.editorHoverDocs) return@launch
+                                        delay(400)
+                                        val layout = textLayout ?: return@launch
+                                        val offset = layout.getOffsetForPosition(position)
+                                        val hover = intel.hover(fieldValue.text, offset, state.filePath, projectPath)
+                                        if (hover != null) {
+                                            hoverPosition = position
+                                            hoverText = hover.signature
+                                        }
+                                    }
+                                }
+                                if (event.type == PointerEventType.Exit) {
+                                    hoverJob?.cancel()
+                                    hoverText = null
+                                }
+                            }
+                        }
+                    }
                     .onPreviewKeyEvent { event ->
-                        handleEditorKeys(
+                        // Completion popup + save/complete shortcuts take priority…
+                        val handled = handleEditorKeys(
                             event = event,
                             completionsVisible = completionsVisible,
                             completions = completions,
@@ -253,10 +493,47 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                             onForceComplete = { requestCompletions(debounceMs = 0) },
                             onSave = { scope.launch { manager.saveFile(panelId) } }
                         )
+                        if (handled) return@onPreviewKeyEvent true
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        val meta = event.isCtrlPressed || event.isMetaPressed
+                        when {
+                            // …then the professional-editor shortcuts.
+                            event.key == Key.Tab && event.isShiftPressed ->
+                                { applyEdit(AzEditorText.outdentSelection(fieldValue, indentUnit), viaPipeline = false); true }
+                            event.key == Key.Tab ->
+                                { applyEdit(AzEditorText.indentSelection(fieldValue, indentUnit), viaPipeline = false); true }
+                            meta && event.key == Key.Slash ->
+                                { applyEdit(AzEditorText.toggleLineComment(fieldValue), viaPipeline = false); true }
+                            meta && event.isShiftPressed && event.key == Key.K ->
+                                { applyEdit(AzEditorText.deleteLine(fieldValue), viaPipeline = false); true }
+                            meta && event.key == Key.D ->
+                                { applyEdit(AzEditorText.duplicateLine(fieldValue), viaPipeline = false); true }
+                            event.isAltPressed && event.key == Key.DirectionUp ->
+                                { applyEdit(AzEditorText.moveLine(fieldValue, up = true), viaPipeline = false); true }
+                            event.isAltPressed && event.key == Key.DirectionDown ->
+                                { applyEdit(AzEditorText.moveLine(fieldValue, up = false), viaPipeline = false); true }
+                            meta && event.isShiftPressed && event.key == Key.Z -> { redo(); true }
+                            meta && event.key == Key.Z -> { undo(); true }
+                            meta && event.key == Key.Y -> { redo(); true }
+                            meta && event.key == Key.F -> {
+                                val sel = fieldValue.text.substring(fieldValue.selection.min, fieldValue.selection.max)
+                                if (sel.isNotBlank() && '\n' !in sel) findQuery = sel
+                                findVisible = true
+                                true
+                            }
+                            meta && (event.key == Key.Equals || event.key == Key.Plus) ->
+                                { fontSize = (fontSize + 1).coerceAtMost(28); true }
+                            meta && event.key == Key.Minus ->
+                                { fontSize = (fontSize - 1).coerceAtLeast(9); true }
+                            meta && event.key == Key.Zero -> { fontSize = 13; true }
+                            event.key == Key.Escape && findVisible -> { findVisible = false; true }
+                            else -> false
+                        }
                     }
             )
 
             if (completionsVisible && completions.isNotEmpty()) {
+                // (popup remains anchored inside the editor box)
                 val cursor = fieldValue.selection.start.coerceIn(0, fieldValue.text.length)
                 val before = fieldValue.text.take(cursor)
                 val line = before.count { it == '\n' }
@@ -276,11 +553,42 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                     )
                 }
             }
+            hoverText?.let { signature ->
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(hoverPosition.x.toInt(), (hoverPosition.y - 34).toInt().coerceAtLeast(0)) }
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(AzoraPalette.Neutral80)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = signature,
+                        color = AzoraPalette.AccentBlue,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1
+                    )
+                }
+            }
+            } // content-width box
+            } // h-scroll box
+            } // editor box
         }
 
+        if (debugActive && debugState.status == "paused" && debugState.locals.isNotEmpty()) {
+            AzDebugLocalsBar(debugState.locals)
+        }
         if (diagnostics.isNotEmpty()) {
             AzProblemsStrip(diagnostics)
         }
+
+        AzStatusBar(
+            line = cursorLine,
+            column = AzEditorText.lineColumn(fieldValue.text, fieldValue.selection.start).second,
+            selectionLength = fieldValue.selection.max - fieldValue.selection.min,
+            intelAvailable = intel.available,
+            fontSize = fontSize
+        )
     }
 }
 
@@ -333,6 +641,13 @@ private fun AzScriptHeader(
     intelAvailable: Boolean,
     errorCount: Int,
     warningCount: Int,
+    debugActive: Boolean,
+    debugStatus: String,
+    debugLine: Int,
+    onDebug: () -> Unit,
+    onContinue: () -> Unit,
+    onStep: () -> Unit,
+    onStopDebug: () -> Unit,
     onConvertToNodes: () -> Unit,
     onSave: () -> Unit,
 ) {
@@ -364,6 +679,24 @@ private fun AzScriptHeader(
         } else {
             Text("Saved", color = AzoraPalette.Neutral60, fontSize = 10.sp)
         }
+        // Debugger controls (needs the language-server jar)
+        if (!debugActive) {
+            if (intelAvailable) {
+                HeaderButton("⏵ Debug", AzoraPalette.AccentGreen, onDebug)
+            }
+        } else {
+            Text(
+                text = if (debugStatus == "paused") "paused at line $debugLine" else "running…",
+                color = if (debugStatus == "paused") AzoraPalette.AccentYellow else AzoraPalette.AccentGreen,
+                fontSize = 10.sp
+            )
+            if (debugStatus == "paused") {
+                HeaderButton("⏵ Continue", AzoraPalette.AccentGreen, onContinue)
+                HeaderButton("⤵ Step", AzoraPalette.AccentCyan, onStep)
+            }
+            HeaderButton("⏹ Stop", AzoraPalette.AccentRed, onStopDebug)
+        }
+
         // Convert this source file to a visual node graph (.azn)
         Text(
             "To Nodes",
@@ -434,3 +767,192 @@ private fun SaveButton(enabled: Boolean, onClick: () -> Unit) {
 /** Clamps a selection to a (possibly shorter) new text length. */
 private fun androidx.compose.ui.text.TextRange.coerceIn(maxLength: Int): androidx.compose.ui.text.TextRange =
     androidx.compose.ui.text.TextRange(start.coerceAtMost(maxLength), end.coerceAtMost(maxLength))
+
+@Composable
+private fun HeaderButton(text: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 11.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
+}
+
+/**
+ * Line-number gutter with clickable breakpoint dots. Row heights match the
+ * editor's monospace line height so numbers align with source lines; the
+ * paused line is marked with an arrow.
+ */
+@Composable
+private fun BreakpointGutter(
+    lineCount: Int,
+    breakpoints: Set<Int>,
+    debugLine: Int?,
+    rowHeight: androidx.compose.ui.unit.Dp,
+    fontSize: Int,
+    onToggle: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .background(AzoraPalette.Neutral80.copy(alpha = 0.6f))
+            .padding(top = 12.dp, bottom = 12.dp)
+            .width(46.dp)
+    ) {
+        for (line in 1..lineCount) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .height(rowHeight)
+                    .fillMaxWidth()
+                    .clickable { onToggle(line) }
+                    .padding(horizontal = 4.dp)
+            ) {
+                Box(modifier = Modifier.width(10.dp), contentAlignment = Alignment.Center) {
+                    when {
+                        line in breakpoints -> Text("●", color = AzoraPalette.AccentRed, fontSize = 9.sp)
+                        line == debugLine -> Text("▶", color = AzoraPalette.AccentYellow, fontSize = 8.sp)
+                    }
+                }
+                Spacer(Modifier.width(2.dp))
+                Text(
+                    text = line.toString(),
+                    color = if (line == debugLine) AzoraPalette.AccentYellow else AzoraPalette.Neutral50,
+                    fontSize = fontSize.sp,
+                    fontFamily = FontFamily.Monospace,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+/** Variables in scope while the debugger is paused. */
+@Composable
+private fun AzDebugLocalsBar(locals: List<AzDebugLocal>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AzoraPalette.Neutral80)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        Text("Locals", color = AzoraPalette.Neutral40, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+        for (row in locals.chunked(4)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                for (local in row) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(local.name, color = AzoraPalette.AccentCyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Text(" = ${local.value}", color = AzoraPalette.Neutral20, fontSize = 10.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** VS-Code-style find & replace bar (Cmd/Ctrl+F, Esc closes). */
+@Composable
+private fun AzFindBar(
+    query: String,
+    replace: String,
+    matchCount: Int,
+    activeMatch: Int,
+    onQueryChange: (String) -> Unit,
+    onReplaceChange: (String) -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onReplaceOne: () -> Unit,
+    onReplaceAll: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AzoraPalette.Neutral80)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        FindField(query, "Find", onQueryChange, onEnter = onNext, modifier = Modifier.weight(1f))
+        Text(
+            text = if (matchCount == 0) "No results" else "$activeMatch/$matchCount",
+            color = if (matchCount == 0 && query.isNotBlank()) AzoraPalette.AccentRed else AzoraPalette.Neutral40,
+            fontSize = 10.sp
+        )
+        HeaderButton("↑", AzoraPalette.Neutral30, onPrevious)
+        HeaderButton("↓", AzoraPalette.Neutral30, onNext)
+        FindField(replace, "Replace", onReplaceChange, onEnter = onReplaceOne, modifier = Modifier.weight(1f))
+        HeaderButton("Replace", AzoraPalette.Neutral30, onReplaceOne)
+        HeaderButton("All", AzoraPalette.Neutral30, onReplaceAll)
+        HeaderButton("✕", AzoraPalette.Neutral40, onClose)
+    }
+}
+
+@Composable
+private fun FindField(
+    value: String,
+    placeholder: String,
+    onValueChange: (String) -> Unit,
+    onEnter: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = TextStyle(color = AzoraPalette.Neutral10, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(AzoraPalette.AccentBlue),
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(AzoraPalette.Neutral70)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Enter) {
+                    onEnter(); true
+                } else false
+            },
+        decorationBox = { inner ->
+            Box {
+                if (value.isEmpty()) Text(placeholder, color = AzoraPalette.Neutral50, fontSize = 11.sp)
+                inner()
+            }
+        }
+    )
+}
+
+/** Bottom status bar: caret position, selection size, language-server state. */
+@Composable
+private fun AzStatusBar(
+    line: Int,
+    column: Int,
+    selectionLength: Int,
+    intelAvailable: Boolean,
+    fontSize: Int,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AzoraPalette.Neutral80)
+            .padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = "Ln $line, Col $column" + if (selectionLength > 0) "  ($selectionLength selected)" else "",
+            color = AzoraPalette.Neutral40,
+            fontSize = 9.sp
+        )
+        Spacer(Modifier.weight(1f))
+        Text("Spaces: 4", color = AzoraPalette.Neutral50, fontSize = 9.sp)
+        Text("${fontSize}px", color = AzoraPalette.Neutral50, fontSize = 9.sp)
+        Text("Azora", color = AzoraPalette.Neutral50, fontSize = 9.sp)
+        Text(
+            text = if (intelAvailable) "azls ✓" else "azls ✕",
+            color = if (intelAvailable) AzoraPalette.AccentGreen else AzoraPalette.AccentRed,
+            fontSize = 9.sp
+        )
+    }
+}

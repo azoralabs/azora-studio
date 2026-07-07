@@ -60,7 +60,16 @@ data class SettingsModel(
     val azScriptItalicPreprocessor: Boolean = true,
     val azScriptUnderlineVariables: Boolean = true,
     val azoraLangPath: String = "",
-    val showRuntimeWarnings: Boolean = false
+    val showRuntimeWarnings: Boolean = false,
+    // ---- code editor (.az) ----
+    val editorFontSize: Int = 13,
+    val editorTabSize: Int = 4,
+    val editorWordWrap: Boolean = false,
+    val editorShowLineNumbers: Boolean = true,
+    val editorAutoCloseBrackets: Boolean = true,
+    val editorSmartIndent: Boolean = true,
+    val editorAutoCompletion: Boolean = true,
+    val editorHoverDocs: Boolean = true
 ) {
 
     companion object {

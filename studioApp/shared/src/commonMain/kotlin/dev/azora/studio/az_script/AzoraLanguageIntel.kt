@@ -48,3 +48,50 @@ object NoOpAzoraLanguageIntel : AzoraLanguageIntel {
     override suspend fun complete(source: String, offset: Int, filePath: String, projectPath: String): List<AzCompletion> = emptyList()
     override suspend fun hover(source: String, offset: Int, filePath: String, projectPath: String): AzHover? = null
 }
+
+/** One variable visible while the debugger is paused. */
+data class AzDebugLocal(val name: String, val value: String)
+
+/**
+ * Snapshot of the (single) azls debug session.
+ *
+ * @property status `none`, `starting`, `running`, `paused`, `terminated` or `failed`
+ * @property line 1-based line the debugger is paused on
+ * @property pauseId monotonic counter distinguishing consecutive pauses
+ * @property output program output produced since the previous poll
+ */
+data class AzDebugStatus(
+    val status: String = "none",
+    val line: Int = 0,
+    val pauseId: Int = 0,
+    val locals: List<AzDebugLocal> = emptyList(),
+    val output: String = "",
+    val error: String? = null,
+)
+
+/**
+ * Debugger controls for `.az` scripts, backed by the language-server jar.
+ * Debug builds instrument each statement, so the interpreter can pause at
+ * breakpoints, step, and report the variables in scope.
+ */
+interface AzoraScriptDebugger {
+    val available: Boolean
+    suspend fun start(source: String, filePath: String, projectPath: String, breakpoints: Set<Int>): AzDebugStatus
+    suspend fun status(): AzDebugStatus
+    suspend fun resume()
+    suspend fun step()
+    suspend fun stop()
+    suspend fun setBreakpoints(breakpoints: Set<Int>)
+}
+
+/** Fallback used on platforms without the language-server jar. */
+object NoOpAzoraScriptDebugger : AzoraScriptDebugger {
+    override val available: Boolean = false
+    override suspend fun start(source: String, filePath: String, projectPath: String, breakpoints: Set<Int>): AzDebugStatus =
+        AzDebugStatus(status = "failed", error = "Azora Language Server is not installed.")
+    override suspend fun status(): AzDebugStatus = AzDebugStatus()
+    override suspend fun resume() {}
+    override suspend fun step() {}
+    override suspend fun stop() {}
+    override suspend fun setBreakpoints(breakpoints: Set<Int>) {}
+}

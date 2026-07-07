@@ -42,6 +42,14 @@ class SettingsViewModel(
                             preferredColorPicker = projectSettings.preferredColorPicker,
                             paletteColors = projectSettings.paletteColors,
                             useKmpRenderer = projectSettings.sceneStudioUseKmp,
+                            editorFontSize = settingsModel.editorFontSize,
+                            editorTabSize = settingsModel.editorTabSize,
+                            editorWordWrap = settingsModel.editorWordWrap,
+                            editorShowLineNumbers = settingsModel.editorShowLineNumbers,
+                            editorAutoCloseBrackets = settingsModel.editorAutoCloseBrackets,
+                            editorSmartIndent = settingsModel.editorSmartIndent,
+                            editorAutoCompletion = settingsModel.editorAutoCompletion,
+                            editorHoverDocs = settingsModel.editorHoverDocs,
                             azScriptUsePastel = settingsModel.azScriptUsePastel,
                             azScriptBoldKeywords = settingsModel.azScriptBoldKeywords,
                             azScriptItalicPreprocessor = settingsModel.azScriptItalicPreprocessor,
@@ -68,6 +76,14 @@ class SettingsViewModel(
             is SettingsAction.UpdatePaletteColor -> updatePaletteColor(action.color)
             is SettingsAction.RemovePaletteColor -> removePaletteColor(action.colorId)
             is SettingsAction.SetUseKmpRenderer -> setUseKmpRenderer(action.enabled)
+            is SettingsAction.SetEditorFontSize -> setEditor { it.copy(editorFontSize = action.size.coerceIn(9, 28)) }
+            is SettingsAction.SetEditorTabSize -> setEditor { it.copy(editorTabSize = action.size.coerceIn(2, 8)) }
+            is SettingsAction.SetEditorWordWrap -> setEditor { it.copy(editorWordWrap = action.enabled) }
+            is SettingsAction.SetEditorLineNumbers -> setEditor { it.copy(editorShowLineNumbers = action.enabled) }
+            is SettingsAction.SetEditorAutoCloseBrackets -> setEditor { it.copy(editorAutoCloseBrackets = action.enabled) }
+            is SettingsAction.SetEditorSmartIndent -> setEditor { it.copy(editorSmartIndent = action.enabled) }
+            is SettingsAction.SetEditorAutoCompletion -> setEditor { it.copy(editorAutoCompletion = action.enabled) }
+            is SettingsAction.SetEditorHoverDocs -> setEditor { it.copy(editorHoverDocs = action.enabled) }
             is SettingsAction.SetAzScriptUsePastel -> setAzScriptUsePastel(action.usePastel)
             is SettingsAction.SetAzScriptBoldKeywords -> setAzScriptBoldKeywords(action.boldKeywords)
             is SettingsAction.SetAzScriptItalicPreprocessor -> setAzScriptItalicPreprocessor(action.italic)
@@ -110,6 +126,11 @@ class SettingsViewModel(
 
     private fun setUseKmpRenderer(enabled: Boolean) {
         _state.update { it.copy(useKmpRenderer = enabled) }
+        saveSettings()
+    }
+
+    private fun setEditor(transform: (SettingsState) -> SettingsState) {
+        _state.update(transform)
         saveSettings()
     }
 
@@ -176,6 +197,14 @@ class SettingsViewModel(
                     val existing = if (settingsResult is Res.Success) settingsResult.data else SettingsModel.default(projectId)
                     settingsRepository.saveSettings(
                         existing.copy(
+                            editorFontSize = currentState.editorFontSize,
+                            editorTabSize = currentState.editorTabSize,
+                            editorWordWrap = currentState.editorWordWrap,
+                            editorShowLineNumbers = currentState.editorShowLineNumbers,
+                            editorAutoCloseBrackets = currentState.editorAutoCloseBrackets,
+                            editorSmartIndent = currentState.editorSmartIndent,
+                            editorAutoCompletion = currentState.editorAutoCompletion,
+                            editorHoverDocs = currentState.editorHoverDocs,
                             azScriptUsePastel = currentState.azScriptUsePastel,
                             azScriptBoldKeywords = currentState.azScriptBoldKeywords,
                             azScriptItalicPreprocessor = currentState.azScriptItalicPreprocessor,

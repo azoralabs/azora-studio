@@ -5,6 +5,7 @@ package dev.azora.studio.settings
  */
 enum class SettingsTab(val label: String) {
     GENERAL("General"),
+    EDITOR("Editor"),
     THEME("Theme"),
     AZORA_SCRIPT("Azora Script"),
     SCENE_STUDIO("Scene Settings"),

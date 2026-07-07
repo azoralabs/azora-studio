@@ -59,6 +59,7 @@ fun SettingsPanel(
             if (builtin != null) {
                 when (builtin) {
                     SettingsTab.GENERAL -> GeneralSettingsContent(state = state, onAction = onAction)
+                    SettingsTab.EDITOR -> EditorSettingsContent(state = state, onAction = onAction)
                     SettingsTab.THEME -> ThemeSettingsContent(state = state, onAction = onAction)
                     SettingsTab.AZORA_SCRIPT -> AzScriptSettingsContent(state = state, onAction = onAction)
                     SettingsTab.SCENE_STUDIO -> SceneStudioSettingsContent(state = state, onAction = onAction)

@@ -1,10 +1,13 @@
 package dev.azora.studio.di
 
 import dev.azora.studio.az_script.AzoraLanguageIntel
+import dev.azora.studio.az_script.AzoraScriptDebugger
 import dev.azora.studio.az_script.JarAzoraLanguageIntel
+import dev.azora.studio.az_script.JarAzoraScriptDebugger
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
 actual val azlsModule: Module = module {
     single<AzoraLanguageIntel> { JarAzoraLanguageIntel() }
+    single<AzoraScriptDebugger> { JarAzoraScriptDebugger(get<AzoraLanguageIntel>() as JarAzoraLanguageIntel) }
 }

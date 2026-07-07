@@ -65,6 +65,12 @@ class JarAzoraLanguageIntel : AzoraLanguageIntel {
 
     override val available: Boolean get() = server != null
 
+    /** The loaded `AzoraLanguageServer` instance — shared with [JarAzoraScriptDebugger]. */
+    val serverInstance: Any? get() = server?.instance
+
+    /** The compilation-unit prelude for [filePath] — shared with the debugger. */
+    fun preludeSnapshot(filePath: String, projectPath: String): String = preludeFor(filePath, projectPath)
+
     override suspend fun highlight(source: String): List<AzHighlightSpan> {
         val srv = server ?: return emptyList()
         return call(emptyList()) {
