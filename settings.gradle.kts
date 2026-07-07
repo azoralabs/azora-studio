@@ -58,6 +58,8 @@ include(":azora-sdk:docking:data")
 include(":azora-sdk:docking:domain")
 include(":azora-sdk:docking:presentation")
 
+include(":azora-sdk:nodes:domain")
+
 include(":azora-sdk-core:component")
 include(":azora-sdk-core:data")
 include(":azora-sdk-core:domain")

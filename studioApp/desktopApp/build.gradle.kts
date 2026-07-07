@@ -34,6 +34,8 @@ kotlin {
             implementation(projects.azoraSdk.docking.domain)
             implementation(projects.azoraSdk.docking.presentation)
 
+            implementation(projects.azoraSdk.nodes.domain)
+
             implementation(projects.azoraSdkCore.component)
             implementation(projects.azoraSdkCore.data)
             implementation(projects.azoraSdkCore.domain)

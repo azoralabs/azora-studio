@@ -57,6 +57,16 @@ enum class AzoraNodeType(
     NOT("Not", "Logic"),
     // Cast
     CAST("Cast", "Cast"),
+    // Azora Script — structured loops and raw-source escape hatches used by the
+    // .az ↔ .azn converters. WHILE/FOR_RANGE run in the editor interpreter; the
+    // AZ_* nodes carry azora-lang source verbatim and only take effect when the
+    // graph is generated to .az and compiled by the engine toolchain.
+    WHILE("While", "Azora Script"),
+    FOR_RANGE("For Range", "Azora Script"),
+    PARAM_GET("Get Parameter", "Azora Script"),
+    AZ_CALL("Call", "Azora Script"),
+    AZ_EXPR("Azora Expression", "Azora Script"),
+    AZ_CODE("Azora Code", "Azora Script"),
     // Functions
     FUNCTION_DEF("Function", "Functions"),
     FUNCTION_CALL("Call Function", "Functions"),

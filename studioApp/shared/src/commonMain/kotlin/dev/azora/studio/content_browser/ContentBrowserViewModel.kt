@@ -3,6 +3,12 @@ package dev.azora.studio.content_browser
 import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.azora.nodes.domain.AzToNodesConverter
+import dev.azora.nodes.domain.AzToNodesResult
+import dev.azora.nodes.domain.AznFiles
+import dev.azora.nodes.domain.NodesToAzConverter
+import dev.azora.sdk.core.io.ExistsResult
+import dev.azora.sdk.core.io.FileReadResult
 import dev.azora.sdk.core.io.FileSystem
 import dev.azora.sdk.core.io.FileSystemResult
 import dev.azora.sdk.core.io.ListResult
@@ -232,6 +238,22 @@ class ContentBrowserViewModel(
         }
     }
 
+    /** Creates a new azora node graph (`.azn` with a START node) and opens it. */
+    fun createNodeGraphFile(name: String) {
+        viewModelScope.launch {
+            val parent = resolveCreateParent()
+            val fileName = if (name.endsWith(".azn")) name else "$name.azn"
+            val path = "$parent/$fileName"
+            if (openAzoraNodesFilesManager.createNewFile(path)) {
+                refresh()
+                openAzoraNodesFile(path)
+            } else {
+                _state.value = _state.value.copy(error = "Failed to create node graph")
+            }
+            dismissContextMenu()
+        }
+    }
+
     fun createFile(name: String) {
         viewModelScope.launch {
             val parent = resolveCreateParent()
@@ -329,6 +351,91 @@ class ContentBrowserViewModel(
                 )
             )
             dockStateManager.dispatch(DockAction.SelectPanel(panelId))
+        }
+    }
+
+    // ---------- .az ↔ .azn conversion ----------
+
+    /**
+     * Converts an `.az` source file into a sibling `.azn` node graph and opens
+     * it in the node editor. Refuses to overwrite an existing `.azn`.
+     */
+    fun convertAzToNodes(azPath: String) {
+        viewModelScope.launch {
+            dismissContextMenu()
+            val content = when (val read = fileSystem.readFromFile(azPath)) {
+                is FileReadResult.Success -> read.content
+                is FileReadResult.Error -> {
+                    _state.value = _state.value.copy(error = "Failed to read: ${azPath.substringAfterLast('/')}")
+                    return@launch
+                }
+            }
+            val aznPath = AznFiles.siblingAznPath(azPath)
+            if (fileSystem.fileExists(aznPath) is ExistsResult.Exists) {
+                _state.value = _state.value.copy(error = "${aznPath.substringAfterLast('/')} already exists — delete or rename it first.")
+                return@launch
+            }
+            val name = azPath.substringAfterLast('/').removeSuffix(".${AznFiles.AZ_EXTENSION}")
+            when (val result = AzToNodesConverter().convert(content, name)) {
+                is AzToNodesResult.Failure -> {
+                    _state.value = _state.value.copy(error = "Cannot convert: ${result.errors.firstOrNull()}")
+                }
+                is AzToNodesResult.Success -> {
+                    result.warnings.forEach { println("[ContentBrowser] convert $name.az → nodes: $it") }
+                    when (fileSystem.writeToFile(aznPath, AznFiles.encode(result.graph))) {
+                        is FileSystemResult.Success -> {
+                            refresh()
+                            openAzoraNodesFile(aznPath)
+                        }
+                        is FileSystemResult.Error -> {
+                            _state.value = _state.value.copy(error = "Failed to write ${aznPath.substringAfterLast('/')}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Generates the sibling `.az` source from an `.azn` node graph and opens
+     * it. The output carries the generated-file header, so the run pipeline
+     * keeps it in sync with the graph; a hand-written `.az` at the same path
+     * is never overwritten.
+     */
+    fun convertNodesToAz(aznPath: String) {
+        viewModelScope.launch {
+            dismissContextMenu()
+            val content = when (val read = fileSystem.readFromFile(aznPath)) {
+                is FileReadResult.Success -> read.content
+                is FileReadResult.Error -> {
+                    _state.value = _state.value.copy(error = "Failed to read: ${aznPath.substringAfterLast('/')}")
+                    return@launch
+                }
+            }
+            val graph = AznFiles.decode(content) ?: run {
+                _state.value = _state.value.copy(error = "${aznPath.substringAfterLast('/')} is not an Azora node graph.")
+                return@launch
+            }
+            val azPath = AznFiles.siblingAzPath(aznPath)
+            when (val existing = fileSystem.readFromFile(azPath)) {
+                is FileReadResult.Success -> if (!AznFiles.isGenerated(existing.content)) {
+                    _state.value = _state.value.copy(error = "${azPath.substringAfterLast('/')} is hand-written — refusing to overwrite it.")
+                    return@launch
+                }
+                is FileReadResult.Error -> Unit // no existing file — fine
+            }
+            val result = NodesToAzConverter().convert(graph)
+            result.warnings.forEach { println("[ContentBrowser] generate ${azPath.substringAfterLast('/')}: $it") }
+            val output = AznFiles.withGeneratedHeader(result.source, aznPath.substringAfterLast('/'))
+            when (fileSystem.writeToFile(azPath, output)) {
+                is FileSystemResult.Success -> {
+                    refresh()
+                    openAzScriptFile(azPath)
+                }
+                is FileSystemResult.Error -> {
+                    _state.value = _state.value.copy(error = "Failed to write ${azPath.substringAfterLast('/')}")
+                }
+            }
         }
     }
 

@@ -20,6 +20,9 @@ import kotlinx.serialization.Serializable
  * @property functions User-defined functions referenced by `FUNCTION_DEF` / `FUNCTION_CALL` nodes.
  * @property enums User-defined enums referenced by `ENUM_DEF` / `ENUM_VALUE` nodes.
  * @property dataClasses User-defined data classes referenced by the `DATA_CLASS_*` nodes.
+ * @property meta Free-form metadata carried through save/load. Used by the .az ↔ .azn converters:
+ *   `imports` (azora `use` lines) and `preamble` (verbatim top-level azora declarations that have
+ *   no node representation, re-emitted as-is when generating .az).
  */
 @Serializable
 data class AzoraGraphModel(
@@ -32,4 +35,5 @@ data class AzoraGraphModel(
     val functions: Map<String, AzoraNodeFunction> = emptyMap(),
     val enums: Map<String, AzoraNodeEnum> = emptyMap(),
     val dataClasses: Map<String, AzoraNodeDataClass> = emptyMap(),
+    val meta: Map<String, String> = emptyMap(),
 )

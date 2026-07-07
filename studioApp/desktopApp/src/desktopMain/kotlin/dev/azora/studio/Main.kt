@@ -30,6 +30,7 @@ import dev.azora.canvas.domain.interpreter.ConsoleOutputManager
 import dev.azora.sdk.core.domain.preferences.ThemePreference
 import dev.azora.sdk.core.domain.preferences.ThemePreferences
 import dev.azora.studio.di.initKoin
+import dev.azora.studio.run.AznSourceSync
 import dev.azora.studio.run.ProjectRunner
 import dev.azora.studio.run.RunTarget
 import dev.azora.studio.run.RunTargets
@@ -475,6 +476,10 @@ fun main() {
                                     templateGeneratorResolver.generatorFor(state.project.template)
                                         ?.generate(state.project, state.projectPath, runFileSystem)
                                 }.onFailure { consoleOutputManager.error("Generate failed: ${it.message}") }
+                                // Lower node graphs (.azn) to azora sources (.az) so the
+                                // build compiles exactly what the node canvas shows.
+                                runCatching { AznSourceSync.generateAll(projectDir, consoleOutputManager) }
+                                    .onFailure { consoleOutputManager.error("Nodes ▸ generate failed: ${it.message}") }
                             }
                             projectRunner.run(projectDir, target, state.project.packageName)
                         }
@@ -491,6 +496,8 @@ fun main() {
                                 templateGeneratorResolver.generatorFor(state.project.template)
                                     ?.generate(state.project, state.projectPath, runFileSystem)
                             }.onFailure { consoleOutputManager.error("Hot reload (generate) failed: ${it.message}") }
+                            runCatching { AznSourceSync.generateAll(projectDir, consoleOutputManager) }
+                                .onFailure { consoleOutputManager.error("Nodes ▸ generate failed: ${it.message}") }
                         }
                         consoleOutputManager.info("Hot reload ▸ regenerated — the dev server will refresh the browser.")
                     }

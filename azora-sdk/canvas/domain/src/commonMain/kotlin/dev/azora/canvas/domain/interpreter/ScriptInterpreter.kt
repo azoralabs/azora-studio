@@ -144,6 +144,50 @@ class ScriptInterpreter(
                 followExecOutput(nodeId, 1) // completed
             }
 
+            AzoraNodeType.WHILE -> {
+                var guard = 0
+                while (evaluateDataInput(nodeId, "condition").toBoolean()) {
+                    if (!isRunning || !currentCoroutineContext().isActive) throw ScriptStopException()
+                    if (++guard > MAX_LOOP_ITERATIONS) {
+                        consoleOutput.error("While loop exceeded $MAX_LOOP_ITERATIONS iterations — stopping (possible infinite loop).")
+                        break
+                    }
+                    followExecOutput(nodeId, 0) // body
+                }
+                followExecOutput(nodeId, 1) // completed
+            }
+
+            AzoraNodeType.FOR_RANGE -> {
+                val from = evaluateDataInput(nodeId, "from").toNumericLong()
+                val to = evaluateDataInput(nodeId, "to").toNumericLong()
+                val inclusive = node.properties["inclusive"]?.toBooleanStrictOrNull() ?: true
+                val last = if (inclusive) to else to - 1
+                try {
+                    var i = from
+                    while (i <= last) {
+                        if (!isRunning || !currentCoroutineContext().isActive) throw ScriptStopException()
+                        variables["__loop_index_$nodeId"] = ScriptValue.IntegerValue(i)
+                        followExecOutput(nodeId, 0) // body
+                        i++
+                    }
+                } finally {
+                    variables.remove("__loop_index_$nodeId")
+                }
+                followExecOutput(nodeId, 1) // completed
+            }
+
+            AzoraNodeType.AZ_CALL -> {
+                // External azora function — only callable in a compiled engine build.
+                val name = node.properties["name"] ?: "?"
+                consoleOutput.error("Call \"$name\" targets an azora function — generate the .az and run the project to execute it.")
+                followExecOutput(nodeId, 0)
+            }
+
+            AzoraNodeType.AZ_CODE -> {
+                consoleOutput.error("Azora Code nodes run only in a compiled build — generate the .az and run the project.")
+                followExecOutput(nodeId, 0)
+            }
+
             AzoraNodeType.MATCH -> {
                 val value = evaluateDataInput(nodeId, "value")
                 val caseCount = node.properties["caseCount"]?.toIntOrNull() ?: 2
@@ -404,13 +448,23 @@ class ScriptInterpreter(
                 cast(value, toType)
             }
 
-            AzoraNodeType.LOOP -> {
+            AzoraNodeType.LOOP, AzoraNodeType.FOR_RANGE -> {
                 // Return current loop index
                 if (portName == "index") {
                     variables["__loop_index_$nodeId"] ?: ScriptValue.IntegerValue(0)
                 } else {
                     ScriptValue.NullValue
                 }
+            }
+
+            AzoraNodeType.AZ_EXPR -> {
+                consoleOutput.error("Azora Expression nodes evaluate only in a compiled build — generate the .az and run the project.")
+                ScriptValue.NullValue
+            }
+
+            AzoraNodeType.PARAM_GET -> {
+                val paramName = node.properties["name"] ?: return ScriptValue.NullValue
+                callStack.lastOrNull()?.parameterValues?.get(paramName) ?: ScriptValue.NullValue
             }
 
             AzoraNodeType.FUNCTION_CALL -> {
@@ -544,4 +598,9 @@ class ScriptInterpreter(
     }
 
     private class ScriptStopException : Exception("Script stopped")
+
+    private companion object {
+        /** Editor-side safety net so a WHILE with an always-true condition can't hang Studio. */
+        const val MAX_LOOP_ITERATIONS = 1_000_000
+    }
 }

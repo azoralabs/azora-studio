@@ -120,7 +120,10 @@ fun ContentBrowserPanel(
             sceneTemplates = viewModel.azsceneTemplates(),
             onCreateFolder = { name -> viewModel.createFolder(name) },
             onCreateFile = { name -> viewModel.createFile(name) },
+            onCreateNodeGraph = { name -> viewModel.createNodeGraphFile(name) },
             onCreateScene = { type, name -> viewModel.createSceneFile(type, name) },
+            onConvertToNodes = { state.contextMenuTargetPath?.let { viewModel.convertAzToNodes(it) } },
+            onConvertToAz = { state.contextMenuTargetPath?.let { viewModel.convertNodesToAz(it) } },
             onRenameRequested = { state.contextMenuTargetPath?.let { viewModel.dismissContextMenu(); renameTarget = it } },
             onDelete = { state.contextMenuTargetPath?.let { viewModel.deleteItem(it) } },
             onDismiss = viewModel::dismissContextMenu
@@ -528,13 +531,17 @@ private fun ContentBrowserContextMenu(
     sceneTemplates: List<dev.azora.sdk.plugin.core.AzsceneTemplate>,
     onCreateFolder: (String) -> Unit,
     onCreateFile: (String) -> Unit,
+    onCreateNodeGraph: (String) -> Unit,
     onCreateScene: (type: String, name: String) -> Unit,
+    onConvertToNodes: () -> Unit,
+    onConvertToAz: () -> Unit,
     onRenameRequested: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
     var showFolderDialog by remember { mutableStateOf(false) }
     var showFileDialog by remember { mutableStateOf(false) }
+    var showNodeGraphDialog by remember { mutableStateOf(false) }
     var sceneDialogType by remember { mutableStateOf<dev.azora.sdk.plugin.core.AzsceneTemplate?>(null) }
 
     if (showFolderDialog) {
@@ -554,6 +561,16 @@ private fun ContentBrowserContextMenu(
             confirmLabel = "Create",
             onConfirm = { name -> onCreateFile(name); showFileDialog = false },
             onDismiss = { showFileDialog = false }
+        )
+        return
+    }
+    if (showNodeGraphDialog) {
+        NamePromptDialog(
+            title = "New Node Graph",
+            placeholder = "Graph name (creates <name>.azn)",
+            confirmLabel = "Create",
+            onConfirm = { name -> onCreateNodeGraph(name); showNodeGraphDialog = false },
+            onDismiss = { showNodeGraphDialog = false }
         )
         return
     }
@@ -580,6 +597,7 @@ private fun ContentBrowserContextMenu(
         Column(modifier = Modifier.padding(4.dp)) {
             MenuRow("New Folder") { showFolderDialog = true }
             MenuRow("New File") { showFileDialog = true }
+            MenuRow("New Node Graph") { showNodeGraphDialog = true }
             sceneTemplates.forEach { tpl ->
                 MenuRow("New ${tpl.label}") { sceneDialogType = tpl }
             }
@@ -590,6 +608,11 @@ private fun ContentBrowserContextMenu(
                         .height(1.dp)
                         .background(AzoraPalette.Neutral60)
                 )
+                // .az ↔ .azn conversion for azora script files
+                when (targetPath.substringAfterLast('.', "")) {
+                    "az" -> MenuRow("Convert to Node Graph") { onConvertToNodes() }
+                    "azn" -> MenuRow("Generate Azora Source") { onConvertToAz() }
+                }
                 MenuRow("Rename") { onRenameRequested(); onDismiss() }
                 MenuRow("Delete", color = AzoraPalette.AccentRed) { onDelete() }
             }

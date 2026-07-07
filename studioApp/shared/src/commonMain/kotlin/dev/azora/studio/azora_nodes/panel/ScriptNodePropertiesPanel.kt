@@ -269,6 +269,79 @@ fun ScriptNodePropertiesPanel(
                 )
             }
 
+            AzoraNodeType.AZ_CODE, AzoraNodeType.AZ_EXPR -> {
+                PropertyTextField(
+                    label = if (node.type == AzoraNodeType.AZ_CODE) "Azora code" else "Azora expression",
+                    value = node.properties["code"] ?: "",
+                    onValueChange = { newVal ->
+                        onAction(AzoraNodesAction.UpdateNodeProperties(node.id, mapOf("code" to newVal)))
+                    }
+                )
+            }
+
+            AzoraNodeType.PARAM_GET -> {
+                PropertyTextField(
+                    label = "Parameter name",
+                    value = node.properties["name"] ?: "",
+                    onValueChange = { newVal ->
+                        onAction(AzoraNodesAction.UpdateNodeProperties(node.id, mapOf("name" to newVal)))
+                    }
+                )
+            }
+
+            AzoraNodeType.AZ_CALL -> {
+                PropertyTextField(
+                    label = "Function name",
+                    value = node.properties["name"] ?: "",
+                    onValueChange = { newVal ->
+                        onAction(AzoraNodesAction.UpdateNodeProperties(node.id, mapOf("name" to newVal)))
+                    }
+                )
+                PropertyTextField(
+                    label = "Argument count",
+                    value = node.properties["argCount"] ?: "0",
+                    onValueChange = { newVal ->
+                        onAction(AzoraNodesAction.UpdateNodeProperties(node.id, mapOf("argCount" to newVal)))
+                    }
+                )
+                val argCount = node.properties["argCount"]?.toIntOrNull() ?: 0
+                for (i in 0 until argCount) {
+                    PropertyTextField(
+                        label = "arg_$i",
+                        value = node.properties["literal_arg_$i"] ?: "",
+                        onValueChange = { newVal ->
+                            onAction(AzoraNodesAction.UpdateNodeProperties(node.id, mapOf("literal_arg_$i" to newVal)))
+                        }
+                    )
+                }
+            }
+
+            AzoraNodeType.FOR_RANGE -> {
+                PropertyTextField(
+                    label = "Counter name",
+                    value = node.properties["counter"] ?: "i",
+                    onValueChange = { newVal ->
+                        onAction(AzoraNodesAction.UpdateNodeProperties(node.id, mapOf("counter" to newVal)))
+                    }
+                )
+                PropertyBooleanToggle(
+                    label = "Inclusive end (..)",
+                    value = node.properties["inclusive"]?.toBooleanStrictOrNull() ?: true,
+                    onValueChange = { newVal ->
+                        onAction(AzoraNodesAction.UpdateNodeProperties(node.id, mapOf("inclusive" to newVal.toString())))
+                    }
+                )
+                for (portName in listOf("from", "to")) {
+                    PropertyTextField(
+                        label = portName,
+                        value = node.properties["literal_$portName"] ?: "",
+                        onValueChange = { newVal ->
+                            onAction(AzoraNodesAction.UpdateNodeProperties(node.id, mapOf("literal_$portName" to newVal)))
+                        }
+                    )
+                }
+            }
+
             else -> {
                 // Show literal values for unconnected data inputs
                 val inputs = AzoraPortDefinition.dataInputs(node.type, node.properties)

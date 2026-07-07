@@ -23,6 +23,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.azora.canvas.domain.model.node.AzoraNodeDataClass
+import dev.azora.canvas.domain.model.node.AzoraNodeEnum
+import dev.azora.canvas.domain.model.node.AzoraNodeFunction
 import dev.azora.canvas.domain.model.node.AzoraNodeVar
 import dev.azora.canvas.domain.type.AzoraNodeType
 import dev.azora.sdk.core.theme.palette.AzoraPalette
@@ -32,6 +35,9 @@ fun ScriptNodeContextMenu(
     position: Offset,
     hasStartNode: Boolean,
     variables: Map<String, AzoraNodeVar>,
+    functions: Map<String, AzoraNodeFunction> = emptyMap(),
+    enums: Map<String, AzoraNodeEnum> = emptyMap(),
+    dataClasses: Map<String, AzoraNodeDataClass> = emptyMap(),
     onNodeSelected: (AzoraNodeType, Map<String, String>) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -43,7 +49,12 @@ fun ScriptNodeContextMenu(
     val excludedTypes = setOf(
         AzoraNodeType.GET_VARIABLE,
         AzoraNodeType.SET_VARIABLE,
-        AzoraNodeType.GET_CONSTANT
+        AzoraNodeType.GET_CONSTANT,
+        AzoraNodeType.FUNCTION_CALL,
+        AzoraNodeType.ENUM_VALUE,
+        AzoraNodeType.DATA_CLASS_CREATE,
+        AzoraNodeType.DATA_CLASS_GET_FIELD,
+        AzoraNodeType.DATA_CLASS_SET_FIELD
     )
 
     // Group node types by category, excluding START if one already exists, and variable-related types
@@ -73,6 +84,42 @@ fun ScriptNodeContextMenu(
         }
     }
 
+    // Blueprint-style symbol entries: call a specific function, make a specific
+    // pack / read-write its fields, or pick an enum value — each pre-wired with
+    // the ids the interpreter and the .az generator need.
+    data class SymbolMenuItem(
+        val label: String,
+        val category: String,
+        val type: AzoraNodeType,
+        val properties: Map<String, String>
+    )
+
+    val symbolItems = remember(functions, enums, dataClasses) {
+        buildList {
+            for (func in functions.values) {
+                val params = func.parameters.joinToString(", ") { it.name }
+                add(SymbolMenuItem("Call ${func.name}($params)", "Functions", AzoraNodeType.FUNCTION_CALL,
+                    mapOf("functionId" to func.id, "functionName" to func.name)))
+            }
+            for (dataClass in dataClasses.values) {
+                add(SymbolMenuItem("Make ${dataClass.name}", "Packs", AzoraNodeType.DATA_CLASS_CREATE,
+                    mapOf("classId" to dataClass.id, "className" to dataClass.name)))
+                for (field in dataClass.fields) {
+                    add(SymbolMenuItem("Get ${dataClass.name}.${field.name}", "Packs", AzoraNodeType.DATA_CLASS_GET_FIELD,
+                        mapOf("classId" to dataClass.id, "fieldName" to field.name)))
+                    add(SymbolMenuItem("Set ${dataClass.name}.${field.name}", "Packs", AzoraNodeType.DATA_CLASS_SET_FIELD,
+                        mapOf("classId" to dataClass.id, "fieldName" to field.name)))
+                }
+            }
+            for (enum in enums.values) {
+                for (value in enum.values) {
+                    add(SymbolMenuItem("${enum.name}.$value", "Enums", AzoraNodeType.ENUM_VALUE,
+                        mapOf("enumId" to enum.id, "enumName" to enum.name, "value" to value)))
+                }
+            }
+        }
+    }
+
     // Filter items based on search
     val filteredCategories = remember(searchQuery, categories) {
         if (searchQuery.isBlank()) categories
@@ -85,6 +132,12 @@ fun ScriptNodeContextMenu(
     val filteredVariableItems = remember(searchQuery, variableItems) {
         if (searchQuery.isBlank()) variableItems
         else variableItems.filter { it.label.contains(searchQuery, ignoreCase = true) }
+    }
+
+    val filteredSymbolSections = remember(searchQuery, symbolItems) {
+        symbolItems
+            .filter { searchQuery.isBlank() || it.label.contains(searchQuery, ignoreCase = true) }
+            .groupBy { it.category }
     }
 
     // Request focus on search field when menu opens
@@ -254,6 +307,26 @@ fun ScriptNodeContextMenu(
                     }
                 }
 
+                // Functions / Packs / Enums declared in this graph
+                filteredSymbolSections.forEach { (section, items) ->
+                    CategoryHeader(
+                        title = section,
+                        count = items.size,
+                        isExpanded = expandedCategory == section || searchQuery.isNotBlank(),
+                        onClick = { expandedCategory = if (expandedCategory == section) null else section }
+                    )
+                    if (expandedCategory == section || searchQuery.isNotBlank()) {
+                        items.forEach { item ->
+                            VariableMenuItem(
+                                label = item.label,
+                                isGetter = item.type != AzoraNodeType.DATA_CLASS_SET_FIELD,
+                                color = categoryColor(item.category),
+                                onClick = { onNodeSelected(item.type, item.properties) }
+                            )
+                        }
+                    }
+                }
+
                 // Empty state
                 if (filteredCategories.isEmpty() && filteredVariableItems.isEmpty()) {
                     Box(
@@ -277,6 +350,7 @@ fun ScriptNodeContextMenu(
 private fun categoryColor(category: String): Color = when (category) {
     "Flow" -> Color(0xFF4444AA)
     "Variables" -> Color(0xFF2D8B57)
+    "Packs" -> Color(0xFF336699)
     "Output" -> AzoraPalette.AccentPink
     "Control Flow" -> Color(0xFF888888)
     "Math" -> Color(0xFF338888)

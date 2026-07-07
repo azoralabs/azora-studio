@@ -28,6 +28,7 @@ fun initKoin(config: KoinAppDeclaration? = null) {
         modules(
             appModule,
             initCache,
+            azlsModule,
 
             loggingModule,
             coreDataModule,
@@ -45,3 +46,6 @@ private val loggingModule = module {
 }
 
 expect val initCache: Module
+
+/** Binds [dev.azora.studio.az_script.AzoraLanguageIntel] — the azls-jar bridge on JVM, a no-op elsewhere. */
+expect val azlsModule: Module

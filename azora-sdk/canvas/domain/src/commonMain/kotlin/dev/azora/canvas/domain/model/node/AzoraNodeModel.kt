@@ -22,6 +22,10 @@ import kotlinx.serialization.Serializable
  * - `DATA_CLASS_CREATE` - `classId`.
  * - `DATA_CLASS_GET_FIELD` / `DATA_CLASS_SET_FIELD` - `classId`, `fieldName`.
  * - `MATCH` - `caseCount` → number of case branches; per-case values stored as `case_0`, `case_1`, ...
+ * - `FOR_RANGE` - `counter` → loop counter name in generated azora source; `inclusive` → `"true"` for `..`, `"false"` for `..<`.
+ * - `AZ_CALL` - `name` → azora function name; `argCount` → number of `arg_N` data inputs.
+ * - `AZ_EXPR` / `AZ_CODE` - `code` → verbatim azora-lang source (an expression / a statement block).
+ * - `PARAM_GET` - `name` → name of the enclosing function's parameter to read.
  *
  * @property id Stable identifier; unique within the containing graph.
  * @property screenId Optional id linking this node to a screen for screen-flow graphs.

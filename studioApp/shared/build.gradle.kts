@@ -40,6 +40,9 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
         }
+        jvmTest.dependencies {
+            implementation(libs.kotlin.test)
+        }
         commonMain.dependencies {
             implementation(project(":azora-sdk-core:project:domain"))
             implementation(libs.compose.runtime)
@@ -64,6 +67,8 @@ kotlin {
             implementation(projects.azoraSdk.docking.data)
             implementation(projects.azoraSdk.docking.domain)
             implementation(projects.azoraSdk.docking.presentation)
+
+            implementation(projects.azoraSdk.nodes.domain)
 
             implementation(projects.azoraSdkCore.component)
             implementation(projects.azoraSdkCore.data)

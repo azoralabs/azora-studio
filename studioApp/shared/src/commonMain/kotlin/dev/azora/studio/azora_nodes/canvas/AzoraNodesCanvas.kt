@@ -229,7 +229,17 @@ fun AzoraNodesCanvas(
             val headerColor = nodeHeaderColorForNode(scriptNode, variableType)
             val hasExecInput = AzoraPortDefinition.execInputCount(scriptNode.type) > 0
             val execOutputLabels = AzoraPortDefinition.execOutputsForNode(scriptNode.type, properties)
-            val dataInputs = AzoraPortDefinition.dataInputs(scriptNode.type, properties)
+            // FUNCTION_CALL / DATA_CLASS_CREATE pins are derived from the referenced
+            // definition (the port-definition table can't see the graph).
+            val dataInputs = when (scriptNode.type) {
+                AzoraNodeType.FUNCTION_CALL ->
+                    properties["functionId"]?.let { graph.functions[it] }
+                        ?.parameters?.map { "param_${it.name}" to it.type } ?: emptyList()
+                AzoraNodeType.DATA_CLASS_CREATE ->
+                    properties["classId"]?.let { graph.dataClasses[it] }
+                        ?.fields?.map { "field_${it.name}" to it.type } ?: emptyList()
+                else -> AzoraPortDefinition.dataInputs(scriptNode.type, properties)
+            }
             val dataOutputs = AzoraPortDefinition.dataOutputs(scriptNode.type, properties)
 
             // Exec port definitions for the SDK
@@ -271,6 +281,7 @@ fun AzoraNodesCanvas(
                 headerContent = { inputPorts, outputPorts ->
                     ScriptNodeHeaderContent(
                         scriptNode = scriptNode,
+                        graph = graph,
                         headerColor = headerColor,
                         dataInputs = dataInputs,
                         dataOutputs = dataOutputs,
@@ -303,9 +314,8 @@ fun AzoraNodesCanvas(
                                 dataInputPortPositions[DataPortKey(node.id, portName)] = relativePos
                             }
                         },
-                        literalValue = node.properties["literal_Value"] ?: "",
-                        onLiteralValueChange = { newValue ->
-                            onAction(AzoraNodesAction.UpdateNodeProperties(node.id, mapOf("literal_Value" to newValue)))
+                        onLiteralChange = { portName, newValue ->
+                            onAction(AzoraNodesAction.UpdateNodeProperties(node.id, mapOf("literal_$portName" to newValue)))
                         }
                     )
                 }
@@ -321,6 +331,9 @@ fun AzoraNodesCanvas(
                 position = position,
                 hasStartNode = hasStartNode,
                 variables = graph.variables,
+                functions = graph.functions,
+                enums = graph.enums,
+                dataClasses = graph.dataClasses,
                 onNodeSelected = { type, properties ->
                     onAction(AzoraNodesAction.AddNode(type, worldPosition, properties))
                     onDismiss()

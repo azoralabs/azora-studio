@@ -46,6 +46,8 @@ object AzoraPortDefinition {
         AzoraNodeType.OR,
         AzoraNodeType.NOT,
         AzoraNodeType.CAST,
+        AzoraNodeType.AZ_EXPR,
+        AzoraNodeType.PARAM_GET,
         AzoraNodeType.ENUM_DEF,
         AzoraNodeType.ENUM_VALUE,
         AzoraNodeType.DATA_CLASS_DEF,
@@ -78,6 +80,12 @@ object AzoraPortDefinition {
         AzoraNodeType.SET_VARIABLE -> listOf("exec")
         AzoraNodeType.IF -> listOf("true", "false")
         AzoraNodeType.LOOP -> listOf("body", "completed")
+        AzoraNodeType.WHILE -> listOf("body", "completed")
+        AzoraNodeType.FOR_RANGE -> listOf("body", "completed")
+        AzoraNodeType.AZ_CALL -> listOf("exec")
+        AzoraNodeType.AZ_CODE -> listOf("exec")
+        AzoraNodeType.AZ_EXPR -> emptyList()
+        AzoraNodeType.PARAM_GET -> emptyList()
         AzoraNodeType.MATCH -> listOf("default") // plus dynamic case outputs
         AzoraNodeType.DELAY -> listOf("exec")
         AzoraNodeType.FUNCTION_DEF -> listOf("exec")
@@ -177,6 +185,19 @@ object AzoraPortDefinition {
         AzoraNodeType.PRINT -> listOf("value" to AzoraNodeDataType.ANY)
         AzoraNodeType.IF -> listOf("condition" to AzoraNodeDataType.BOOLEAN)
         AzoraNodeType.LOOP -> listOf("count" to AzoraNodeDataType.INTEGER)
+        AzoraNodeType.WHILE -> listOf("condition" to AzoraNodeDataType.BOOLEAN)
+        AzoraNodeType.FOR_RANGE -> listOf(
+            "from" to AzoraNodeDataType.INTEGER,
+            "to" to AzoraNodeDataType.INTEGER
+        )
+        // Dynamic argument inputs derived from the `argCount` property.
+        AzoraNodeType.AZ_CALL -> {
+            val argCount = properties["argCount"]?.toIntOrNull() ?: 0
+            (0 until argCount).map { "arg_$it" to AzoraNodeDataType.ANY }
+        }
+        AzoraNodeType.AZ_EXPR -> emptyList()
+        AzoraNodeType.AZ_CODE -> emptyList()
+        AzoraNodeType.PARAM_GET -> emptyList()
         AzoraNodeType.MATCH -> listOf("value" to AzoraNodeDataType.ANY)
         AzoraNodeType.DELAY -> listOf("milliseconds" to AzoraNodeDataType.INTEGER)
         AzoraNodeType.ADD,
@@ -318,6 +339,12 @@ object AzoraPortDefinition {
         AzoraNodeType.PRINT -> emptyList()
         AzoraNodeType.IF -> emptyList()
         AzoraNodeType.LOOP -> listOf("index" to AzoraNodeDataType.INTEGER)
+        AzoraNodeType.WHILE -> emptyList()
+        AzoraNodeType.FOR_RANGE -> listOf("index" to AzoraNodeDataType.INTEGER)
+        AzoraNodeType.AZ_CALL -> listOf("result" to AzoraNodeDataType.ANY)
+        AzoraNodeType.AZ_EXPR -> listOf("value" to AzoraNodeDataType.ANY)
+        AzoraNodeType.AZ_CODE -> emptyList()
+        AzoraNodeType.PARAM_GET -> listOf("value" to AzoraNodeDataType.ANY)
         AzoraNodeType.MATCH -> emptyList()
         AzoraNodeType.DELAY -> emptyList()
         AzoraNodeType.ADD,
