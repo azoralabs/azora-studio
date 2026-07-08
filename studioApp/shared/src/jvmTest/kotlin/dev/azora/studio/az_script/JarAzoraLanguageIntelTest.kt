@@ -40,13 +40,21 @@ class JarAzoraLanguageIntelTest {
     }
 
     @Test
-    fun engineLibrarySymbolsResolveViaPrelude() = runBlocking {
+    fun engineLibrarySymbolsAreGatedByUseImport() = runBlocking {
         if (!intel.available) return@runBlocking
-        // gpuInit comes from the installed engine library sources (~/.azora/libraries).
-        val source = "func main() {\n    gpuIni\n}"
-        val items = intel.complete(source, source.indexOf("gpuIni") + 6, "/tmp/none.az", "/tmp")
         // Only assert when the engine library is installed on this machine.
         val hasEngine = java.io.File(System.getProperty("user.home"), ".azora/libraries").exists()
-        if (hasEngine) assertTrue(items.any { it.label.startsWith("gpuInit") }, "$items")
+        if (!hasEngine) return@runBlocking
+
+        // gpuInit comes from the installed engine library sources (~/.azora/libraries);
+        // it must only complete when the document imports the engine module.
+        val bare = "func main() {\n    gpuIni\n}"
+        val without = intel.complete(bare, bare.indexOf("gpuIni") + 6, "/tmp/none.az", "/tmp")
+        assertTrue(without.none { it.label.startsWith("gpuInit") },
+            "engine symbols must not complete without 'use engine': $without")
+
+        val imported = "use engine\nfunc main() {\n    gpuIni\n}"
+        val with = intel.complete(imported, imported.indexOf("gpuIni") + 6, "/tmp/none.az", "/tmp")
+        assertTrue(with.any { it.label.startsWith("gpuInit") }, "$with")
     }
 }

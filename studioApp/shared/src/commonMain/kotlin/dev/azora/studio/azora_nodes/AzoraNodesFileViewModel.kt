@@ -73,6 +73,16 @@ class AzoraNodesFileViewModel(
         _state.value = _state.value.copy(graph = fileState.graph)
     }
 
+    /** Applies a graph reloaded after an external edit or an explicit `.az` conversion. */
+    fun syncGraphFromDisk(graph: AzoraGraphModel) {
+        if (_state.value.graph == graph) return
+        undoStack.clear()
+        redoStack.clear()
+        _canUndo.value = false
+        _canRedo.value = false
+        _state.value = _state.value.copy(graph = graph)
+    }
+
     fun onAction(action: AzoraNodesAction) {
         when (action) {
             is AzoraNodesAction.CanvasAction -> handleCanvasAction(action.action)

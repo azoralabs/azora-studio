@@ -5,6 +5,7 @@ import dev.azora.studio.assets.OpenAzoraNodesFilesManager
 import dev.azora.studio.assets.OpenAzoraSceneFilesManager
 import dev.azora.studio.assets.OpenAzoraTileMapFilesManager
 import dev.azora.studio.assets.OpenAzsceneFilesManager
+import dev.azora.studio.assets.OpenFilesDiskSync
 import dev.azora.studio.az_script.DiagnosticsManager
 import dev.azora.studio.content_browser.OpenTextFilesManager
 import dev.azora.studio.azora_nodes.AzoraNodesViewModel
@@ -51,12 +52,13 @@ val appModule = module {
     single { OpenTextFilesManager(get()) }
     single { OpenAzsceneFilesManager(get()) }
     single { DiagnosticsManager() }
+    single { OpenFilesDiskSync(get(), get(), get(), get(), get(), get(), get(), get()) }
     single { dev.azora.studio.settings.ProjectPluginsState() }
 
     viewModelOf(::ProjectManagerViewModel)
 
     viewModel { (project: AzoraProjectModel, projectPath: String) ->
-        StudioViewModel(project, projectPath, get(), get(), get(), get())
+        StudioViewModel(project, projectPath, get(), get(), get(), get(), get())
     }
 
     viewModel { (projectPath: String) ->

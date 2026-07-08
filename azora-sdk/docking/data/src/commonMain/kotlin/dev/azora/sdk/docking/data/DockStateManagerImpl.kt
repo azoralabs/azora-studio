@@ -162,6 +162,16 @@ class DockStateManagerImpl(
                     maximizedPanelId = if (state.maximizedPanelId == action.panelId) null else state.maximizedPanelId
                 )
             }
+            is DockAction.UpdatePanelTitle -> {
+                val descriptor = state.layout.panelDescriptors[action.panelId]
+                if (descriptor == null) state
+                else state.copy(
+                    layout = state.layout.copy(
+                        panelDescriptors = state.layout.panelDescriptors +
+                            (action.panelId to descriptor.copy(title = action.title))
+                    )
+                )
+            }
             is DockAction.MovePanel -> {
                 val newLayout = DockLayoutOperations.movePanel(
                     state.layout, action.panelId, action.targetNodeId, action.zone, ::generateNodeId

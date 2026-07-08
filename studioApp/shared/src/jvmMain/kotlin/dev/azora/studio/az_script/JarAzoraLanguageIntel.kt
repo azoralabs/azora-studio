@@ -133,7 +133,12 @@ class JarAzoraLanguageIntel : AzoraLanguageIntel {
         val now = System.currentTimeMillis()
         cachedPrelude?.let { if (it.key == key && now - it.builtAt < 5_000) return it.text }
 
-        val sources = mutableListOf<File>()
+        // (file, module): library sources are tagged with a module derived from
+        // their path (`<libId>/<version>/engine/…` → "engine") via an
+        // `//@azora-module` marker so azls can gate their symbols behind the
+        // document's `use` imports. Project sources (module = null) stay
+        // visible unconditionally.
+        val sources = mutableListOf<Pair<File, String?>>()
         val libraries = File(System.getProperty("user.home"), ".azora/libraries")
         if (libraries.isDirectory) {
             libraries.walkTopDown()
@@ -142,7 +147,13 @@ class JarAzoraLanguageIntel : AzoraLanguageIntel {
                 .onEnter { it.name != "templates" }
                 .filter { it.isFile && it.extension == "az" }
                 .sortedBy { it.absolutePath }
-                .forEach { sources.add(it) }
+                .forEach { file ->
+                    val segments = file.relativeTo(libraries).invariantSeparatorsPath.split("/")
+                    // [libId, version, topDir, …] — module is the top-level source
+                    // dir; files directly under the version dir fall back to libId.
+                    val module = segments.getOrNull(2)?.takeIf { segments.size > 3 } ?: segments.firstOrNull()
+                    sources.add(file to module)
+                }
         }
         val projectDir = File(projectPath)
         val current = File(filePath).absoluteFile.normalize()
@@ -151,11 +162,18 @@ class JarAzoraLanguageIntel : AzoraLanguageIntel {
                 .onEnter { it.name !in SKIPPED_DIRS }
                 .filter { it.isFile && it.extension == "az" && it.absoluteFile.normalize() != current }
                 .sortedBy { it.absolutePath }
-                .forEach { sources.add(it) }
+                .forEach { sources.add(it to null) }
         }
 
-        val text = sources.joinToString("\n\n") { file ->
-            runCatching { stripModuleLines(file.readText()) }.getOrDefault("")
+        val text = buildString {
+            for ((file, module) in sources) {
+                val content = runCatching { stripModuleLines(file.readText()) }.getOrDefault("")
+                // A bare marker resets the module so project files never inherit
+                // the previous library section's module.
+                if (module != null) append("//@azora-module ").append(module).append('\n')
+                else append("//@azora-module\n")
+                append(content).append("\n\n")
+            }
         }
         cachedPrelude = CachedPrelude(key, now, text)
         return text

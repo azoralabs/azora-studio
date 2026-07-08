@@ -66,6 +66,14 @@ sealed interface DockAction {
     data class RemovePanel(val panelId: String) : DockAction
 
     /**
+     * Changes a panel's tab title, e.g. after the backing file is renamed on disk.
+     *
+     * @property panelId The unique identifier of the panel to retitle
+     * @property title The new tab title
+     */
+    data class UpdatePanelTitle(val panelId: String, val title: String) : DockAction
+
+    /**
      * Moves a panel to a new location in the layout.
      *
      * The panel is removed from its current location and added to the target node

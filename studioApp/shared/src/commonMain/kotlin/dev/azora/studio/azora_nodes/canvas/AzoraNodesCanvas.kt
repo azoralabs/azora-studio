@@ -4,6 +4,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import dev.azora.canvas.domain.model.node.AzoraNodeModel
 import dev.azora.canvas.domain.model.AzoraReroutePointModel
 import dev.azora.canvas.domain.AzoraPortDefinition
@@ -42,6 +46,7 @@ fun AzoraNodesCanvas(
 ) {
     val graph = state.graph
     val canvasState = state.canvasState
+    val focusManager = LocalFocusManager.current
 
     // Exec port positions (node-relative offsets, populated by SDK callbacks)
     val inputPortPositions = remember { mutableStateMapOf<InputPortKey, Offset>() }
@@ -341,6 +346,15 @@ fun AzoraNodesCanvas(
                 onDismiss = onDismiss
             )
         },
-        modifier = modifier
+        // Any press drops focus from inline node text fields (the caret goes
+        // away); a press landing on a field re-focuses it in the Main pass.
+        modifier = modifier.pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (event.type == PointerEventType.Press) focusManager.clearFocus()
+                }
+            }
+        }
     )
 }

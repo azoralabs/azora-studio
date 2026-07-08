@@ -117,6 +117,7 @@ fun ContentBrowserPanel(
         ContentBrowserContextMenu(
             position = position,
             targetPath = state.contextMenuTargetPath,
+            hasClipboard = state.clipboard != null,
             sceneTemplates = viewModel.azsceneTemplates(),
             onCreateFolder = { name -> viewModel.createFolder(name) },
             onCreateFile = { name -> viewModel.createFile(name) },
@@ -125,6 +126,9 @@ fun ContentBrowserPanel(
             onConvertToNodes = { state.contextMenuTargetPath?.let { viewModel.convertAzToNodes(it) } },
             onConvertToAz = { state.contextMenuTargetPath?.let { viewModel.convertNodesToAz(it) } },
             onRenameRequested = { state.contextMenuTargetPath?.let { viewModel.dismissContextMenu(); renameTarget = it } },
+            onCopy = { state.contextMenuTargetPath?.let { viewModel.copyItem(it) } },
+            onCut = { state.contextMenuTargetPath?.let { viewModel.cutItem(it) } },
+            onPaste = { viewModel.pasteItem() },
             onDelete = { state.contextMenuTargetPath?.let { viewModel.deleteItem(it) } },
             onDismiss = viewModel::dismissContextMenu
         )
@@ -528,6 +532,7 @@ private fun CenteredHint(text: String) {
 private fun ContentBrowserContextMenu(
     position: Offset,
     targetPath: String?,
+    hasClipboard: Boolean,
     sceneTemplates: List<dev.azora.sdk.plugin.core.AzsceneTemplate>,
     onCreateFolder: (String) -> Unit,
     onCreateFile: (String) -> Unit,
@@ -536,6 +541,9 @@ private fun ContentBrowserContextMenu(
     onConvertToNodes: () -> Unit,
     onConvertToAz: () -> Unit,
     onRenameRequested: () -> Unit,
+    onCopy: () -> Unit,
+    onCut: () -> Unit,
+    onPaste: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -601,6 +609,9 @@ private fun ContentBrowserContextMenu(
             sceneTemplates.forEach { tpl ->
                 MenuRow("New ${tpl.label}") { sceneDialogType = tpl }
             }
+            if (hasClipboard) {
+                MenuRow("Paste") { onPaste() }
+            }
             if (targetPath != null) {
                 Spacer(
                     modifier = Modifier
@@ -614,6 +625,8 @@ private fun ContentBrowserContextMenu(
                     "azn" -> MenuRow("Generate Azora Source") { onConvertToAz() }
                 }
                 MenuRow("Rename") { onRenameRequested(); onDismiss() }
+                MenuRow("Copy") { onCopy() }
+                MenuRow("Cut") { onCut() }
                 MenuRow("Delete", color = AzoraPalette.AccentRed) { onDelete() }
             }
         }

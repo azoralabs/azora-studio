@@ -92,6 +92,20 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
     val scope = rememberCoroutineScope()
     val state = openFiles[panelId]
 
+    // Builds before `.az` session persistence stored the dock tab but not its
+    // file path. Recover those legacy tabs once by their descriptor title.
+    LaunchedEffect(panelId, projectPath) {
+        if (manager.getState(panelId) == null && projectPath.isNotEmpty()) {
+            val title = dockStateManager.state.value.layout.panelDescriptors[panelId]?.title
+            if (!title.isNullOrBlank()) {
+                val fileName = if (title.endsWith(".az")) title else "$title.az"
+                manager.findScriptFile(projectPath, fileName)?.let { filePath ->
+                    manager.restoreFile(panelId, filePath)
+                }
+            }
+        }
+    }
+
     if (state == null) {
         Box(
             modifier = Modifier.fillMaxSize().background(AzoraPalette.Neutral90).padding(24.dp),
@@ -329,10 +343,6 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
         scope.launch {
             val aznPath = AznFiles.siblingAznPath(state.filePath)
             val aznName = aznPath.substringAfterLast('/')
-            if (fileSystem.fileExists(aznPath) is dev.azora.sdk.core.io.ExistsResult.Exists) {
-                console.error("$aznName already exists — delete or rename it first.")
-                return@launch
-            }
             when (val converted = AzToNodesConverter().convert(fieldValue.text, state.fileName)) {
                 is AzToNodesResult.Failure -> {
                     console.error("Cannot convert ${state.fileName}.az: ${converted.errors.firstOrNull()}")
@@ -342,7 +352,7 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                     when (fileSystem.writeToFile(aznPath, AznFiles.encode(converted.graph))) {
                         is FileSystemResult.Success -> {
                             console.info("Converted ${state.fileName}.az → $aznName")
-                            val nodesPanelId = nodesFilesManager.openFile(aznPath) ?: return@launch
+                            val nodesPanelId = nodesFilesManager.reloadFile(aznPath) ?: return@launch
                             val nodesState = nodesFilesManager.getState(nodesPanelId) ?: return@launch
                             dockStateManager.dispatch(
                                 DockAction.AddPanel(
@@ -460,6 +470,7 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                 value = fieldValue,
                 onValueChange = { newValue ->
                     val textChanged = newValue.text != fieldValue.text
+                    val selectionMoved = newValue.selection != fieldValue.selection
                     val grewByTyping = newValue.text.length == fieldValue.text.length + 1
                     applyEdit(newValue)
                     if (textChanged) {
@@ -471,6 +482,10 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                                 requestCompletions(debounceMs = 120)
                             else -> closeCompletions()
                         }
+                    } else if (selectionMoved) {
+                        // Caret moved without typing (mouse click, arrow keys):
+                        // the popup no longer matches the cursor position.
+                        closeCompletions()
                     }
                 },
                 textStyle = editorTextStyle,

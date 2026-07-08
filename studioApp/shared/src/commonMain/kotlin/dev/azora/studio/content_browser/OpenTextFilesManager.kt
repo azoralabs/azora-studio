@@ -77,6 +77,15 @@ class OpenTextFilesManager(
         _openFiles.value = _openFiles.value - panelId
     }
 
+    /** Points an open tab at a new path after the file was renamed/moved on disk. */
+    fun relocate(panelId: String, newPath: String) {
+        val state = _openFiles.value[panelId] ?: return
+        _openFiles.value = _openFiles.value + (panelId to state.copy(
+            filePath = newPath,
+            fileName = newPath.substringAfterLast("/")
+        ))
+    }
+
     fun getState(panelId: String): OpenTextFileState? = _openFiles.value[panelId]
 
     fun updateContent(panelId: String, content: String) {

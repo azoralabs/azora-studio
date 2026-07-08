@@ -21,6 +21,8 @@ import dev.azora.studio.editor.EDITOR_AREA_NODE_ID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 // Heavy / generated folders hidden so the browser stays usable.
@@ -38,8 +40,14 @@ data class ContentBrowserState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val contextMenuPosition: Offset? = null,
-    val contextMenuTargetPath: String? = null
+    val contextMenuTargetPath: String? = null,
+    val clipboard: ClipboardEntry? = null
 )
+
+/** An item put on the internal clipboard by Copy or Cut. */
+data class ClipboardEntry(val path: String, val isCut: Boolean) {
+    val name: String get() = path.substringAfterLast("/")
+}
 
 /** A clickable path segment in the breadcrumb bar. */
 data class Breadcrumb(val name: String, val path: String)
@@ -91,6 +99,16 @@ class ContentBrowserViewModel(
 
     init {
         refresh()
+        viewModelScope.launch {
+            while (isActive) {
+                delay(500)
+                val path = _state.value.currentPath
+                val items = loadDirectory(path)
+                if (_state.value.currentPath == path && _state.value.items != items) {
+                    _state.value = _state.value.copy(items = items, error = null)
+                }
+            }
+        }
     }
 
     val canGoUp: Boolean get() = _state.value.currentPath != rootAbs
@@ -362,7 +380,8 @@ class ContentBrowserViewModel(
 
     /**
      * Converts an `.az` source file into a sibling `.azn` node graph and opens
-     * it in the node editor. Refuses to overwrite an existing `.azn`.
+     * it in the node editor. An explicit conversion regenerates the sibling
+     * graph when it already exists.
      */
     fun convertAzToNodes(azPath: String) {
         viewModelScope.launch {
@@ -375,10 +394,6 @@ class ContentBrowserViewModel(
                 }
             }
             val aznPath = AznFiles.siblingAznPath(azPath)
-            if (fileSystem.fileExists(aznPath) is ExistsResult.Exists) {
-                _state.value = _state.value.copy(error = "${aznPath.substringAfterLast('/')} already exists — delete or rename it first.")
-                return@launch
-            }
             val name = azPath.substringAfterLast('/').removeSuffix(".${AznFiles.AZ_EXTENSION}")
             when (val result = AzToNodesConverter().convert(content, name)) {
                 is AzToNodesResult.Failure -> {
@@ -389,7 +404,16 @@ class ContentBrowserViewModel(
                     when (fileSystem.writeToFile(aznPath, AznFiles.encode(result.graph))) {
                         is FileSystemResult.Success -> {
                             refresh()
-                            openAzoraNodesFile(aznPath)
+                            val panelId = openAzoraNodesFilesManager.reloadFile(aznPath) ?: return@launch
+                            val st = openAzoraNodesFilesManager.getState(panelId) ?: return@launch
+                            dockStateManager.dispatch(
+                                DockAction.AddPanel(
+                                    DockPanelDescriptor(id = panelId, title = st.fileName, closeable = true),
+                                    EDITOR_AREA_NODE_ID,
+                                    DockZone.CENTER
+                                )
+                            )
+                            dockStateManager.dispatch(DockAction.SelectPanel(panelId))
                         }
                         is FileSystemResult.Error -> {
                             _state.value = _state.value.copy(error = "Failed to write ${aznPath.substringAfterLast('/')}")
@@ -402,9 +426,7 @@ class ContentBrowserViewModel(
 
     /**
      * Generates the sibling `.az` source from an `.azn` node graph and opens
-     * it. The output carries the generated-file header, so the run pipeline
-     * keeps it in sync with the graph; a hand-written `.az` at the same path
-     * is never overwritten.
+     * it. Export is explicit, so the sibling `.az` is replaced every time.
      */
     fun convertNodesToAz(aznPath: String) {
         viewModelScope.launch {
@@ -421,20 +443,22 @@ class ContentBrowserViewModel(
                 return@launch
             }
             val azPath = AznFiles.siblingAzPath(aznPath)
-            when (val existing = fileSystem.readFromFile(azPath)) {
-                is FileReadResult.Success -> if (!AznFiles.isGenerated(existing.content)) {
-                    _state.value = _state.value.copy(error = "${azPath.substringAfterLast('/')} is hand-written — refusing to overwrite it.")
-                    return@launch
-                }
-                is FileReadResult.Error -> Unit // no existing file — fine
-            }
             val result = NodesToAzConverter().convert(graph)
             result.warnings.forEach { println("[ContentBrowser] generate ${azPath.substringAfterLast('/')}: $it") }
             val output = AznFiles.withGeneratedHeader(result.source, aznPath.substringAfterLast('/'))
             when (fileSystem.writeToFile(azPath, output)) {
                 is FileSystemResult.Success -> {
                     refresh()
-                    openAzScriptFile(azPath)
+                    val panelId = openAzScriptFilesManager.reloadFile(azPath) ?: return@launch
+                    val st = openAzScriptFilesManager.getState(panelId) ?: return@launch
+                    dockStateManager.dispatch(
+                        DockAction.AddPanel(
+                            DockPanelDescriptor(id = panelId, title = st.fileName, closeable = true),
+                            EDITOR_AREA_NODE_ID,
+                            DockZone.CENTER
+                        )
+                    )
+                    dockStateManager.dispatch(DockAction.SelectPanel(panelId))
                 }
                 is FileSystemResult.Error -> {
                     _state.value = _state.value.copy(error = "Failed to write ${azPath.substringAfterLast('/')}")
@@ -475,5 +499,82 @@ class ContentBrowserViewModel(
             }
             dismissContextMenu()
         }
+    }
+
+    // ---------- Clipboard (Copy / Cut / Paste) ----------
+
+    fun copyItem(path: String) {
+        _state.value = _state.value.copy(clipboard = ClipboardEntry(path, isCut = false))
+        dismissContextMenu()
+    }
+
+    fun cutItem(path: String) {
+        _state.value = _state.value.copy(clipboard = ClipboardEntry(path, isCut = true))
+        dismissContextMenu()
+    }
+
+    /** Pastes the clipboard into the targeted folder (or the current one). */
+    fun pasteItem() {
+        val entry = _state.value.clipboard ?: return
+        val destDir = resolveCreateParent()
+        viewModelScope.launch {
+            val sourceExists = fileSystem.exists(entry.path)
+            if (sourceExists !is ExistsResult.Exists) {
+                _state.value = _state.value.copy(error = "Clipboard item no longer exists", clipboard = null)
+                dismissContextMenu()
+                return@launch
+            }
+            val isDir = sourceExists.isDirectory
+            val destPath = uniqueDestination(destDir, entry.name)
+            val result = when {
+                // Cut into the same folder is a no-op.
+                entry.isCut && entry.path.substringBeforeLast("/") == destDir ->
+                    FileSystemResult.Success(entry.path)
+                entry.isCut && isDir -> fileSystem.renameDirectory(entry.path, destPath)
+                entry.isCut -> fileSystem.renameFile(entry.path, destPath)
+                isDir -> copyDirectoryRecursively(entry.path, destPath)
+                else -> fileSystem.copyFile(entry.path, destPath)
+            }
+            when (result) {
+                is FileSystemResult.Success -> {
+                    // A cut item is consumed; a copied one can be pasted again.
+                    if (entry.isCut) _state.value = _state.value.copy(clipboard = null)
+                    refresh()
+                }
+                is FileSystemResult.Error -> _state.value = _state.value.copy(error = "Failed to paste item")
+            }
+            dismissContextMenu()
+        }
+    }
+
+    /** `name`, else `name 2`, `name 3`, … (suffix before the extension for files). */
+    private fun uniqueDestination(destDir: String, name: String): String {
+        fun candidate(n: Int): String {
+            if (n == 1) return "$destDir/$name"
+            val dot = name.lastIndexOf('.')
+            return if (dot > 0) "$destDir/${name.take(dot)} $n${name.substring(dot)}"
+            else "$destDir/$name $n"
+        }
+        var n = 1
+        while (fileSystem.exists(candidate(n)) is ExistsResult.Exists) n++
+        return candidate(n)
+    }
+
+    private suspend fun copyDirectoryRecursively(source: String, dest: String): FileSystemResult {
+        when (val created = fileSystem.createDirectory(dest)) {
+            is FileSystemResult.Error -> return created
+            is FileSystemResult.Success -> Unit
+        }
+        val listing = fileSystem.listDirectory(source)
+        if (listing !is ListResult.Success) return FileSystemResult.Error("Cannot list $source")
+        for (entry in listing.files) {
+            val result = if (entry.isDirectory) {
+                copyDirectoryRecursively(entry.path, "$dest/${entry.name}")
+            } else {
+                fileSystem.copyFile(entry.path, "$dest/${entry.name}")
+            }
+            if (result is FileSystemResult.Error) return result
+        }
+        return FileSystemResult.Success(dest)
     }
 }

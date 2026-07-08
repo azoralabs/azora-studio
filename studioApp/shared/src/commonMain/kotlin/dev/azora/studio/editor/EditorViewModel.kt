@@ -29,12 +29,45 @@ private fun DockNode.replacePanelId(from: String, to: String): DockNode = when (
     )
 }
 
+/** Removes repeated references to the same panel id from a persisted layout. */
+private fun DockNode.withUniquePanels(seen: MutableSet<String>): DockNode? = when (this) {
+    is DockNode.Leaf -> takeIf { seen.add(panelId) }
+    is DockNode.TabGroup -> copy(panels = panels.filter { seen.add(it) }).let { group ->
+        group.takeIf { it.panels.isNotEmpty() }?.copy(
+            activeTabIndex = group.activeTabIndex.coerceAtMost(group.panels.lastIndex)
+        )
+    }
+    is DockNode.Split -> {
+        val uniqueFirst = first.withUniquePanels(seen)
+        val uniqueSecond = second.withUniquePanels(seen)
+        when {
+            uniqueFirst == null -> uniqueSecond
+            uniqueSecond == null -> uniqueFirst
+            else -> copy(first = uniqueFirst, second = uniqueSecond)
+        }
+    }
+}
+
+private fun DockLayout.withUniquePanels(): DockLayout {
+    val seen = mutableSetOf<String>()
+    val uniqueRoot = rootNode?.withUniquePanels(seen)
+    val uniqueFloating = floatingWindows.mapNotNull { window ->
+        window.content.withUniquePanels(seen)?.let { window.copy(content = it) }
+    }
+    return copy(
+        rootNode = uniqueRoot,
+        floatingWindows = uniqueFloating,
+        panelDescriptors = panelDescriptors.filterKeys { it in seen }
+    )
+}
+
 class StudioViewModel(
     private val project: AzoraProjectModel,
     private val projectPath: String,
     val dockStateManager: DockStateManager,
     private val projectRepository: AzoraProjectRepository,
     private val openFilesManager: OpenAzoraNodesFilesManager,
+    private val openAzScriptFilesManager: OpenAzScriptFilesManager,
     private val openTextFilesManager: OpenTextFilesManager
 ) : ViewModel() {
 
@@ -62,18 +95,16 @@ class StudioViewModel(
         // File restoration involves disk I/O and JSON parsing which must not run on EDT.
         viewModelScope.launch {
             restoreOpenFiles()
+            restoreOpenAzScriptFiles()
             restoreOpenTextFiles()
             loadSavedLayout()
+
+            // Start persistence only after restoration. Starting collectors
+            // against the managers' initial empty maps can erase the saved
+            // mappings before disk restoration completes.
+            observeLayoutChanges()
+            observeOpenFileMappings()
         }
-
-        // Auto-save layout on changes (debounced)
-        observeLayoutChanges()
-
-        // Auto-save open files mapping on changes (debounced)
-        observeOpenFilesChanges()
-
-        // Auto-save open text files mapping on changes (debounced)
-        observeOpenTextFilesChanges()
     }
 
     private suspend fun restoreOpenFiles() {
@@ -111,53 +142,19 @@ class StudioViewModel(
      * showing a blank, no-longer-registered tab.
      */
     private fun migrateLegacyPanels(layout: DockLayout): DockLayout {
-        if (!layout.panelDescriptors.containsKey("project")) return layout
-        return layout.copy(
-            rootNode = layout.rootNode?.replacePanelId("project", "welcome"),
-            floatingWindows = layout.floatingWindows.map {
-                it.copy(content = it.content.replacePanelId("project", "welcome"))
-            },
-            panelDescriptors = layout.panelDescriptors - "project" +
-                ("welcome" to DockPanelDescriptor("welcome", "Welcome", minimumWidth = 200f, minimumHeight = 150f))
-        )
-    }
-
-    @OptIn(FlowPreview::class)
-    private fun observeOpenFilesChanges() {
-        viewModelScope.launch {
-            println("[StudioViewModel] Starting to observe openFiles changes")
-            openFilesManager.openFiles
-                .map { files ->
-                    println("[StudioViewModel] openFiles changed: ${files.keys}")
-                    files.mapValues { entry -> entry.value.filePath }
-                }
-                .distinctUntilChanged()
-                .debounce(500)
-                .collect { mapping ->
-                    println("[StudioViewModel] After debounce, saving mapping: $mapping")
-                    saveOpenFilesToProject(mapping)
-                }
+        val migrated = if (!layout.panelDescriptors.containsKey("project")) {
+            layout
+        } else {
+            layout.copy(
+                rootNode = layout.rootNode?.replacePanelId("project", "welcome"),
+                floatingWindows = layout.floatingWindows.map {
+                    it.copy(content = it.content.replacePanelId("project", "welcome"))
+                },
+                panelDescriptors = layout.panelDescriptors - "project" +
+                    ("welcome" to DockPanelDescriptor("welcome", "Welcome", minimumWidth = 200f, minimumHeight = 150f))
+            )
         }
-    }
-
-    private suspend fun saveOpenFilesToProject(mapping: Map<String, String>) {
-        println("[StudioViewModel] saveOpenFilesToProject called with mapping: $mapping")
-        try {
-            val currentProject = projectRepository.getProject()
-            println("[StudioViewModel] currentProject result: $currentProject")
-            if (currentProject is dev.azora.sdk.core.domain.util.Res.Success) {
-                val updatedProject = currentProject.data.copy(
-                    settings = currentProject.data.settings.withOpenAzoraNodesFiles(mapping)
-                )
-                println("[StudioViewModel] Updating project with openAzoraNodesFiles: ${updatedProject.settings.openAzoraNodesFiles}")
-                projectRepository.updateProject(updatedProject)
-                projectRepository.saveProject(projectPath)
-                println("[StudioViewModel] Project saved successfully")
-            }
-        } catch (e: Exception) {
-            println("[StudioViewModel] Failed to save open files mapping: ${e.message}")
-            e.printStackTrace()
-        }
+        return migrated.withUniquePanels()
     }
 
     private suspend fun restoreOpenTextFiles() {
@@ -171,29 +168,41 @@ class StudioViewModel(
         }
     }
 
-    @OptIn(FlowPreview::class)
-    private fun observeOpenTextFilesChanges() {
-        viewModelScope.launch {
-            openTextFilesManager.openFiles
-                .map { files -> files.mapValues { it.value.filePath } }
-                .distinctUntilChanged()
-                .debounce(500)
-                .collect { mapping -> saveOpenTextFilesToProject(mapping) }
+    private suspend fun restoreOpenAzScriptFiles() {
+        val savedMapping = project.settings.openAzScriptFiles
+        if (savedMapping.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                savedMapping.forEach { (panelId, filePath) ->
+                    openAzScriptFilesManager.restoreFile(panelId, filePath)
+                }
+            }
         }
     }
 
-    private suspend fun saveOpenTextFilesToProject(mapping: Map<String, String>) {
-        try {
-            val currentProject = projectRepository.getProject()
-            if (currentProject is dev.azora.sdk.core.domain.util.Res.Success) {
-                val updatedProject = currentProject.data.copy(
-                    settings = currentProject.data.settings.withOpenTextFiles(mapping)
-                )
-                projectRepository.updateProject(updatedProject)
-                projectRepository.saveProject(projectPath)
-            }
-        } catch (e: Exception) {
-            println("[StudioViewModel] Failed to save open text files mapping: ${e.message}")
+    /** Persists all file-tab mappings atomically so concurrent collectors cannot overwrite extras. */
+    private fun observeOpenFileMappings() {
+        viewModelScope.launch {
+            combine(
+                openFilesManager.openFiles.map { files -> files.mapValues { it.value.filePath } },
+                openAzScriptFilesManager.openFiles.map { files -> files.mapValues { it.value.filePath } },
+                openTextFilesManager.openFiles.map { files -> files.mapValues { it.value.filePath } }
+            ) { nodes, scripts, text -> Triple(nodes, scripts, text) }
+                .distinctUntilChanged()
+                .collect { (nodes, scripts, text) ->
+                    try {
+                        val currentProject = projectRepository.getProject()
+                        if (currentProject is dev.azora.sdk.core.domain.util.Res.Success) {
+                            val settings = currentProject.data.settings
+                                .withOpenAzoraNodesFiles(nodes)
+                                .withOpenAzScriptFiles(scripts)
+                                .withOpenTextFiles(text)
+                            projectRepository.updateProject(currentProject.data.copy(settings = settings))
+                            projectRepository.saveProject(projectPath)
+                        }
+                    } catch (e: Exception) {
+                        println("[StudioViewModel] Failed to save open file mappings: ${e.message}")
+                    }
+                }
         }
     }
 
@@ -203,6 +212,7 @@ class StudioViewModel(
             dockStateManager.state
                 .map { it.layout }
                 .distinctUntilChanged()
+                .drop(1)
                 .debounce(500)
                 .collect { layout ->
                     saveLayoutToProject(layout)
@@ -336,7 +346,37 @@ class StudioViewModel(
     fun onAction(action: StudioAction) {
         when (action) {
             is StudioAction.DockAction -> {
+                val panelIdsToClose = when (val dockAction = action.action) {
+                    is DockAction.RemovePanel -> setOf(dockAction.panelId)
+                    is DockAction.CloseFloatingWindow -> dockStateManager.state.value.layout
+                        .floatingWindows
+                        .find { it.id == dockAction.windowId }
+                        ?.content
+                        ?.collectPanelIds()
+                        .orEmpty()
+                    else -> emptySet()
+                }
                 dockStateManager.dispatch(action.action)
+                panelIdsToClose.forEach(::closeManagedFile)
+            }
+        }
+    }
+
+    private fun closeManagedFile(panelId: String) {
+        when {
+            panelId.startsWith("azn_") -> viewModelScope.launch {
+                if (openFilesManager.getState(panelId)?.isDirty == true) openFilesManager.saveFile(panelId)
+                openFilesManager.closeFile(panelId)
+            }
+            panelId.startsWith("azs_") -> viewModelScope.launch {
+                if (openAzScriptFilesManager.getState(panelId)?.isDirty == true) {
+                    openAzScriptFilesManager.saveFile(panelId)
+                }
+                openAzScriptFilesManager.closeFile(panelId)
+            }
+            panelId.startsWith("txt_") -> viewModelScope.launch {
+                if (openTextFilesManager.getState(panelId)?.isDirty == true) openTextFilesManager.saveFile(panelId)
+                openTextFilesManager.closeFile(panelId)
             }
         }
     }

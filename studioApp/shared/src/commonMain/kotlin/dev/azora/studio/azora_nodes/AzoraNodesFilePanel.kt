@@ -14,10 +14,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.azora.nodes.domain.AznFiles
 import dev.azora.nodes.domain.NodesToAzConverter
-import dev.azora.sdk.core.io.FileReadResult
 import dev.azora.sdk.core.io.FileSystem
 import dev.azora.sdk.core.io.FileSystemResult
 import dev.azora.studio.assets.OpenAzoraNodesFilesManager
+import dev.azora.studio.assets.OpenAzScriptFilesManager
 import dev.azora.studio.azora_nodes.canvas.AzoraNodesCanvas
 import dev.azora.studio.azora_nodes.panel.ScriptNodePropertiesPanel
 import dev.azora.studio.azora_nodes.panel.AzoraNodeVarsPanel
@@ -47,7 +47,8 @@ fun AzoraNodesFilePanel(
     undoRedoCoordinator: GlobalUndoRedoCoordinator = koinInject(),
     projectRepository: AzoraProjectRepository = koinInject(),
     dockStateManager: dev.azora.sdk.docking.domain.DockStateManager = koinInject(),
-    fileSystem: FileSystem = koinInject()
+    fileSystem: FileSystem = koinInject(),
+    openAzScriptFilesManager: OpenAzScriptFilesManager = koinInject()
 ) {
     val openFiles by openFilesManager.openFiles.collectAsState()
     val fileState = openFiles[panelId]
@@ -98,6 +99,10 @@ fun AzoraNodesFilePanel(
 
     val state by viewModel.state.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(fileState.graph) {
+        viewModel.syncGraphFromDisk(fileState.graph)
+    }
 
     // Activate this ViewModel for undo/redo when panel is visible
     LaunchedEffect(Unit) {
@@ -197,19 +202,27 @@ fun AzoraNodesFilePanel(
                     val current = openFilesManager.getState(panelId) ?: return@launch
                     val azPath = AznFiles.siblingAzPath(current.filePath)
                     val azName = azPath.substringAfterLast('/')
-                    // Never clobber a hand-written .az next to the graph.
-                    when (val existing = fileSystem.readFromFile(azPath)) {
-                        is FileReadResult.Success -> if (!AznFiles.isGenerated(existing.content)) {
-                            consoleOutputManager.error("$azName is hand-written — refusing to overwrite it.")
-                            return@launch
-                        }
-                        is FileReadResult.Error -> Unit
-                    }
                     val result = NodesToAzConverter().convert(current.graph)
                     result.warnings.forEach { consoleOutputManager.print("[$azName] $it") }
                     val output = AznFiles.withGeneratedHeader(result.source, current.filePath.substringAfterLast('/'))
                     when (fileSystem.writeToFile(azPath, output)) {
-                        is FileSystemResult.Success -> consoleOutputManager.info("Generated $azName from ${current.fileName}.azn")
+                        is FileSystemResult.Success -> {
+                            consoleOutputManager.info("Generated $azName from ${current.fileName}.azn")
+                            val scriptPanelId = openAzScriptFilesManager.reloadFile(azPath) ?: return@launch
+                            val scriptState = openAzScriptFilesManager.getState(scriptPanelId) ?: return@launch
+                            dockStateManager.dispatch(
+                                DockAction.AddPanel(
+                                    DockPanelDescriptor(
+                                        id = scriptPanelId,
+                                        title = scriptState.fileName,
+                                        closeable = true
+                                    ),
+                                    dev.azora.studio.editor.EDITOR_AREA_NODE_ID,
+                                    DockZone.CENTER
+                                )
+                            )
+                            dockStateManager.dispatch(DockAction.SelectPanel(scriptPanelId))
+                        }
                         is FileSystemResult.Error -> consoleOutputManager.error("Failed to write $azName")
                     }
                 }

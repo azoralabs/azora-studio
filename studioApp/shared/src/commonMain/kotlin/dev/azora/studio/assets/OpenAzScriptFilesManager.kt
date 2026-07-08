@@ -50,6 +50,20 @@ class OpenAzScriptFilesManager(
         return panelId
     }
 
+    /** Re-reads [filePath], updating an existing editor rather than returning cached text. */
+    suspend fun reloadFile(filePath: String): String? {
+        val existing = _openFiles.value.values.find { it.filePath == filePath }
+            ?: return openFile(filePath)
+        val content = when (val result = fileSystem.readFromFile(filePath)) {
+            is FileReadResult.Success -> result.content
+            is FileReadResult.Error -> return null
+        }
+        _openFiles.value = _openFiles.value + (
+            existing.panelId to existing.copy(sourceCode = content, isDirty = false)
+        )
+        return existing.panelId
+    }
+
     suspend fun restoreFile(panelId: String, filePath: String): Boolean {
         if (_openFiles.value.containsKey(panelId)) return true
 
@@ -74,6 +88,15 @@ class OpenAzScriptFilesManager(
 
     fun closeFile(panelId: String) {
         _openFiles.value = _openFiles.value - panelId
+    }
+
+    /** Points an open tab at a new path after the file was renamed/moved on disk. */
+    fun relocate(panelId: String, newPath: String) {
+        val state = _openFiles.value[panelId] ?: return
+        _openFiles.value = _openFiles.value + (panelId to state.copy(
+            filePath = newPath,
+            fileName = newPath.substringAfterLast("/").substringBeforeLast(".")
+        ))
     }
 
     fun getState(panelId: String): OpenAzScriptFileState? {

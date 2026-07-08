@@ -97,6 +97,15 @@ class OpenAzoraTileMapFilesManager(
         _openFiles.value = _openFiles.value - panelId
     }
 
+    /** Points an open tab at a new path after the file was renamed/moved on disk. */
+    fun relocate(panelId: String, newPath: String) {
+        val state = _openFiles.value[panelId] ?: return
+        _openFiles.value = _openFiles.value + (panelId to state.copy(
+            filePath = newPath,
+            fileName = newPath.substringAfterLast("/").substringBeforeLast(".")
+        ))
+    }
+
     /**
      * Gets the state for a panel ID.
      */

@@ -33,7 +33,7 @@ data class NodesToAzResult(val source: String, val warnings: List<String>)
  * emitted `if`/`when` block re-joins the statement flow exactly like the
  * interpreter's control flow. Pure data nodes are inlined as expressions at
  * their point of use; `FUNCTION_CALL`/`AZ_CALL` results are hoisted into
- * `let __rN = …` temporaries because calls only run on the exec path.
+ * `fin __rN = …` temporaries because calls only run on the exec path.
  */
 class NodesToAzConverter {
 
@@ -174,13 +174,14 @@ class NodesToAzConverter {
 
         private fun topLevelVarDecl(variable: AzoraNodeVar): String {
             val type = variable.type
+            val keyword = if (variable.readonly) "fin" else "var"
             return when (type) {
                 AzoraNodeDataType.BOOLEAN, AzoraNodeDataType.INTEGER,
                 AzoraNodeDataType.REAL, AzoraNodeDataType.STRING ->
-                    "var ${variable.name}: ${azTypeName(type, variable.name)} = ${defaultLiteral(variable)}"
+                    "$keyword ${variable.name}: ${azTypeName(type, variable.name)} = ${defaultLiteral(variable)}"
                 else -> {
                     warnings.add("Variable \"${variable.name}\" (${type.label}) is shared between functions but has no concrete azora type — declared as Int 0.")
-                    "var ${variable.name}: Int = 0"
+                    "$keyword ${variable.name}: Int = 0"
                 }
             }
         }
@@ -204,7 +205,8 @@ class NodesToAzConverter {
             for (varId in localVarIds) {
                 val variable = graph.variables[varId] ?: continue
                 if (variable.type in PRIMITIVE_TYPES && !isSetExactlyOnceReadonly(variable, varId)) {
-                    body.appendLine("    var ${variable.name}: ${azTypeName(variable.type, variable.name)} = ${defaultLiteral(variable)}")
+                    val keyword = if (variable.readonly) "fin" else "var"
+                    body.appendLine("    $keyword ${variable.name}: ${azTypeName(variable.type, variable.name)} = ${defaultLiteral(variable)}")
                     declaredVars.add(varId)
                 }
             }
@@ -243,7 +245,7 @@ class NodesToAzConverter {
             }
         }
 
-        /** `let`-style variable: readonly and written by exactly one SET node. */
+        /** `fin`-style variable: readonly and written by exactly one SET node. */
         private fun isSetExactlyOnceReadonly(variable: AzoraNodeVar, varId: String): Boolean {
             if (!variable.readonly) return false
             val sets = graph.nodes.values.count {
@@ -465,7 +467,7 @@ class NodesToAzConverter {
                 when {
                     consumers.isEmpty() -> line(call)
                     // Single consumer that executes right after the call: inline the
-                    // call expression there (`let x = f(1)` / `println(f(1))`) instead
+                    // call expression there (`fin x = f(1)` / `println(f(1))`) instead
                     // of introducing a `__rN` temp — keeps round-trips a fixpoint.
                     consumers.size == 1 && consumers[0].targetNodeId == execTarget(node.id, 0) -> {
                         inlinedCalls[node.id] = call
@@ -473,7 +475,7 @@ class NodesToAzConverter {
                     else -> {
                         val temp = uniqueTempName()
                         callTemps[node.id] = temp
-                        line("let $temp = $call")
+                        line("fin $temp = $call")
                     }
                 }
             }
@@ -497,7 +499,7 @@ class NodesToAzConverter {
                 val declared = varId in declaredVars || varId in globalVarIds
                 if (!declared) {
                     declaredVars.add(varId)
-                    val keyword = if (isSetExactlyOnceReadonly(variable, varId)) "let" else "var"
+                    val keyword = if (isSetExactlyOnceReadonly(variable, varId)) "fin" else "var"
                     line("$keyword ${variable.name} = $value")
                 } else {
                     line("${variable.name} = $value")
@@ -576,7 +578,7 @@ class NodesToAzConverter {
                     if (code.isEmpty()) {
                         warnings.add("Empty Azora Expression node $nodeId — emitted as 0.")
                         "0"
-                    } else "($code)"
+                    } else wrapRawExpression(code)
                 }
                 AzoraNodeType.ENUM_VALUE -> {
                     val enum = node.properties["enumId"]?.let { graph.enums[it] }
@@ -617,6 +619,35 @@ class NodesToAzConverter {
             val a = dataExpr(nodeId, "a", operandType)
             val b = dataExpr(nodeId, "b", operandType)
             return "($a $op $b)"
+        }
+
+        private fun wrapRawExpression(code: String): String {
+            val trimmed = code.trim()
+            return if (trimmed.isAtomicExpression() || trimmed.hasRedundantOuterParens()) trimmed else "($trimmed)"
+        }
+
+        private fun String.isAtomicExpression(): Boolean {
+            if (isEmpty()) return false
+            if (first() == '"' || first() == '\'' || first() == '[') return true
+            if (this == "true" || this == "false" || this == "null") return true
+            if (toLongOrNull() != null || toDoubleOrNull() != null) return true
+            return all { it.isLetterOrDigit() || it == '_' || it == '.' || it == '?' || it == '!' || it == '[' || it == ']' }
+        }
+
+        private fun String.hasRedundantOuterParens(): Boolean {
+            if (length < 2 || first() != '(' || last() != ')') return false
+            var depth = 0
+            for (i in indices) {
+                when (this[i]) {
+                    '(' -> depth++
+                    ')' -> {
+                        depth--
+                        if (depth == 0 && i != lastIndex) return false
+                    }
+                }
+                if (depth < 0) return false
+            }
+            return depth == 0
         }
 
         private fun functionCallArgs(node: AzoraNodeModel): List<String> {

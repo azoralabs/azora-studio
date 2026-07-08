@@ -128,6 +128,15 @@ object DockLayoutOperations {
         val newPanelId = descriptor.id
         val newDescriptors = layout.panelDescriptors + (newPanelId to descriptor)
 
+        // Panel ids identify panel instances, so adding an id that is already in
+        // the tree would create two tabs backed by the exact same state. Apart
+        // from being confusing, closing either tab then removes both references.
+        // Treat a repeated open as a descriptor refresh; callers select the
+        // existing panel immediately after AddPanel.
+        if (layout.containsPanel(newPanelId)) {
+            return layout.copy(panelDescriptors = newDescriptors)
+        }
+
         if (layout.rootNode == null) {
             return layout.copy(
                 rootNode = DockNode.Leaf(id = generateId(), panelId = newPanelId),

@@ -69,6 +69,11 @@ fun StudioView(
     val openAzsceneFilesManager: OpenAzsceneFilesManager = koinInject()
     val openAzsceneFiles by openAzsceneFilesManager.openFiles.collectAsState()
 
+    // Keep tabs following disk: renamed files retitle their tab, deleted files close it.
+    // (Multiple launches are fine — OpenFilesDiskSync serializes on a mutex.)
+    val openFilesDiskSync: dev.azora.studio.assets.OpenFilesDiskSync = koinInject()
+    LaunchedEffect(Unit) { openFilesDiskSync.run() }
+
     // Host context dependencies handed to plugin content
     val pluginLogger: AzoraLogger = koinInject()
     val projectRepository: AzoraProjectRepository = koinInject()
@@ -288,6 +293,11 @@ fun StudioFloatingWindowsProvider(
     val openTextFiles by openTextFilesManager.openFiles.collectAsState()
     val openAzsceneFilesManager: OpenAzsceneFilesManager = koinInject()
     val openAzsceneFiles by openAzsceneFilesManager.openFiles.collectAsState()
+
+    // Keep tabs following disk: renamed files retitle their tab, deleted files close it.
+    // (Multiple launches are fine — OpenFilesDiskSync serializes on a mutex.)
+    val openFilesDiskSync: dev.azora.studio.assets.OpenFilesDiskSync = koinInject()
+    LaunchedEffect(Unit) { openFilesDiskSync.run() }
 
     // Host context dependencies handed to plugin content
     val pluginLogger: AzoraLogger = koinInject()

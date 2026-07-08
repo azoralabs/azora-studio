@@ -228,6 +228,48 @@ class AzNodesRoundTripTest {
     }
 
     @Test
+    fun readonlyLocalVariableExportsAsFin() {
+        val graph = toGraph(
+            """
+            func main() {
+                var answer = 42
+                println(answer)
+            }
+            """.trimIndent()
+        ).graph
+        val variable = graph.variables.values.single { it.name == "answer" }
+        val out = NodesToAzConverter()
+            .convert(graph.copy(variables = graph.variables + (variable.id to variable.copy(readonly = true))))
+            .source
+        assertParses(out)
+        assertTrue("fin answer: Int = 42" in out, out)
+        assertTrue("println(answer)" in out, out)
+    }
+
+    @Test
+    fun readonlySharedVariableExportsAsFin() {
+        val graph = toGraph(
+            """
+            var answer = 42
+
+            func main() {
+                println(answer)
+            }
+
+            func echo() {
+                println(answer)
+            }
+            """.trimIndent()
+        ).graph
+        val variable = graph.variables.values.single { it.name == "answer" }
+        val out = NodesToAzConverter()
+            .convert(graph.copy(variables = graph.variables + (variable.id to variable.copy(readonly = true))))
+            .source
+        assertParses(out)
+        assertTrue("fin answer: Int = 42" in out, out)
+    }
+
+    @Test
     fun externalCallsBecomeAzCallNodes() {
         val source = """
             func main() {
@@ -336,6 +378,20 @@ class AzNodesRoundTripTest {
             """.trimIndent()
         )
         assertTrue("\$n" in out, out)
+    }
+
+    @Test
+    fun stringInterpolationDoesNotGainExtraPrintParens() {
+        val out = roundTrip(
+            """
+            func main() {
+                var a = 1
+                println("Hello world ${'$'}a!")
+            }
+            """.trimIndent()
+        )
+        assertTrue("println(\"Hello world \$a!\")" in out, out)
+        assertTrue("println((\"Hello world \$a!\"))" !in out, out)
     }
 
     @Test
