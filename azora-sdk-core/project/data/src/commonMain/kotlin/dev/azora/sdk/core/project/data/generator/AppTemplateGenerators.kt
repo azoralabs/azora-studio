@@ -49,35 +49,16 @@ internal object TemplateSupport {
 expect suspend fun writeGradleWrapper(fileSystem: FileSystem, projectPath: String, gradleVersion: String = "9.4.1")
 
 /**
- * Empty template: a minimal, runnable Kotlin/JVM console application (no Kotlin Multiplatform).
+ * Empty template: a TRULY empty project — only `project.azora` (the project
+ * metadata, written by the repository) exists after creation. No build files,
+ * no sources, no directories; structure comes from what the user adds or from
+ * plugins/libraries they enable later.
  *
- * This is the only builtin template — every other template is provided by an installed plugin.
+ * This is the only builtin template — every other template is provided by an
+ * installed plugin or library.
  */
-class EmptyTemplateGenerator(private val fileSystem: FileSystem) {
+class EmptyTemplateGenerator(@Suppress("unused") private val fileSystem: FileSystem) {
     suspend fun generate(project: AzoraProjectModel, projectPath: String) {
-        val app = TemplateSupport.appName(project)
-        fileSystem.writeToFile("$projectPath/settings.gradle.kts", """
-            pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }
-            rootProject.name = "$app"
-        """.trimIndent() + "\n")
-        fileSystem.writeToFile("$projectPath/build.gradle.kts", """
-            plugins {
-                kotlin("jvm") version "${TemplateSupport.KOTLIN}"
-                application
-            }
-
-            repositories { mavenCentral() }
-
-            kotlin { jvmToolchain(17) }
-
-            application { mainClass.set("MainKt") }
-        """.trimIndent() + "\n")
-        fileSystem.writeToFile("$projectPath/src/main/kotlin/Main.kt", """
-            fun main() {
-                println("Hello from ${project.name.ifBlank { "your Azora app" }}")
-            }
-        """.trimIndent() + "\n")
-        fileSystem.writeToFile("$projectPath/.gitignore", TemplateSupport.GITIGNORE)
-        writeGradleWrapper(fileSystem, projectPath)
+        // Intentionally nothing.
     }
 }

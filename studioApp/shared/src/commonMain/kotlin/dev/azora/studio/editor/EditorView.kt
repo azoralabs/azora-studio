@@ -64,6 +64,7 @@ fun StudioView(
     val fileSystem: dev.azora.sdk.core.io.FileSystem = koinInject()
     val dockStateManager: DockStateManager = koinInject()
     val openTextFilesManager: OpenTextFilesManager = koinInject()
+    val projectPluginsState: dev.azora.studio.settings.ProjectPluginsState = koinInject()
     val openTextFiles by openTextFilesManager.openFiles.collectAsState()
     val openAzsceneFilesManager: OpenAzsceneFilesManager = koinInject()
     val openAzsceneFiles by openAzsceneFilesManager.openFiles.collectAsState()
@@ -84,7 +85,8 @@ fun StudioView(
             openAzoraNodesFilesManager = openFilesManager,
             openAzScriptFilesManager = openAzScriptFilesManager,
             dockStateManager = dockStateManager,
-            pluginManager = pluginManager
+            pluginManager = pluginManager,
+            projectPluginsState = projectPluginsState
         )
     }
 
@@ -282,6 +284,7 @@ fun StudioFloatingWindowsProvider(
     val fileSystem: dev.azora.sdk.core.io.FileSystem = koinInject()
     val dockStateManager: DockStateManager = koinInject()
     val openTextFilesManager: OpenTextFilesManager = koinInject()
+    val projectPluginsState: dev.azora.studio.settings.ProjectPluginsState = koinInject()
     val openTextFiles by openTextFilesManager.openFiles.collectAsState()
     val openAzsceneFilesManager: OpenAzsceneFilesManager = koinInject()
     val openAzsceneFiles by openAzsceneFilesManager.openFiles.collectAsState()
@@ -302,7 +305,8 @@ fun StudioFloatingWindowsProvider(
             openAzoraNodesFilesManager = openFilesManager,
             openAzScriptFilesManager = openAzScriptFilesManager,
             dockStateManager = dockStateManager,
-            pluginManager = pluginManager
+            pluginManager = pluginManager,
+            projectPluginsState = projectPluginsState
         )
     }
 
@@ -481,7 +485,8 @@ private fun AzscenePanel(
         }
         return
     }
-    val editor = pluginManager.getAzsceneEditor(st.type, st.filePath)
+    val projectPlugins = org.koin.compose.koinInject<dev.azora.studio.settings.ProjectPluginsState>()
+    val editor = pluginManager.getAzsceneEditor(st.type, st.filePath, projectPlugins.enabledIds.value)
     if (editor != null) {
         editor(context)
     } else {

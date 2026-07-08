@@ -11,7 +11,7 @@ import dev.azora.local.database.entity.settings.SettingsEntity
         AzoraProjectEntity::class,
         SettingsEntity::class
     ],
-    version = 2
+    version = 3
 )
 @TypeConverters(DatabaseConverters::class)
 @ConstructedBy(LocalDatabaseConstructor::class)

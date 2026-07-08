@@ -5,6 +5,7 @@ import dev.azora.sdk.core.domain.logging.AzoraLogger
 import dev.azora.sdk.core.domain.util.Res
 import dev.azora.sdk.core.presentation.util.*
 import dev.azora.sdk.core.project.domain.AzoraProjectModel
+import dev.azora.sdk.core.project.domain.withEnabledPluginIds
 import dev.azora.sdk.core.project.domain.repository.AzoraProjectRepository
 import dev.azora.sdk.library.presentation.LibraryManager
 import dev.azora.sdk.plugin.presentation.PluginManager
@@ -133,7 +134,16 @@ class ProjectManagerViewModel(
         _state.update { it.copy(creating = ProcessState(inProcess = true)) }
         logger.info("$clazz: Creating project STARTED")
 
-        when (projectRepository.createProject(project)) {
+        // New projects record explicit per-project plugin enablement: nothing
+        // for the Empty template, only the contributing plugin otherwise —
+        // additional plugins are opted into from Settings ▸ Plugins.
+        val enabledPlugins = when (project.template) {
+            dev.azora.sdk.core.project.domain.BUILTIN_TEMPLATE_ID_EMPTY -> emptyList()
+            else -> listOfNotNull(pluginManager.pluginIdForTemplate(project.template))
+        }
+        val prepared = project.copy(settings = project.settings.withEnabledPluginIds(enabledPlugins))
+
+        when (projectRepository.createProject(prepared)) {
             is Res.Success -> {
                 logger.info("$clazz: Project created: ${project.name}")
                 val projectPath = projectRepository.getProjectPath(project.name)

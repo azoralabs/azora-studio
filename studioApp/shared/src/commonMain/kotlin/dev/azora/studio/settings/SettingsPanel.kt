@@ -63,7 +63,14 @@ fun SettingsPanel(
                     SettingsTab.THEME -> ThemeSettingsContent(state = state, onAction = onAction)
                     SettingsTab.AZORA_SCRIPT -> AzScriptSettingsContent(state = state, onAction = onAction)
                     SettingsTab.SCENE_STUDIO -> SceneStudioSettingsContent(state = state, onAction = onAction)
-                    SettingsTab.PLUGINS -> PluginsSettingsContent(onLaunchPlugin = onLaunchPlugin)
+                    SettingsTab.PLUGINS -> PluginsSettingsContent(
+                        onLaunchPlugin = onLaunchPlugin,
+                        projectEnabledPluginIds = state.projectEnabledPluginIds,
+                        showProjectSection = true,
+                        onToggleProjectPlugin = { id, enabled ->
+                            onAction(SettingsAction.SetProjectPluginEnabled(id, enabled))
+                        }
+                    )
                     SettingsTab.LIBRARIES -> LibrariesSettingsContent()
                 }
             } else {

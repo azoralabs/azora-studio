@@ -29,7 +29,11 @@ import org.koin.compose.viewmodel.koinViewModel
 fun PluginsSettingsContent(
     onLaunchPlugin: (String) -> Unit = {},
     /** Whether to show the per-plugin "Launch" action. Hidden where no project is open (e.g. the Project Browser). */
-    showLaunchButton: Boolean = true
+    showLaunchButton: Boolean = true,
+    /** Per-project enablement (null hides the section, e.g. in the Project Browser). */
+    projectEnabledPluginIds: List<String>? = null,
+    showProjectSection: Boolean = false,
+    onToggleProjectPlugin: (pluginId: String, enabled: Boolean) -> Unit = { _, _ -> },
 ) {
     val viewModel: PluginManagerViewModel = koinViewModel()
     val state by viewModel.state.collectAsState()
@@ -48,6 +52,45 @@ fun PluginsSettingsContent(
             .fillMaxSize()
             .padding(16.dp)
     ) {
+        // Plugins active in the open project (installed plugins are opt-in per project).
+        if (showProjectSection) {
+            Text(
+                text = "Enabled in this project",
+                color = palette.contentTop,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = if (projectEnabledPluginIds == null)
+                    "Legacy project — all installed plugins are active. Toggling records an explicit list."
+                else "New projects start with no plugins; enable the ones this project needs.",
+                color = palette.contentLow,
+                fontSize = 11.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            if (state.installedPlugins.isEmpty()) {
+                Text("No plugins installed.", color = palette.contentLow, fontSize = 12.sp)
+            }
+            state.installedPlugins.forEach { plugin ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(plugin.name, color = palette.contentTop, fontSize = 12.sp)
+                        Text(plugin.id, color = palette.contentLow, fontSize = 10.sp)
+                    }
+                    ToggleButton(
+                        checked = projectEnabledPluginIds?.contains(plugin.id) ?: true,
+                        onCheckedChange = { onToggleProjectPlugin(plugin.id, it) }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
         // Header
         Row(
             modifier = Modifier.fillMaxWidth(),

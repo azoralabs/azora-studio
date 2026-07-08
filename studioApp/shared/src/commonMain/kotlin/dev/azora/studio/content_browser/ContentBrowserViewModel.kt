@@ -57,12 +57,16 @@ class ContentBrowserViewModel(
     private val openAzoraNodesFilesManager: dev.azora.studio.assets.OpenAzoraNodesFilesManager,
     private val openAzScriptFilesManager: dev.azora.studio.assets.OpenAzScriptFilesManager,
     private val dockStateManager: DockStateManager,
-    private val pluginManager: dev.azora.sdk.plugin.presentation.PluginManager? = null
+    private val pluginManager: dev.azora.sdk.plugin.presentation.PluginManager? = null,
+    private val projectPluginsState: dev.azora.studio.settings.ProjectPluginsState? = null
 ) : ViewModel() {
 
-    /** Creatable `.azscene` types contributed by plugins, for the "New …" menu. */
+    /** This project's enabled plugin ids (null = legacy project, everything active). */
+    private fun enabledPluginIds(): Collection<String>? = projectPluginsState?.enabledIds?.value
+
+    /** Creatable `.azscene` types contributed by plugins ENABLED for this project. */
     fun azsceneTemplates(): List<dev.azora.sdk.plugin.core.AzsceneTemplate> =
-        pluginManager?.azsceneTemplates().orEmpty()
+        pluginManager?.azsceneTemplates(enabledPluginIds()).orEmpty()
 
     /** Creates a new `.azn` document of [type] (content from the owning plugin) and opens it. */
     fun createSceneFile(type: String, name: String) {
@@ -70,7 +74,7 @@ class ContentBrowserViewModel(
             val parent = resolveCreateParent()
             val fileName = if (name.endsWith(".azn")) name else "$name.azn"
             val path = "$parent/$fileName"
-            val content = pluginManager?.newAzsceneContent(type) ?: "{\n  \"type\": \"$type\"\n}\n"
+            val content = pluginManager?.newAzsceneContent(type, enabledPluginIds()) ?: "{\n  \"type\": \"$type\"\n}\n"
             when (fileSystem.writeToFile(path, content)) {
                 is FileSystemResult.Success -> { refresh(); openAzsceneFile(path) }
                 is FileSystemResult.Error -> _state.value = _state.value.copy(error = "Failed to create scene")
@@ -308,7 +312,7 @@ class ContentBrowserViewModel(
     fun openAznFile(filePath: String) {
         viewModelScope.launch {
             val type = openAzsceneFilesManager.peekType(filePath)
-            if (type != null && pluginManager?.getAzsceneEditor(type, filePath) != null) {
+            if (type != null && pluginManager?.getAzsceneEditor(type, filePath, enabledPluginIds()) != null) {
                 openAzsceneFile(filePath)
             } else {
                 openAzoraNodesFile(filePath)

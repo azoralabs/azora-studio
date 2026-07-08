@@ -30,6 +30,7 @@ import dev.azora.canvas.domain.interpreter.ConsoleOutputManager
 import dev.azora.sdk.core.domain.preferences.ThemePreference
 import dev.azora.sdk.core.domain.preferences.ThemePreferences
 import dev.azora.studio.di.initKoin
+import dev.azora.sdk.core.project.domain.enabledPluginIds
 import dev.azora.studio.run.AznSourceSync
 import dev.azora.studio.run.ProjectRunner
 import dev.azora.studio.run.RunTarget
@@ -437,7 +438,18 @@ fun main() {
                 val libraryManager: dev.azora.sdk.library.presentation.LibraryManager = koinInject()
                 val installedPlugins by pluginManager.installedPlugins.collectAsState()
                 val installedLibraries by libraryManager.installedLibraries.collectAsState()
-                val enabledPlugins = installedPlugins.filter { it.enabled }
+
+                // Per-project plugin enablement: active plugins are the globally
+                // enabled ones intersected with the project's opt-in list
+                // (Settings ▸ Plugins). Legacy projects (null) keep everything.
+                val projectPluginsState: dev.azora.studio.settings.ProjectPluginsState = koinInject()
+                val projectPluginIds by projectPluginsState.enabledIds.collectAsState()
+                LaunchedEffect(state.project) {
+                    projectPluginsState.set(state.project.settings.enabledPluginIds)
+                }
+                val enabledPlugins = installedPlugins.filter { plugin ->
+                    plugin.enabled && (projectPluginIds?.contains(plugin.id) ?: true)
+                }
 
                 // Load external plugins + libraries on startup
                 LaunchedEffect(Unit) {

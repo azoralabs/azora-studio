@@ -88,17 +88,32 @@ interface PluginManager {
      */
     fun getAzsceneEditor(type: String, filePath: String): (@Composable (PluginContext) -> Unit)? = null
 
+    /** Like [getAzsceneEditor], restricted to [enabledPluginIds] (null = no restriction). */
+    fun getAzsceneEditor(type: String, filePath: String, enabledPluginIds: Collection<String>?): (@Composable (PluginContext) -> Unit)? =
+        if (enabledPluginIds == null) getAzsceneEditor(type, filePath) else null
+
     /** Creatable `.azscene` types across all loaded plugins, for the host's "New …" menu. */
     fun azsceneTemplates(): List<dev.azora.sdk.plugin.core.AzsceneTemplate> = emptyList()
 
+    /** Like [azsceneTemplates], restricted to [enabledPluginIds] (null = no restriction). */
+    fun azsceneTemplates(enabledPluginIds: Collection<String>?): List<dev.azora.sdk.plugin.core.AzsceneTemplate> =
+        if (enabledPluginIds == null) azsceneTemplates() else emptyList()
+
     /** Initial content for a new `.azscene` document of [type], from the plugin that owns it. */
     fun newAzsceneContent(type: String): String? = null
+
+    /** Like [newAzsceneContent], restricted to [enabledPluginIds] (null = no restriction). */
+    fun newAzsceneContent(type: String, enabledPluginIds: Collection<String>?): String? =
+        if (enabledPluginIds == null) newAzsceneContent(type) else null
 
     /**
      * Project templates contributed by all currently loaded (enabled) plugins. The host surfaces
      * these in the create-project UI and resolves generators through them.
      */
     fun templateContributions(): List<ProjectTemplateContribution> = emptyList()
+
+    /** The plugin contributing [templateId], or null for builtin/library templates. */
+    fun pluginIdForTemplate(templateId: String): String? = null
 
     /**
      * Settings tabs contributed by all currently loaded (enabled) plugins, for the host's Settings

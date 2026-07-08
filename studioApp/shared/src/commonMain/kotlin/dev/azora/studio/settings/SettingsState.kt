@@ -12,6 +12,8 @@ data class SettingsState(
     val preferredColorPicker: ColorPickerMode = ColorPickerMode.Triangle,
     val paletteColors: List<PaletteColor> = emptyList(),
     val useKmpRenderer: Boolean = false,
+    /** Per-project plugin enablement (null = legacy project, all active). */
+    val projectEnabledPluginIds: List<String>? = null,
     val editorFontSize: Int = 13,
     val editorTabSize: Int = 4,
     val editorWordWrap: Boolean = false,

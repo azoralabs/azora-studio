@@ -51,6 +51,7 @@ val appModule = module {
     single { OpenTextFilesManager(get()) }
     single { OpenAzsceneFilesManager(get()) }
     single { DiagnosticsManager() }
+    single { dev.azora.studio.settings.ProjectPluginsState() }
 
     viewModelOf(::ProjectManagerViewModel)
 
@@ -59,7 +60,7 @@ val appModule = module {
     }
 
     viewModel { (projectPath: String) ->
-        SettingsViewModel(projectPath, get(), get())
+        SettingsViewModel(projectPath, get(), get(), get())
     }
 
     viewModel { (projectPath: String) ->

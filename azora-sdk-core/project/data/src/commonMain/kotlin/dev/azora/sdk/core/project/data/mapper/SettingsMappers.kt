@@ -23,6 +23,14 @@ fun SettingsModel.toEntity() = SettingsEntity(
     azScriptUnderlineVariables = azScriptUnderlineVariables,
     azoraLangPath = azoraLangPath,
     showRuntimeWarnings = showRuntimeWarnings,
+    editorFontSize = editorFontSize,
+    editorTabSize = editorTabSize,
+    editorWordWrap = editorWordWrap,
+    editorShowLineNumbers = editorShowLineNumbers,
+    editorAutoCloseBrackets = editorAutoCloseBrackets,
+    editorSmartIndent = editorSmartIndent,
+    editorAutoCompletion = editorAutoCompletion,
+    editorHoverDocs = editorHoverDocs,
     updatedAt = Clock.System.now().toEpochMilliseconds()
 )
 
@@ -46,5 +54,13 @@ fun SettingsEntity.toModel() = SettingsModel(
     azScriptItalicPreprocessor = azScriptItalicPreprocessor,
     azScriptUnderlineVariables = azScriptUnderlineVariables,
     azoraLangPath = azoraLangPath,
-    showRuntimeWarnings = showRuntimeWarnings
+    showRuntimeWarnings = showRuntimeWarnings,
+    editorFontSize = editorFontSize,
+    editorTabSize = editorTabSize,
+    editorWordWrap = editorWordWrap,
+    editorShowLineNumbers = editorShowLineNumbers,
+    editorAutoCloseBrackets = editorAutoCloseBrackets,
+    editorSmartIndent = editorSmartIndent,
+    editorAutoCompletion = editorAutoCompletion,
+    editorHoverDocs = editorHoverDocs
 )

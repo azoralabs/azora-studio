@@ -57,9 +57,6 @@ actual class LocalAzoraProjectRepository(
                 else -> { /* Continue */ }
             }
 
-            // Create config directory
-            fileSystem.createDirectory("$projectPath/$CONFIG_DIR_NAME")
-
             // Clear any existing project from database before inserting new one
             clearDatabase()
 
@@ -112,9 +109,6 @@ actual class LocalAzoraProjectRepository(
             // Build and return AzoraProjectModel from database
             val projectModel = buildAzoraProjectModelFromDatabase()
                 ?: return Res.Failure(DataError.Local.NOT_FOUND)
-
-            // Ensure Assets folder exists
-            fileSystem.createDirectory("$projectPath/Assets")
 
             Res.Success(projectModel)
         } catch (_: Exception) {

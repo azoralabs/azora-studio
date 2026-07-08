@@ -15,7 +15,8 @@ import kotlinx.coroutines.launch
 class SettingsViewModel(
     private val projectPath: String,
     private val projectRepository: AzoraProjectRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val projectPluginsState: ProjectPluginsState
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsState())
@@ -34,9 +35,11 @@ class SettingsViewModel(
                     val settingsResult = settingsRepository.getSettings(projectId)
                     val settingsModel = if (settingsResult is Res.Success) settingsResult.data else SettingsModel.default(projectId)
                     val langPath = settingsModel.azoraLangPath.ifEmpty { detectAzoraLangPath() }
+                    projectPluginsState.set(projectSettings.enabledPluginIds)
                     _state.update {
                         it.copy(
                             isLoading = false,
+                            projectEnabledPluginIds = projectSettings.enabledPluginIds,
                             editorTooltipsEnabled = projectSettings.editorTooltipsEnabled,
                             tooltipDelaySeconds = projectSettings.tooltipDelaySeconds,
                             preferredColorPicker = projectSettings.preferredColorPicker,
@@ -76,6 +79,7 @@ class SettingsViewModel(
             is SettingsAction.UpdatePaletteColor -> updatePaletteColor(action.color)
             is SettingsAction.RemovePaletteColor -> removePaletteColor(action.colorId)
             is SettingsAction.SetUseKmpRenderer -> setUseKmpRenderer(action.enabled)
+            is SettingsAction.SetProjectPluginEnabled -> setProjectPluginEnabled(action.pluginId, action.enabled)
             is SettingsAction.SetEditorFontSize -> setEditor { it.copy(editorFontSize = action.size.coerceIn(9, 28)) }
             is SettingsAction.SetEditorTabSize -> setEditor { it.copy(editorTabSize = action.size.coerceIn(2, 8)) }
             is SettingsAction.SetEditorWordWrap -> setEditor { it.copy(editorWordWrap = action.enabled) }
@@ -127,6 +131,32 @@ class SettingsViewModel(
     private fun setUseKmpRenderer(enabled: Boolean) {
         _state.update { it.copy(useKmpRenderer = enabled) }
         saveSettings()
+    }
+
+    /**
+     * Toggles a plugin for THIS project. Legacy projects (no explicit list)
+     * materialize one on first toggle: all currently installed-and-enabled
+     * ids minus/plus the toggled plugin — so the visible set doesn't jump.
+     */
+    private fun setProjectPluginEnabled(pluginId: String, enabled: Boolean) {
+        viewModelScope.launch {
+            when (val result = projectRepository.getProject()) {
+                is Res.Success -> {
+                    val current = result.data.settings.enabledPluginIds
+                        ?: projectPluginsState.enabledIds.value
+                        ?: emptyList()
+                    val updated = if (enabled) (current + pluginId).distinct() else current - pluginId
+                    val updatedProject = result.data.copy(
+                        settings = result.data.settings.withEnabledPluginIds(updated)
+                    )
+                    projectRepository.updateProject(updatedProject)
+                    projectRepository.saveProject(projectPath)
+                    projectPluginsState.set(updated)
+                    _state.update { it.copy(projectEnabledPluginIds = updated) }
+                }
+                is Res.Failure -> {}
+            }
+        }
     }
 
     private fun setEditor(transform: (SettingsState) -> SettingsState) {

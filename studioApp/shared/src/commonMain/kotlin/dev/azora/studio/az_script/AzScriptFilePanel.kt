@@ -16,6 +16,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -58,7 +60,9 @@ import org.koin.compose.koinInject
  *   problems strip, and the shared Problems panel via [DiagnosticsManager],
  * - code completion (auto while typing identifiers or after `.`, or
  *   Ctrl/Cmd+Space) with keyboard navigation,
- * - save with the button or Ctrl/Cmd+S.
+ * - auto-saves shortly after you stop typing (Ctrl/Cmd+S forces it),
+ * - zoom with Ctrl/Cmd+scroll (trackpad pinch arrives the same way) or
+ *   Ctrl/Cmd +/−/0.
  *
  * Without the language-server jar the editor degrades to plain text.
  */
@@ -181,6 +185,13 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
 
     var fontSize by remember { mutableStateOf(13) }
     LaunchedEffect(prefs.editorFontSize) { fontSize = prefs.editorFontSize }
+
+    // ---- auto-save: persist shortly after typing pauses ------------------
+    LaunchedEffect(panelId, fieldValue.text, state.isDirty) {
+        if (!state.isDirty) return@LaunchedEffect
+        delay(600)
+        manager.saveFile(panelId)
+    }
 
     // ---- hover docs ------------------------------------------------------
     var textLayout by remember(panelId) { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
@@ -363,8 +374,7 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
             onContinue = { scope.launch { debugger.resume() } },
             onStep = { scope.launch { debugger.step() } },
             onStopDebug = { scope.launch { debugger.stop() } },
-            onConvertToNodes = { convertToNodes() },
-            onSave = { scope.launch { manager.saveFile(panelId) } }
+            onConvertToNodes = { convertToNodes() }
         )
 
         if (findVisible) {
@@ -400,6 +410,24 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                 .fillMaxWidth()
                 .weight(1f)
                 .background(AzoraPalette.Neutral90)
+                // Ctrl/Cmd + scroll zooms the editor. macOS trackpad pinch is
+                // delivered as exactly this (scroll + ctrl), matching browsers.
+                // Consumed in the Initial pass so verticalScroll never sees it.
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.type != PointerEventType.Scroll) continue
+                            val mods = event.keyboardModifiers
+                            if (!mods.isCtrlPressed && !mods.isMetaPressed) continue
+                            val dy = event.changes.fold(0f) { acc, c -> acc + c.scrollDelta.y }
+                            if (dy != 0f) {
+                                fontSize = (fontSize + if (dy < 0f) 1 else -1).coerceIn(9, 28)
+                            }
+                            event.changes.forEach { it.consume() }
+                        }
+                    }
+                }
                 .verticalScroll(scrollState)
         ) {
             if (prefs.editorShowLineNumbers) BreakpointGutter(
@@ -525,7 +553,7 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                                 { fontSize = (fontSize + 1).coerceAtMost(28); true }
                             meta && event.key == Key.Minus ->
                                 { fontSize = (fontSize - 1).coerceAtLeast(9); true }
-                            meta && event.key == Key.Zero -> { fontSize = 13; true }
+                            meta && event.key == Key.Zero -> { fontSize = prefs.editorFontSize; true }
                             event.key == Key.Escape && findVisible -> { findVisible = false; true }
                             else -> false
                         }
@@ -649,7 +677,6 @@ private fun AzScriptHeader(
     onStep: () -> Unit,
     onStopDebug: () -> Unit,
     onConvertToNodes: () -> Unit,
-    onSave: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -675,7 +702,7 @@ private fun AzScriptHeader(
         }
         if (isDirty) {
             Text("●", color = AzoraPalette.AccentYellow, fontSize = 10.sp)
-            Text("Unsaved", color = AzoraPalette.Neutral40, fontSize = 10.sp)
+            Text("Saving…", color = AzoraPalette.Neutral40, fontSize = 10.sp)
         } else {
             Text("Saved", color = AzoraPalette.Neutral60, fontSize = 10.sp)
         }
@@ -707,7 +734,6 @@ private fun AzScriptHeader(
                 .clickable { onConvertToNodes() }
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         )
-        SaveButton(enabled = isDirty, onClick = onSave)
     }
 }
 
@@ -743,24 +769,6 @@ private fun AzProblemsStrip(diagnostics: List<Diagnostic>) {
                 fontSize = 10.sp
             )
         }
-    }
-}
-
-@Composable
-private fun SaveButton(enabled: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (enabled) AzoraPalette.AccentBlue else AzoraPalette.Neutral70)
-            .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 14.dp, vertical = 6.dp)
-    ) {
-        Text(
-            "Save",
-            color = if (enabled) AzoraPalette.Neutral90 else AzoraPalette.Neutral50,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
-        )
     }
 }
 

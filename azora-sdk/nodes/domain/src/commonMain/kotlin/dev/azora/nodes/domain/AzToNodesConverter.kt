@@ -1,28 +1,9 @@
 package dev.azora.nodes.domain
 
-import dev.azora.canvas.domain.model.AzoraDataLinkModel
-import dev.azora.canvas.domain.model.AzoraExecLinkModel
-import dev.azora.canvas.domain.model.AzoraGraphModel
-import dev.azora.canvas.domain.model.node.AzoraNodeDataClass
-import dev.azora.canvas.domain.model.node.AzoraNodeDataClassField
-import dev.azora.canvas.domain.model.node.AzoraNodeDataType
-import dev.azora.canvas.domain.model.node.AzoraNodeEnum
-import dev.azora.canvas.domain.model.node.AzoraNodeFunction
-import dev.azora.canvas.domain.model.node.AzoraNodeFunctionParam
-import dev.azora.canvas.domain.model.node.AzoraNodeModel
-import dev.azora.canvas.domain.model.node.AzoraNodeVar
+import dev.azora.canvas.domain.model.*
+import dev.azora.canvas.domain.model.node.*
 import dev.azora.canvas.domain.type.AzoraNodeType
-import org.azora.lang.frontend.Expr
-import org.azora.lang.frontend.FuncDecl
-import org.azora.lang.frontend.Lexer
-import org.azora.lang.frontend.NumericSuffix
-import org.azora.lang.frontend.Parser
-import org.azora.lang.frontend.Program
-import org.azora.lang.frontend.Stmt
-import org.azora.lang.frontend.TokenType
-import org.azora.lang.frontend.TopLevel
-import org.azora.lang.frontend.TypeAnnotation
-import org.azora.lang.frontend.TypeRef
+import org.azora.lang.frontend.*
 
 /** Result of an azora-source → node-graph conversion. */
 sealed class AzToNodesResult {

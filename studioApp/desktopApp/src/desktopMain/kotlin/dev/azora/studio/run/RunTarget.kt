@@ -52,8 +52,7 @@ object RunTargets {
 
     /** Whether the template can be run from Studio at all (drives toolbar visibility). Cheap (no subprocess). */
     fun isRunnable(templateId: String, pluginManager: PluginManager, libraryManager: LibraryManager): Boolean =
-        templateId == BUILTIN_TEMPLATE_ID_EMPTY ||
-            (pluginManager.templateContributions() + libraryManager.templateContributions())
+        (pluginManager.templateContributions() + libraryManager.templateContributions())
                 .firstOrNull { it.id == templateId }
                 ?.runTargets
                 ?.isNotEmpty() == true
@@ -66,10 +65,8 @@ object RunTargets {
      * the UI thread.
      */
     fun targetsFor(templateId: String, pluginManager: PluginManager, libraryManager: LibraryManager): List<RunTarget> = buildList {
-        if (templateId == BUILTIN_TEMPLATE_ID_EMPTY) {
-            add(RunTarget("run", "Run", RunTargetKind.JVM, "run"))
-            return@buildList
-        }
+        // The Empty template scaffolds nothing, so there is nothing to run.
+        if (templateId == BUILTIN_TEMPLATE_ID_EMPTY) return@buildList
         val contribution = (pluginManager.templateContributions() + libraryManager.templateContributions())
             .firstOrNull { it.id == templateId } ?: return@buildList
         contribution.runTargets.forEach { target ->

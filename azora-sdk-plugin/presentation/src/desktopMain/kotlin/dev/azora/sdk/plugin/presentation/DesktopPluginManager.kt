@@ -211,21 +211,46 @@ class DesktopPluginManager : PluginManager {
         return { context -> loaded.plugin.PanelContent(panelId, context) }
     }
 
-    override fun getAzsceneEditor(type: String, filePath: String): (@Composable (PluginContext) -> Unit)? {
-        val loaded = loadedPlugins.values.firstOrNull {
-            runCatching { it.plugin.azsceneEditorTypes().contains(type) }.getOrDefault(false)
-        } ?: return null
+    override fun getAzsceneEditor(type: String, filePath: String): (@Composable (PluginContext) -> Unit)? =
+        getAzsceneEditor(type, filePath, enabledPluginIds = null)
+
+    override fun getAzsceneEditor(
+        type: String,
+        filePath: String,
+        enabledPluginIds: Collection<String>?
+    ): (@Composable (PluginContext) -> Unit)? {
+        val loaded = loadedPlugins.entries
+            .filter { enabledPluginIds == null || it.key in enabledPluginIds }
+            .map { it.value }
+            .firstOrNull { runCatching { it.plugin.azsceneEditorTypes().contains(type) }.getOrDefault(false) }
+            ?: return null
         return { context -> loaded.plugin.AzsceneEditor(type, filePath, context) }
     }
 
     override fun azsceneTemplates(): List<dev.azora.sdk.plugin.core.AzsceneTemplate> =
         loadedPlugins.values.flatMap { runCatching { it.plugin.azsceneTemplates() }.getOrElse { emptyList() } }
 
+    override fun azsceneTemplates(enabledPluginIds: Collection<String>?): List<dev.azora.sdk.plugin.core.AzsceneTemplate> =
+        loadedPlugins.entries
+            .filter { enabledPluginIds == null || it.key in enabledPluginIds }
+            .flatMap { runCatching { it.value.plugin.azsceneTemplates() }.getOrElse { emptyList() } }
+
     override fun newAzsceneContent(type: String): String? =
         loadedPlugins.values.firstNotNullOfOrNull { runCatching { it.plugin.newAzsceneContent(type) }.getOrNull() }
 
+    override fun newAzsceneContent(type: String, enabledPluginIds: Collection<String>?): String? =
+        loadedPlugins.entries
+            .filter { enabledPluginIds == null || it.key in enabledPluginIds }
+            .firstNotNullOfOrNull { runCatching { it.value.plugin.newAzsceneContent(type) }.getOrNull() }
+
     override fun templateContributions(): List<ProjectTemplateContribution> =
         loadedPlugins.values.flatMap { runCatching { it.plugin.projectTemplates() }.getOrElse { emptyList() } }
+
+    override fun pluginIdForTemplate(templateId: String): String? =
+        loadedPlugins.entries.firstOrNull { (_, loaded) ->
+            runCatching { loaded.plugin.projectTemplates() }.getOrElse { emptyList() }
+                .any { it.id == templateId }
+        }?.key
 
     override fun getSettingsTabs(): List<Pair<String, SettingsTabDescriptor>> =
         loadedPlugins.entries.flatMap { (id, loaded) ->
