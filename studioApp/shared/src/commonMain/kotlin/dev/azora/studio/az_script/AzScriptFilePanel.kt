@@ -1,9 +1,13 @@
 package dev.azora.studio.az_script
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -13,6 +17,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -60,6 +67,8 @@ import org.koin.compose.koinInject
  *   problems strip, and the shared Problems panel via [DiagnosticsManager],
  * - code completion (auto while typing identifiers or after `.`, or
  *   Ctrl/Cmd+Space) with keyboard navigation,
+ * - hover docs, Go To Definition (Ctrl/Cmd+B, F12, or Ctrl/Cmd+click) with
+ *   cross-file jumps, and Go To Symbol (Ctrl/Cmd+Shift+O),
  * - auto-saves shortly after you stop typing (Ctrl/Cmd+S forces it),
  * - zoom with Ctrl/Cmd+scroll (trackpad pinch arrives the same way) or
  *   Ctrl/Cmd +/−/0.
@@ -197,6 +206,17 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
         fieldValue = fieldValue.copy(selection = androidx.compose.ui.text.TextRange(start, end))
     }
 
+    // ---- go to symbol (Cmd/Ctrl+Shift+O) ---------------------------------
+    var symbolPickerVisible by remember(panelId) { mutableStateOf(false) }
+    var fileSymbols by remember(panelId) { mutableStateOf(emptyList<AzSymbol>()) }
+
+    fun openSymbolPicker() {
+        scope.launch {
+            fileSymbols = intel.symbols(fieldValue.text)
+            symbolPickerVisible = fileSymbols.isNotEmpty()
+        }
+    }
+
     var fontSize by remember { mutableStateOf(13) }
     LaunchedEffect(prefs.editorFontSize) { fontSize = prefs.editorFontSize }
 
@@ -209,7 +229,7 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
 
     // ---- hover docs ------------------------------------------------------
     var textLayout by remember(panelId) { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
-    var hoverText by remember(panelId) { mutableStateOf<String?>(null) }
+    var hoverInfo by remember(panelId) { mutableStateOf<AzHover?>(null) }
     var hoverPosition by remember(panelId) { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     var hoverJob by remember(panelId) { mutableStateOf<Job?>(null) }
 
@@ -336,7 +356,69 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
         lineHeight = (fontSize + 5).sp
     )
     val glyph = remember(measurer, fontSize) { measurer.measure("M", editorTextStyle) }
-    val lineHeightDp = with(androidx.compose.ui.platform.LocalDensity.current) { (fontSize + 5).sp.toDp() }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val lineHeightDp = with(density) { (fontSize + 5).sp.toDp() }
+    val lineHeightPx = with(density) { (fontSize + 5).sp.toPx() }
+
+    // Shared vertical scroll so Go-To-Definition can bring a line into view.
+    val scrollState = rememberScrollState()
+
+    /** Moves the caret to (and scrolls to) the start of [line] (1-based). */
+    fun gotoLineInEditor(line: Int) {
+        val text = fieldValue.text
+        val lineStarts = buildList {
+            add(0)
+            text.forEachIndexed { i, c -> if (c == '\n') add(i + 1) }
+        }
+        val target = (line - 1).coerceIn(0, lineStarts.lastIndex)
+        val offset = lineStarts[target]
+        fieldValue = fieldValue.copy(selection = androidx.compose.ui.text.TextRange(offset))
+        scope.launch {
+            // Leave a few lines of context above the target.
+            val y = ((target - 3) * lineHeightPx).toInt().coerceIn(0, scrollState.maxValue)
+            scrollState.animateScrollTo(y)
+        }
+    }
+
+    /** Resolves and jumps to the declaration of the symbol at the caret. */
+    fun goToDefinition() {
+        scope.launch {
+            val def = intel.definition(fieldValue.text, fieldValue.selection.start, state.filePath, projectPath)
+            if (def == null) {
+                console.print("No definition found")
+                return@launch
+            }
+            if (def.filePath == null || def.filePath == state.filePath) {
+                gotoLineInEditor(def.line)
+            } else {
+                // Open (or focus) the target file, then ask it to scroll to the line.
+                val targetPanelId = manager.openFile(def.filePath) ?: run {
+                    console.error("Cannot open ${def.filePath.substringAfterLast('/')}")
+                    return@launch
+                }
+                val targetState = manager.getState(targetPanelId)
+                if (targetState != null) {
+                    dockStateManager.dispatch(
+                        DockAction.AddPanel(
+                            DockPanelDescriptor(id = targetPanelId, title = targetState.fileName, closeable = true),
+                            EDITOR_AREA_NODE_ID,
+                            DockZone.CENTER
+                        )
+                    )
+                    dockStateManager.dispatch(DockAction.SelectPanel(targetPanelId))
+                }
+                manager.requestGoto(targetPanelId, def.line)
+            }
+        }
+    }
+
+    // Apply a pending goto handed to this editor (e.g. a cross-file jump that
+    // just opened this file), then clear it.
+    LaunchedEffect(state.gotoLine) {
+        val line = state.gotoLine ?: return@LaunchedEffect
+        gotoLineInEditor(line)
+        manager.consumeGoto(panelId)
+    }
 
     // Converts the current buffer into a sibling .azn node graph and opens it.
     fun convertToNodes() {
@@ -370,6 +452,7 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize().background(AzoraPalette.Neutral90)) {
         AzScriptHeader(
             fileName = state.fileName,
@@ -414,7 +497,6 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
             )
         }
 
-        val scrollState = rememberScrollState()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -496,13 +578,27 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                     .fillMaxWidth()
                     .pointerInput(panelId) {
                         // Hover docs: after the pointer rests ~400ms over a symbol,
-                        // ask the language server for its signature.
+                        // ask the language server for its signature + doc comment.
+                        // Ctrl/Cmd+click jumps to the symbol's definition.
                         awaitPointerEventScope {
                             while (true) {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
+                                val mods = event.keyboardModifiers
+                                if (event.type == PointerEventType.Press && (mods.isCtrlPressed || mods.isMetaPressed)) {
+                                    val position = event.changes.firstOrNull()?.position
+                                    val layout = textLayout
+                                    if (position != null && layout != null) {
+                                        val offset = layout.getOffsetForPosition(position)
+                                        fieldValue = fieldValue.copy(selection = androidx.compose.ui.text.TextRange(offset))
+                                        hoverInfo = null
+                                        hoverJob?.cancel()
+                                        goToDefinition()
+                                        event.changes.forEach { it.consume() }
+                                    }
+                                }
                                 if (event.type == PointerEventType.Move) {
                                     val position = event.changes.firstOrNull()?.position ?: continue
-                                    hoverText = null
+                                    hoverInfo = null
                                     hoverJob?.cancel()
                                     hoverJob = scope.launch {
                                         if (!prefs.editorHoverDocs) return@launch
@@ -512,13 +608,13 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                                         val hover = intel.hover(fieldValue.text, offset, state.filePath, projectPath)
                                         if (hover != null) {
                                             hoverPosition = position
-                                            hoverText = hover.signature
+                                            hoverInfo = hover
                                         }
                                     }
                                 }
                                 if (event.type == PointerEventType.Exit) {
                                     hoverJob?.cancel()
-                                    hoverText = null
+                                    hoverInfo = null
                                 }
                             }
                         }
@@ -564,6 +660,14 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                                 findVisible = true
                                 true
                             }
+                            // Go To Definition (IntelliJ Cmd/Ctrl+B, plus F12).
+                            (meta && event.key == Key.B) || event.key == Key.F12 -> {
+                                goToDefinition(); true
+                            }
+                            // Go To Symbol in file (VS Code / IntelliJ Cmd/Ctrl+Shift+O).
+                            meta && event.isShiftPressed && event.key == Key.O -> {
+                                openSymbolPicker(); true
+                            }
                             meta && (event.key == Key.Equals || event.key == Key.Plus) ->
                                 { fontSize = (fontSize + 1).coerceAtMost(28); true }
                             meta && event.key == Key.Minus ->
@@ -596,22 +700,13 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
                     )
                 }
             }
-            hoverText?.let { signature ->
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset(hoverPosition.x.toInt(), (hoverPosition.y - 34).toInt().coerceAtLeast(0)) }
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(AzoraPalette.Neutral80)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = signature,
-                        color = AzoraPalette.AccentBlue,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1
-                    )
-                }
+            hoverInfo?.let { hover ->
+                AzHoverCard(
+                    hover = hover,
+                    modifier = Modifier.offset {
+                        IntOffset(hoverPosition.x.toInt(), (hoverPosition.y - 34).toInt().coerceAtLeast(0))
+                    }
+                )
             }
             } // content-width box
             } // h-scroll box
@@ -632,6 +727,16 @@ fun AzScriptFilePanel(panelId: String, projectPath: String) {
             intelAvailable = intel.available,
             fontSize = fontSize
         )
+    }
+
+    if (symbolPickerVisible) {
+        AzSymbolPicker(
+            symbols = fileSymbols,
+            onJump = { symbolPickerVisible = false; gotoLineInEditor(it.line) },
+            onClose = { symbolPickerVisible = false },
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
+        )
+    }
     }
 }
 
@@ -749,6 +854,39 @@ private fun AzScriptHeader(
                 .clickable { onConvertToNodes() }
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         )
+    }
+}
+
+/** Floating docs card shown on hover: signature (monospace) + doc comment. */
+@Composable
+private fun AzHoverCard(hover: AzHover, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .widthIn(max = 420.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(AzoraPalette.Neutral85)
+            .border(1.dp, AzoraPalette.Neutral70, RoundedCornerShape(6.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = hover.signature,
+            color = AzoraPalette.AccentBlue,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace
+        )
+        if (hover.detail.isNotBlank()) {
+            Text(text = hover.detail, color = AzoraPalette.Neutral40, fontSize = 11.sp)
+        }
+        if (hover.doc.isNotBlank()) {
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(AzoraPalette.Neutral70)
+            )
+            Text(text = hover.doc, color = AzoraPalette.Neutral20, fontSize = 11.sp, lineHeight = 15.sp)
+        }
     }
 }
 
@@ -874,6 +1012,133 @@ private fun AzDebugLocalsBar(locals: List<AzDebugLocal>) {
             }
         }
     }
+}
+
+/**
+ * Go-To-Symbol palette (Cmd/Ctrl+Shift+O): a filterable list of the file's
+ * top-level declarations. Type to fuzzy-filter by name, ↑/↓ to move, Enter to
+ * jump, Esc to dismiss. Grabs focus on open.
+ */
+@Composable
+private fun AzSymbolPicker(
+    symbols: List<AzSymbol>,
+    onJump: (AzSymbol) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var query by remember { mutableStateOf("") }
+    var selected by remember { mutableStateOf(0) }
+    val filtered = remember(symbols, query) {
+        if (query.isBlank()) symbols
+        else symbols.filter { it.name.contains(query, ignoreCase = true) }
+    }
+    // Keep the selection valid as the filter narrows the list.
+    if (selected > filtered.lastIndex) selected = filtered.lastIndex.coerceAtLeast(0)
+
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    val listState = rememberLazyListState()
+    LaunchedEffect(selected) {
+        if (selected in filtered.indices) listState.animateScrollToItem(selected)
+    }
+
+    Column(
+        modifier = modifier
+            .width(460.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(AzoraPalette.Neutral85)
+            .border(1.dp, AzoraPalette.Neutral70, RoundedCornerShape(8.dp))
+            .padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        BasicTextField(
+            value = query,
+            onValueChange = { query = it; selected = 0 },
+            singleLine = true,
+            textStyle = TextStyle(color = AzoraPalette.Neutral10, fontSize = 13.sp, fontFamily = FontFamily.Monospace),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(AzoraPalette.AccentBlue),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
+                .clip(RoundedCornerShape(4.dp))
+                .background(AzoraPalette.Neutral70)
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionDown -> { selected = (selected + 1).coerceAtMost(filtered.lastIndex.coerceAtLeast(0)); true }
+                        Key.DirectionUp -> { selected = (selected - 1).coerceAtLeast(0); true }
+                        Key.Enter -> { filtered.getOrNull(selected)?.let(onJump); true }
+                        Key.Escape -> { onClose(); true }
+                        else -> false
+                    }
+                },
+            decorationBox = { inner ->
+                Box {
+                    if (query.isEmpty()) Text(
+                        "Go to symbol…",
+                        color = AzoraPalette.Neutral50,
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    inner()
+                }
+            }
+        )
+        if (filtered.isEmpty()) {
+            Text("No matching symbols", color = AzoraPalette.Neutral50, fontSize = 11.sp, modifier = Modifier.padding(6.dp))
+        } else {
+            LazyColumn(state = listState, modifier = Modifier.heightIn(max = 320.dp)) {
+                itemsIndexed(filtered) { index, sym ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (index == selected) AzoraPalette.Neutral70 else Color.Transparent)
+                            .clickable { onJump(sym) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(symbolGlyph(sym.kind), color = symbolColor(sym.kind), fontSize = 11.sp, modifier = Modifier.width(16.dp))
+                        Text(sym.name, color = AzoraPalette.Neutral10, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                        Text(
+                            text = sym.detail.ifBlank { sym.kind },
+                            color = AzoraPalette.Neutral50,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text("${sym.line}", color = AzoraPalette.Neutral60, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Single-glyph badge for a symbol kind in the Go-To-Symbol list. */
+private fun symbolGlyph(kind: String): String = when (kind) {
+    "function" -> "ƒ"
+    "pack" -> "▢"
+    "enum" -> "≡"
+    "solo" -> "◈"
+    "node" -> "◇"
+    "test" -> "✓"
+    "variable" -> "="
+    "impl" -> "⊕"
+    "bridge" -> "⇄"
+    else -> "•"
+}
+
+private fun symbolColor(kind: String): Color = when (kind) {
+    "function" -> AzoraPalette.AccentBlue
+    "pack", "solo" -> AzoraPalette.AccentCyan
+    "enum" -> AzoraPalette.AccentYellow
+    "variable" -> AzoraPalette.AccentGreen
+    "test" -> AzoraPalette.AccentGreen
+    else -> AzoraPalette.Neutral40
 }
 
 /** VS-Code-style find & replace bar (Cmd/Ctrl+F, Esc closes). */

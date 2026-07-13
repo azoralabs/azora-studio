@@ -57,4 +57,29 @@ class JarAzoraLanguageIntelTest {
         val with = intel.complete(imported, imported.indexOf("gpuIni") + 6, "/tmp/none.az", "/tmp")
         assertTrue(with.any { it.label.startsWith("gpuInit") }, "$with")
     }
+
+    @Test
+    fun hoverReturnsDocCommentThroughTheJar() = runBlocking {
+        if (!intel.available) return@runBlocking
+        val source = "/// Doubles a number.\nfunc twice(n: Int): Int {\n    return n * 2\n}\nfunc main() {\n    twice(3)\n}"
+        val hover = intel.hover(source, source.lastIndexOf("twice") + 1, "/tmp/none.az", "/tmp")
+        assertTrue(hover != null && hover.doc.contains("Doubles"), "$hover")
+    }
+
+    @Test
+    fun definitionResolvesInFileThroughTheJar() = runBlocking {
+        if (!intel.available) return@runBlocking
+        val source = "func helper(): Int {\n    return 1\n}\nfunc main() {\n    helper()\n}"
+        val def = intel.definition(source, source.lastIndexOf("helper") + 1, "/tmp/none.az", "/tmp")
+        assertTrue(def != null && def.filePath == null && def.line == 1, "$def")
+    }
+
+    @Test
+    fun symbolsOutlineThroughTheJar() = runBlocking {
+        if (!intel.available) return@runBlocking
+        val source = "func helper(): Int {\n    return 1\n}\nfunc main() {\n    helper()\n}"
+        val symbols = intel.symbols(source)
+        assertTrue(symbols.any { it.name == "helper" && it.kind == "function" && it.line == 1 }, "$symbols")
+        assertTrue(symbols.any { it.name == "main" && it.kind == "function" && it.line == 4 }, "$symbols")
+    }
 }

@@ -2,6 +2,7 @@ package dev.azora.nodes.domain
 
 import org.azora.lang.frontend.Expr
 import org.azora.lang.frontend.NumericSuffix
+import org.azora.lang.frontend.ReactiveKind
 import org.azora.lang.frontend.Stmt
 import org.azora.lang.frontend.TokenType
 import org.azora.lang.frontend.TypeAnnotation
@@ -41,12 +42,12 @@ object AzSourcePrinter {
             is Stmt.InlineVar -> "${pad}inline ${decl("var", stmt.name, stmt.type, stmt.initializer)}"
             is Stmt.InlineLet -> "${pad}inline ${decl("let", stmt.name, stmt.type, stmt.initializer)}"
             is Stmt.InlineFin -> "${pad}inline ${decl("fin", stmt.name, stmt.type, stmt.initializer)}"
-            is Stmt.RemDecl -> "${pad}rem ${decl("var", stmt.name, stmt.type, stmt.initializer)}"
+            is Stmt.RemDecl -> "${pad}${reactiveKeyword(stmt.kind)} ${decl("var", stmt.name, stmt.type, stmt.initializer)}"
             is Stmt.Assignment -> "$pad${stmt.name} = ${printExpr(stmt.value)}"
             is Stmt.InlineAssignment -> "${pad}inline ${stmt.name} = ${printExpr(stmt.value)}"
             is Stmt.IndexAssign -> "$pad${printExpr(stmt.target)}[${printExpr(stmt.index)}] = ${printExpr(stmt.value)}"
             is Stmt.MemberAssign -> "$pad${printExpr(stmt.target)}.${stmt.name} = ${printExpr(stmt.value)}"
-            is Stmt.DerefAssign -> "$pad${printExpr(stmt.target)}* = ${printExpr(stmt.value)}"
+            is Stmt.DerefAssign -> "${pad}deref ${printExpr(stmt.target)} = ${printExpr(stmt.value)}"
             is Stmt.Return -> if (stmt.value != null) "${pad}return ${printExpr(stmt.value)}" else "${pad}return"
             is Stmt.ExprStmt -> "$pad${printExpr(stmt.expr)}"
             is Stmt.Throw -> "${pad}throw ${printExpr(stmt.value)}"
@@ -88,7 +89,9 @@ object AzSourcePrinter {
             is Stmt.Loop -> buildString {
                 append(pad)
                 stmt.label?.let { append("@$it ") }
-                append("loop {\n")
+                append("loop")
+                stmt.iterable?.let { append(" ${printExpr(it)}") }
+                append(" {\n")
                 appendBody(stmt.body, indent)
                 append("$pad}")
             }
@@ -125,11 +128,12 @@ object AzSourcePrinter {
                 appendBody(stmt.body, indent)
                 append("$pad}")
             }
-            is Stmt.Zone -> printBlockKeyword(if (stmt.alloc) "zone alloc" else "zone", stmt.body, indent)
+            is Stmt.Zone -> printBlockKeyword(if (stmt.unsafe) "unsafe" else if (stmt.alloc) "zone alloc" else "zone", stmt.body, indent)
             is Stmt.FriendZone -> printBlockKeyword(if (stmt.alloc) "friend zone alloc" else "friend zone", stmt.body, indent)
             is Stmt.InlineBlock -> printBlockKeyword("inline", stmt.body, indent)
             is Stmt.DeepInlineBlock -> printBlockKeyword("deepinline", stmt.body, indent)
             is Stmt.Effect -> printBlockKeyword("effect", stmt.body, indent)
+            is Stmt.Panic -> "${pad}${if (stmt.inlinePanic) "inline " else ""}panic { ${printExpr(stmt.message)} }"
             is Stmt.NoInline -> "${pad}noinline ${printStmt(stmt.stmt).trimStart()}"
         }
     }
@@ -164,6 +168,12 @@ object AzSourcePrinter {
 
     private fun StringBuilder.appendBody(body: List<Stmt>, indent: Int) {
         for (s in body) append(printStmt(s, indent + 1)).append("\n")
+    }
+
+    private fun reactiveKeyword(kind: ReactiveKind): String = when (kind) {
+        ReactiveKind.MEM -> "mem"
+        ReactiveKind.REM -> "rem"
+        ReactiveKind.RET -> "ret"
     }
 
     private fun decl(keyword: String, name: String, type: TypeAnnotation, initializer: Expr): String {
@@ -201,10 +211,12 @@ object AzSourcePrinter {
         is Expr.Index -> "${printExpr(expr.target)}[${printExpr(expr.index)}]"
         is Expr.Range -> "${printExpr(expr.from)}${if (expr.inclusive) ".." else "..<"}${printExpr(expr.to)}"
         is Expr.ArrayLiteral -> "[${expr.elements.joinToString(", ") { printExpr(it) }}]"
+        is Expr.SetLiteral -> "setOf(${expr.elements.joinToString(", ") { printExpr(it) }})"
         is Expr.MapLit ->
             if (expr.entries.isEmpty()) "[:]"
             else "[${expr.entries.joinToString(", ") { (k, v) -> "${printExpr(k)}: ${printExpr(v)}" }}]"
         is Expr.TupleLit -> "(${expr.elements.joinToString(", ") { printExpr(it) }})"
+        is Expr.VariantLit -> "Var(${expr.elements.joinToString(", ") { printExpr(it) }})"
         is Expr.TupleAccess -> "${printExpr(expr.target)}.${expr.index}"
         is Expr.StringTemplate -> printTemplate(expr)
         is Expr.Lambda -> {
@@ -231,11 +243,12 @@ object AzSourcePrinter {
         is Expr.IsCheck -> "${printExpr(expr.expr)} is ${expr.typeName}"
         is Expr.UpperScopeAccess -> "${"^".repeat(expr.depth)}${expr.name}"
         is Expr.Alloc -> "alloc ${printExpr(expr.value)}"
-        is Expr.Deref -> "${printExpr(expr.target)}*"
+        is Expr.AllocBuffer -> "alloc ${expr.typeName}[${printExpr(expr.count)}]"
+        is Expr.Deref -> "deref ${printExpr(expr.target)}"
         is Expr.Isolated -> "isolated ${printExpr(expr.value)}"
         is Expr.Await -> "await ${printExpr(expr.value)}"
         is Expr.Inject -> "inject ${expr.typeName}"
-        is Expr.Spread -> "${printExpr(expr.array)}..."
+        is Expr.Spread -> "...${printExpr(expr.array)}"
     }
 
     private fun printTemplate(expr: Expr.StringTemplate): String = buildString {
@@ -259,14 +272,19 @@ object AzSourcePrinter {
 
     /** Prints a type reference as written in azora source. */
     fun printType(ref: TypeRef): String = when (ref) {
-        is TypeRef.Named -> if (ref.args.isEmpty()) ref.name else "${ref.name}<${ref.args.joinToString(", ") { printType(it) }}>"
-        is TypeRef.Array -> "[${printType(ref.element)}]"
-        is TypeRef.Map -> "[${printType(ref.key)}: ${printType(ref.value)}]"
+        is TypeRef.Named -> {
+            val base = if (ref.args.isEmpty()) ref.name else "${ref.name}<${ref.args.joinToString(", ") { printType(it) }}>"
+            if (ref.variadic) "...$base" else base
+        }
+        is TypeRef.Array -> "Array<${printType(ref.element)}>"
+        is TypeRef.Map -> "Map<${printType(ref.key)}, ${printType(ref.value)}>"
+        is TypeRef.Set -> "Set<${printType(ref.element)}>"
         is TypeRef.Function -> "(${ref.params.joinToString(", ") { printType(it) }}) -> ${printType(ref.ret)}"
         is TypeRef.Tuple -> "(${ref.elements.joinToString(", ") { printType(it) }})"
         is TypeRef.Nullable -> "${printType(ref.inner)}?"
         is TypeRef.Failable -> "${printType(ref.ok)}!${ref.errSet}"
         is TypeRef.Pointer -> "${printType(ref.inner)}*"
+        is TypeRef.Reference -> "${ref.kind.spelling} ${printType(ref.inner)}"
     }
 
     /** The source text of an operator token. */

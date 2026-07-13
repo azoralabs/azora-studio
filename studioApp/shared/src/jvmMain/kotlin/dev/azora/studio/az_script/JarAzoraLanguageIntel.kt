@@ -9,6 +9,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.lang.reflect.Method
+import java.net.URL
 import java.net.URLClassLoader
 
 /**
@@ -36,6 +37,8 @@ class JarAzoraLanguageIntel : AzoraLanguageIntel {
         val diagnostics: Method,
         val complete: Method,
         val hover: Method,
+        val definition: Method,
+        val symbols: Method,
     )
 
     private val server: Server? by lazy {
@@ -45,7 +48,7 @@ class JarAzoraLanguageIntel : AzoraLanguageIntel {
             return@lazy null
         }
         try {
-            val loader = URLClassLoader(arrayOf(jar.toURI().toURL()), javaClass.classLoader)
+            val loader = AzlsClassLoader(jar.toURI().toURL(), javaClass.classLoader)
             val cls = Class.forName("org.azora.azls.AzoraLanguageServer", true, loader)
             val instance = cls.getDeclaredConstructor().newInstance()
             val version = cls.getMethod("version").invoke(instance)
@@ -56,6 +59,8 @@ class JarAzoraLanguageIntel : AzoraLanguageIntel {
                 diagnostics = cls.getMethod("diagnostics", String::class.java, String::class.java),
                 complete = cls.getMethod("complete", String::class.java, Int::class.javaPrimitiveType, String::class.java),
                 hover = cls.getMethod("hover", String::class.java, Int::class.javaPrimitiveType, String::class.java),
+                definition = cls.getMethod("definition", String::class.java, Int::class.javaPrimitiveType, String::class.java),
+                symbols = cls.getMethod("symbols", String::class.java),
             )
         } catch (e: Exception) {
             println("[azls] failed to load language server: ${e.message}")
@@ -106,8 +111,69 @@ class JarAzoraLanguageIntel : AzoraLanguageIntel {
         return call(null) {
             val raw = srv.hover.invoke(srv.instance, source, offset, prelude) as String
             if (raw == "null") null
-            else json.decodeFromString(HoverDto.serializer(), raw).let { AzHover(it.signature, it.detail) }
+            else json.decodeFromString(HoverDto.serializer(), raw).let { AzHover(it.signature, it.detail, it.doc) }
         }
+    }
+
+    override suspend fun definition(source: String, offset: Int, filePath: String, projectPath: String): AzDefinition? {
+        val srv = server ?: return null
+        val prelude = preludeFor(filePath, projectPath)
+        return call(null) {
+            val raw = srv.definition.invoke(srv.instance, source, offset, prelude) as String
+            if (raw == "null") return@call null
+            val dto = json.decodeFromString(DefinitionDto.serializer(), raw)
+            if (dto.inCurrentFile) AzDefinition(filePath = null, line = dto.line)
+            else findDeclaration(dto.name, filePath, projectPath) // symbol lives in another file
+        }
+    }
+
+    override suspend fun symbols(source: String): List<AzSymbol> {
+        val srv = server ?: return emptyList()
+        return call(emptyList()) {
+            val raw = srv.symbols.invoke(srv.instance, source) as String
+            json.decodeFromString(ListSerializer(SymbolDto.serializer()), raw)
+                .map { AzSymbol(it.name, it.kind, it.line, it.detail) }
+        }
+    }
+
+    /**
+     * Locates the declaration of [name] across the project's other `.az`
+     * sources and installed engine libraries — mirroring the prelude search
+     * order. Returns the first `func`/`pack`/`enum`/`solo`/`spec`/`node`/binding
+     * declaration found.
+     */
+    private fun findDeclaration(name: String, filePath: String, projectPath: String): AzDefinition? {
+        val declRegex = Regex(
+            "^\\s*(?:@\\w+\\s+)*(?:pub\\s+|confine\\s+)*" +
+                "(?:func|pack|enum|solo|spec|node|var|let|fin)\\s+" +
+                Regex.escape(name) + "\\b"
+        )
+        fun scan(file: File): AzDefinition? {
+            val lines = runCatching { file.readLines() }.getOrNull() ?: return null
+            lines.forEachIndexed { index, line ->
+                if (declRegex.containsMatchIn(line)) return AzDefinition(file.absolutePath, index + 1)
+            }
+            return null
+        }
+
+        val current = File(filePath).absoluteFile.normalize()
+        val projectDir = File(projectPath)
+        if (projectDir.isDirectory) {
+            projectDir.walkTopDown()
+                .onEnter { it.name !in SKIPPED_DIRS }
+                .filter { it.isFile && it.extension == "az" && it.absoluteFile.normalize() != current }
+                .sortedBy { it.absolutePath }
+                .forEach { file -> scan(file)?.let { return it } }
+        }
+        val libraries = File(System.getProperty("user.home"), ".azora/libraries")
+        if (libraries.isDirectory) {
+            libraries.walkTopDown()
+                .onEnter { it.name != "templates" }
+                .filter { it.isFile && it.extension == "az" }
+                .sortedBy { it.absolutePath }
+                .forEach { file -> scan(file)?.let { return it } }
+        }
+        return null
     }
 
     private suspend fun <T> call(default: T, block: () -> T): T =
@@ -198,7 +264,61 @@ class JarAzoraLanguageIntel : AzoraLanguageIntel {
     private data class CompletionDto(val label: String, val kind: String, val detail: String = "", val insert: String = "")
 
     @Serializable
-    private data class HoverDto(val signature: String, val detail: String = "")
+    private data class HoverDto(val signature: String, val detail: String = "", val doc: String = "")
+
+    @Serializable
+    private data class DefinitionDto(
+        val line: Int,
+        val column: Int = 0,
+        val name: String = "",
+        val inCurrentFile: Boolean = true,
+    )
+
+    @Serializable
+    private data class SymbolDto(val name: String, val kind: String, val line: Int, val detail: String = "")
+
+    /**
+     * Self-first classloader for `azls.jar`.
+     *
+     * Studio's own classpath vendors a copy of the compiler frontend
+     * (`org.azora.lang.frontend.*` in `:azora-sdk:nodes:domain`) which can drift
+     * from the AST the language-server jar was compiled against. A plain
+     * parent-first [URLClassLoader] would resolve those shared package names to
+     * Studio's vendored copies, so `azls` code compiled against the jar's own
+     * `FuncDecl` (etc.) would link against a differently-shaped class and blow up
+     * with `NoSuchMethodError` on synthetic members like `copy$default`.
+     *
+     * We therefore load `org.azora.*` classes from the jar first, falling back to
+     * the parent only when the jar does not contain them. Everything else
+     * (`java.*`, `kotlin.*`, `kotlinx.*`, …) stays parent-delegated so the stdlib
+     * is shared — safe because only JSON strings cross the boundary.
+     */
+    private class AzlsClassLoader(jar: URL, parent: ClassLoader) :
+        URLClassLoader(arrayOf(jar), parent) {
+
+        override fun loadClass(name: String, resolve: Boolean): Class<*> {
+            synchronized(getClassLoadingLock(name)) {
+                findLoadedClass(name)?.let {
+                    if (resolve) resolveClass(it)
+                    return it
+                }
+                if (name.startsWith("org.azora.")) {
+                    try {
+                        val c = findClass(name)
+                        if (resolve) resolveClass(c)
+                        return c
+                    } catch (_: ClassNotFoundException) {
+                        // Not bundled in the jar — fall through to the parent.
+                    }
+                }
+                return super.loadClass(name, resolve)
+            }
+        }
+
+        companion object {
+            init { registerAsParallelCapable() }
+        }
+    }
 
     private companion object {
         val SKIPPED_DIRS = setOf(".git", ".gradle", ".idea", ".azora-build", "build", "node_modules")

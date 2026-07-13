@@ -12,7 +12,27 @@ data class AzCompletion(
 )
 
 /** Hover info for the symbol under the caret. */
-data class AzHover(val signature: String, val detail: String = "")
+data class AzHover(val signature: String, val detail: String = "", val doc: String = "")
+
+/**
+ * Resolved declaration site for Go To Definition.
+ *
+ * @property filePath the file containing the declaration, or null for the
+ *   edited document itself
+ * @property line 1-based declaration line
+ */
+data class AzDefinition(val filePath: String?, val line: Int)
+
+/**
+ * A top-level declaration in the document outline (used by Go To Symbol).
+ *
+ * @property name the declaration's name
+ * @property kind `function`, `pack`, `enum`, `solo`, `node`, `test`, `variable`,
+ *   `impl` or `bridge`
+ * @property line 1-based declaration line
+ * @property detail a short signature/summary, when available
+ */
+data class AzSymbol(val name: String, val kind: String, val line: Int, val detail: String = "")
 
 /**
  * Language intelligence for azora-lang (`.az`) sources.
@@ -38,6 +58,12 @@ interface AzoraLanguageIntel {
     suspend fun complete(source: String, offset: Int, filePath: String, projectPath: String): List<AzCompletion>
 
     suspend fun hover(source: String, offset: Int, filePath: String, projectPath: String): AzHover?
+
+    /** Resolves the declaration of the symbol at [offset], or null if unknown. */
+    suspend fun definition(source: String, offset: Int, filePath: String, projectPath: String): AzDefinition?
+
+    /** Top-level declarations of [source] for the outline / Go To Symbol picker. */
+    suspend fun symbols(source: String): List<AzSymbol>
 }
 
 /** Fallback used on platforms without the language-server jar. */
@@ -47,6 +73,8 @@ object NoOpAzoraLanguageIntel : AzoraLanguageIntel {
     override suspend fun diagnostics(source: String, filePath: String, projectPath: String): List<Diagnostic> = emptyList()
     override suspend fun complete(source: String, offset: Int, filePath: String, projectPath: String): List<AzCompletion> = emptyList()
     override suspend fun hover(source: String, offset: Int, filePath: String, projectPath: String): AzHover? = null
+    override suspend fun definition(source: String, offset: Int, filePath: String, projectPath: String): AzDefinition? = null
+    override suspend fun symbols(source: String): List<AzSymbol> = emptyList()
 }
 
 /** One variable visible while the debugger is paused. */

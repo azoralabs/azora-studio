@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AzoraTech
+ * Copyright 2026 AzoraLabs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -57,6 +57,8 @@ class Lexer(private val source: String) {
             "test" to TokenType.TEST,
             "assert" to TokenType.ASSERT,
             "trace" to TokenType.TRACE,
+            "mixin" to TokenType.MIXIN,
+            "panic" to TokenType.PANIC,
             "for" to TokenType.FOR,
             "while" to TokenType.WHILE,
             "loop" to TokenType.LOOP,
@@ -71,6 +73,7 @@ class Lexer(private val source: String) {
             "fail" to TokenType.FAIL,
             "alloc" to TokenType.ALLOC,
             "drop" to TokenType.DROP,
+            "deref" to TokenType.DEREF,
             "unsafe" to TokenType.UNSAFE,
             "isolated" to TokenType.ISOLATED,
             "flow" to TokenType.FLOW,
@@ -88,7 +91,9 @@ class Lexer(private val source: String) {
             "repl" to TokenType.REPL,
             "virt" to TokenType.VIRT,
             "base" to TokenType.BASE,
+            "mem" to TokenType.MEM,
             "rem" to TokenType.REM,
+            "ret" to TokenType.RET,
             "effect" to TokenType.EFFECT,
             "view" to TokenType.VIEW,
             "hook" to TokenType.HOOK,
@@ -100,9 +105,13 @@ class Lexer(private val source: String) {
             "ref" to TokenType.REF,
             "out" to TokenType.OUT,
             "mut" to TokenType.MUT,
+            "shared" to TokenType.SHARED,
+            "weak" to TokenType.WEAK,
             "expose" to TokenType.EXPOSE,
             "confine" to TokenType.CONFINE,
             "protect" to TokenType.PROTECT,
+            "shield" to TokenType.SHIELD,
+            "protected" to TokenType.PROTECT,
             "module" to TokenType.MODULE,
             "threadlocal" to TokenType.THREADLOCAL,
             "pack" to TokenType.PACK,
@@ -236,7 +245,7 @@ class Lexer(private val source: String) {
             ' ', '\t' -> {}
             else -> when {
                 c.isDigit() -> scanNumber()
-                c.isLetter() || c == '_' -> scanIdentifier()
+                c.isLetter() || c == '_' || c == '$' -> scanIdentifier()
                 else -> error("Unexpected character '$c' at line $line")
             }
         }
@@ -440,16 +449,19 @@ class Lexer(private val source: String) {
             else -> while (!isAtEnd() && (peek().isDigit() || peek() == '_')) advance()
         }
 
-        // Decimal point (only for base-10)
+        // Decimal point (only for base-10). In member-access position (`obj.0.0`)
+        // the previous token is DOT — scan an integer so the `.0` splits into two
+        // tuple accesses instead of being swallowed as a REAL_LITERAL `0.0`.
         var isFloat = false
-        if (base == 10 && !isAtEnd() && peek() == '.' && !isAtEnd(1) && source[current + 1].isDigit()) {
+        val afterMemberAccess = tokens.lastOrNull()?.type == TokenType.DOT
+        if (base == 10 && !afterMemberAccess && !isAtEnd() && peek() == '.' && !isAtEnd(1) && source[current + 1].isDigit()) {
             isFloat = true
             advance() // consume '.'
             while (!isAtEnd() && (peek().isDigit() || peek() == '_')) advance()
         }
 
         // Scientific notation (only for base-10 floats or integers)
-        if (base == 10 && !isAtEnd() && (peek() == 'e' || peek() == 'E')) {
+        if (base == 10 && !afterMemberAccess && !isAtEnd() && (peek() == 'e' || peek() == 'E')) {
             isFloat = true
             advance() // consume 'e'/'E'
             if (!isAtEnd() && (peek() == '+' || peek() == '-')) advance()
@@ -533,7 +545,7 @@ class Lexer(private val source: String) {
         this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
 
     private fun scanIdentifier() {
-        while (!isAtEnd() && (peek().isLetterOrDigit() || peek() == '_')) advance()
+        while (!isAtEnd() && (peek().isLetterOrDigit() || peek() == '_' || peek() == '$')) advance()
         val text = source.substring(start, current)
         addToken(keywords[text] ?: TokenType.IDENTIFIER)
     }

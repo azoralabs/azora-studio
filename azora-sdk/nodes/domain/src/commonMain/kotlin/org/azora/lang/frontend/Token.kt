@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 AzoraTech
+ * Copyright 2026 AzoraLabs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -85,7 +85,7 @@ enum class TokenType {
 
     // Keywords
     VAR, FIN, LET, FUNC, RETURN, PACKAGE, IF, ELSE, INLINE, DEEPINLINE, NOINLINE, ZONE, FRIEND,
-    TEST, ASSERT, TRACE,
+    TEST, ASSERT, TRACE, MIXIN, PANIC,
     FOR, WHILE, LOOP, IN, BREAK, CONTINUE,
     PACK, ENUM, WHEN,
     THROW, TRY, CATCH,
@@ -120,8 +120,8 @@ enum class TokenType {
     OPER,
     // `fail ErrSet { … }` — error-set declaration; also `fail <expr>` throw sugar.
     FAIL,
-    // Memory model: `alloc <expr>`, `drop <expr>`, `unsafe { }`, `isolated(expr)`.
-    ALLOC, DROP, UNSAFE, ISOLATED,
+    // Memory model: `alloc <expr>`, `drop <expr>`, `deref <expr>`, `unsafe { }`, `isolated(expr)`.
+    ALLOC, DROP, DEREF, UNSAFE, ISOLATED,
     // Concurrency: `flow name(...) { … yield v }` generators, `task { }` / `await`, `launch { }`.
     FLOW, YIELD, TASK, AWAIT, LAUNCH,
     // FFI: `bridge <target> { func sigs }` — extern function declarations.
@@ -134,16 +134,17 @@ enum class TokenType {
     NODE, LEAF, REPL, VIRT, BASE,
     // Variadic generics: `...T` type params, `args: ...T` variadic params, `...arr` spread.
     ELLIPSIS,
-    // Reactivity: `rem` (reactive state), `effect { }` (side-effect), `view Name() { }` (component).
-    REM, EFFECT, VIEW,
+    // Reactivity: `mem` (remember), `rem` (saveable/serializable), `ret` (retain), `effect { }`, `view Name() { }`.
+    MEM, REM, RET, EFFECT, VIEW,
     // Object model: `hook name { }`, `prop name: T { }`, `ctor(params) { }`, `dtor { }`.
     HOOK, PROP, CTOR, DTOR,
     // Alternating execution: `flip { } flop { }`.
     FLIP, FLOP,
-    // Parameter modifiers: `ref name: T`, `out name: T`, `mut name: T`.
-    REF, OUT, MUT,
+    // Ownership/reference modifiers: `ref T`, `mut ref T`, `shared ref T`, `weak ref T`.
+    REF, OUT, MUT, SHARED, WEAK,
     // Visibility: `expose` (public), `confine` (private), `protect` (protected).
-    EXPOSE, CONFINE, PROTECT,
+    // `shield` — a pack/field modifier: externally read-only, internally mutable.
+    EXPOSE, CONFINE, PROTECT, SHIELD,
     // Module: `module Name` (alias for package).
     MODULE,
     // Thread-local storage: `threadlocal var x = 0` / `threadlocal fin y = 42`.

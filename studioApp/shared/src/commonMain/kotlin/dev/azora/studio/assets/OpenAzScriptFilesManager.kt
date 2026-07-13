@@ -14,7 +14,9 @@ data class OpenAzScriptFileState(
     val fileName: String,
     val panelId: String,
     val sourceCode: String,
-    val isDirty: Boolean = false
+    val isDirty: Boolean = false,
+    /** A pending Go-To-Definition target line (1-based); consumed by the panel. */
+    val gotoLine: Int? = null,
 )
 
 class OpenAzScriptFilesManager(
@@ -101,6 +103,20 @@ class OpenAzScriptFilesManager(
 
     fun getState(panelId: String): OpenAzScriptFileState? {
         return _openFiles.value[panelId]
+    }
+
+    /** Asks the [panelId] editor to scroll to and place the caret on [line] (1-based). */
+    fun requestGoto(panelId: String, line: Int) {
+        val current = _openFiles.value[panelId] ?: return
+        _openFiles.value = _openFiles.value + (panelId to current.copy(gotoLine = line))
+    }
+
+    /** Clears a pending goto once the editor has applied it. */
+    fun consumeGoto(panelId: String) {
+        val current = _openFiles.value[panelId] ?: return
+        if (current.gotoLine != null) {
+            _openFiles.value = _openFiles.value + (panelId to current.copy(gotoLine = null))
+        }
     }
 
     fun updateSource(panelId: String, source: String) {
