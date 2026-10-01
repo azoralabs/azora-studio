@@ -547,7 +547,7 @@ class AzToNodesConverter {
 
             private fun convertFor(stmt: Stmt.For, frontier: MutableList<ExecSrc>, depth: Int): MutableList<ExecSrc> {
                 val range = stmt.iterable as? Expr.Range
-                if (range == null || stmt.step != null || stmt.reverse || stmt.label != null) {
+                if (range == null || stmt.step != null || range.descending || stmt.label != null) {
                     return fallbackStmt(stmt, frontier, depth)
                 }
                 val from = convertExpr(range.from, frontier, depth)

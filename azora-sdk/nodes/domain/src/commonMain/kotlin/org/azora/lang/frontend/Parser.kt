@@ -228,7 +228,6 @@ class Parser(private val tokens: List<Token>) {
         match(TokenType.EXPOSE) -> Visibility.EXPOSE
         match(TokenType.CONFINE) -> Visibility.CONFINE
         match(TokenType.PROTECT) -> Visibility.PROTECT
-        match(TokenType.SHIELD) -> Visibility.SHIELD
         else -> Visibility.EXPOSE
     }
 
@@ -562,7 +561,6 @@ class Parser(private val tokens: List<Token>) {
         val tp = parseTypeParams()
         val minLen = parseVariadicWhereClause()
         val enforceNumFields = annotations.any { it.name == "enforceNumFields" }
-        val effectiveVisibility = if (visibility == Visibility.SHIELD) Visibility.EXPOSE else visibility
         if (!check(TokenType.L_BRACE)) {
             consumeNewline()
             return TopLevel.Pack(
@@ -572,8 +570,7 @@ class Parser(private val tokens: List<Token>) {
                 line = start.line,
                 column = start.column,
                 annotations = annotations,
-                visibility = effectiveVisibility,
-                shielded = visibility == Visibility.SHIELD,
+                visibility = visibility,
                 variadicParam = tp.variadic,
                 minVariadicLength = minLen,
                 fieldTemplate = null,
@@ -603,8 +600,7 @@ class Parser(private val tokens: List<Token>) {
             line = start.line,
             column = start.column,
             annotations = annotations,
-            visibility = effectiveVisibility,
-            shielded = visibility == Visibility.SHIELD,
+            visibility = visibility,
             variadicParam = tp.variadic,
             minVariadicLength = minLen,
             fieldTemplate = fieldTemplate,
@@ -1168,7 +1164,7 @@ class Parser(private val tokens: List<Token>) {
     /**
      * `func Type.method(args): Ret { ref self -> body }` — external extension method.
      * The receiver is explicit inside the body header so extensions can choose
-     * `ref self` or `mut ref self`; shielded packs reject the mutable form later.
+     * `ref self` or `mut ref self`.
      */
     private fun parseExtensionFunc(visibility: Visibility = Visibility.EXPOSE): TopLevel.Impl {
         val start = peek()
@@ -1870,11 +1866,11 @@ class Parser(private val tokens: List<Token>) {
 
     /**
      * Accepts an identifier, or one of a small set of soft keywords that are
-     * unambiguous as names in declaration position (`func reverse`, `pow(base:`).
+     * unambiguous as names in declaration position (`func take`, `pow(base:`).
      */
     private fun consumeIdentifierLike(message: String): String {
         val t = peek()
-        val soft = t.type == TokenType.REVERSE || t.type == TokenType.BASE ||
+        val soft = t.type == TokenType.BASE ||
             t.type == TokenType.TASK || t.type == TokenType.LEAF || t.type == TokenType.PROP ||
             t.type == TokenType.DROP || t.type == TokenType.MEM || t.type == TokenType.REM || t.type == TokenType.RET ||
             t.type == TokenType.FLIP || t.type == TokenType.FLOP ||
@@ -2107,7 +2103,6 @@ class Parser(private val tokens: List<Token>) {
             check(TokenType.AT) -> parseLabeledStmt()
             check(TokenType.WHILE) -> parseWhile()
             check(TokenType.FOR) -> parseFor()
-            check(TokenType.REVERSE) && peekNext()?.type == TokenType.FOR -> parseFor(reverse = true)
             check(TokenType.LOOP) -> parseLoop()
             check(TokenType.BREAK) -> parseBreak()
             check(TokenType.CONTINUE) -> parseContinue()
@@ -2141,7 +2136,6 @@ class Parser(private val tokens: List<Token>) {
         return when {
             check(TokenType.WHILE) -> parseWhile(label)
             check(TokenType.FOR) -> parseFor(label = label)
-            check(TokenType.REVERSE) && peekNext()?.type == TokenType.FOR -> parseFor(reverse = true, label = label)
             check(TokenType.LOOP) -> parseLoop(label)
             else -> error("Expected a loop after '@$label' at line ${peek().line}")
         }
@@ -2240,9 +2234,8 @@ class Parser(private val tokens: List<Token>) {
         else -> stmt
     }
 
-    private fun parseFor(reverse: Boolean = false, label: String? = null): Stmt {
+    private fun parseFor(label: String? = null): Stmt {
         val start = peek()
-        if (reverse) consume(TokenType.REVERSE, "Expected 'reverse'")
         consume(TokenType.FOR, "Expected 'for'")
         val name = consume(TokenType.IDENTIFIER, "Expected loop variable name").lexeme
         // Optional step: `for x by N in ...`
@@ -2258,7 +2251,7 @@ class Parser(private val tokens: List<Token>) {
         skipNewlines()
         val elseBranch = parseLoopElse()
         consumeNewline()
-        val loop = Stmt.For(name, iterable, body, start.line, start.column, step = step, reverse = reverse, label = label)
+        val loop = Stmt.For(name, iterable, body, start.line, start.column, step = step, label = label)
         return if (elseBranch != null) withLoopElse(loop, elseBranch, start.line, start.column) else loop
     }
 
@@ -3066,6 +3059,16 @@ class Parser(private val tokens: List<Token>) {
     private fun parseExprStmt(): Stmt {
         val start = peek()
         val expr = parseExpr()
+        if (match(TokenType.EXCHANGE)) {
+            val right = parseExpr()
+            fun location(value: Expr): Boolean = value is Expr.Identifier || value is Expr.Member ||
+                value is Expr.Index || value is Expr.Deref
+            if (!location(expr) || !location(right)) {
+                error("exchange operands must be assignable storage locations at line ${start.line}")
+            }
+            consumeNewline()
+            return Stmt.Exchange(expr, right, start.line, start.column)
+        }
         val opTok = peek()
         return when (opTok.type) {
             TokenType.EQUAL -> {
@@ -3334,10 +3337,11 @@ class Parser(private val tokens: List<Token>) {
 
     private fun parseRange(): Expr {
         var left = parseAddition()
-        while (check(TokenType.DOT_DOT) || check(TokenType.DOT_DOT_LESS)) {
-            val inclusive = advance().type == TokenType.DOT_DOT
+        while (check(TokenType.DOT_DOT) || check(TokenType.DOT_DOT_LESS) || check(TokenType.GREATER_DOT_DOT)) {
+            val operator = advance()
+            val inclusive = operator.type != TokenType.DOT_DOT_LESS
             val right = parseAddition()
-            left = Expr.Range(left, right, inclusive, left.line)
+            left = Expr.Range(left, right, inclusive, left.line, descending = operator.type == TokenType.GREATER_DOT_DOT)
         }
         return left
     }
@@ -3403,14 +3407,7 @@ class Parser(private val tokens: List<Token>) {
             return parsePostfix(Expr.Inject(typeName, at.line, at.column, at.lexeme.length))
         }
         if (check(TokenType.BANG) && peekNext()?.type == TokenType.L_BRACKET) {
-            val at = advance()
-            advance() // '['
-            val elements = mutableListOf<Expr>()
-            if (!check(TokenType.R_BRACKET)) {
-                do { elements += parseExpr() } while (match(TokenType.COMMA))
-            }
-            consume(TokenType.R_BRACKET, "Expected ']' after set elements")
-            return Expr.SetLiteral(elements, at.line, at.column, at.lexeme.length)
+            error("'![...]' set syntax was removed at line ${peek().line}; use a Set<T> context with '[...]'")
         }
         if (check(TokenType.BANG) || check(TokenType.MINUS) || check(TokenType.TILDE)) {
             val op = advance()
@@ -3584,6 +3581,9 @@ class Parser(private val tokens: List<Token>) {
 
     private fun parsePrimary(): Expr {
         val tok = peek()
+        if (tok.type == TokenType.IDENTIFIER && tok.lexeme == "reverse" && peekNext()?.type == TokenType.FOR) {
+            error("the reverse loop modifier was removed; write 'for i in upper>..lower' at line ${tok.line}")
+        }
         // `<T...>{ … }` — variadic lambda (implicit `it` is the packed array of all args).
         if (tok.type == TokenType.LESS && isVariadicLambdaAhead()) {
             advance() // '<'
@@ -3623,7 +3623,7 @@ class Parser(private val tokens: List<Token>) {
             TokenType.FALSE -> { advance(); Expr.BoolLiteral(false, tok.line, tok.column, tok.lexeme.length) }
             TokenType.NULL -> { advance(); Expr.NullLiteral }
             TokenType.IDENTIFIER, TokenType.SHARED, TokenType.WEAK,
-            TokenType.REVERSE -> {
+            TokenType.IDENTIFIER -> {
                 advance()
                 Expr.Identifier(tok.lexeme, tok.line, tok.column, tok.lexeme.length)
             }
@@ -3659,26 +3659,41 @@ class Parser(private val tokens: List<Token>) {
             }
             TokenType.L_BRACKET -> {
                 advance()
+                skipNewlines()
                 if (check(TokenType.R_BRACKET)) {
                     advance()
                     Expr.ArrayLiteral(emptyList(), tok.line, tok.column)
+                } else if (match(TokenType.COLON)) {
+                    skipNewlines()
+                    consume(TokenType.R_BRACKET, "Expected ']' after empty associative literal ':'")
+                    Expr.MapLit(emptyList(), tok.line, tok.column)
                 } else {
                     val first = parseExpr()
                     if (match(TokenType.COLON)) {
-                        // Map literal: ["k": v, ...]
+                        // Associative collection literal: [key: value, ...]
                         val entries = mutableListOf<Pair<Expr, Expr>>(first to parseExpr())
+                        skipNewlines()
                         while (match(TokenType.COMMA)) {
+                            skipNewlines()
+                            if (check(TokenType.R_BRACKET)) break
                             val k = parseExpr()
-                            consume(TokenType.COLON, "Expected ':' in map literal")
+                            consume(TokenType.COLON, "Expected ':' in associative collection literal")
                             entries.add(k to parseExpr())
+                            skipNewlines()
                         }
-                        consume(TokenType.R_BRACKET, "Expected ']' after map literal")
+                        consume(TokenType.R_BRACKET, "Expected ']' after associative collection literal")
                         Expr.MapLit(entries, tok.line, tok.column)
                     } else {
-                        // Array literal: [1, 2, 3]
+                        // Sequence collection literal: [value, ...]
                         val elements = mutableListOf(first)
-                        while (match(TokenType.COMMA)) { elements.add(parseExpr()) }
-                        consume(TokenType.R_BRACKET, "Expected ']' after array elements")
+                        skipNewlines()
+                        while (match(TokenType.COMMA)) {
+                            skipNewlines()
+                            if (check(TokenType.R_BRACKET)) break
+                            elements.add(parseExpr())
+                            skipNewlines()
+                        }
+                        consume(TokenType.R_BRACKET, "Expected ']' after collection literal")
                         Expr.ArrayLiteral(elements, tok.line, tok.column)
                     }
                 }

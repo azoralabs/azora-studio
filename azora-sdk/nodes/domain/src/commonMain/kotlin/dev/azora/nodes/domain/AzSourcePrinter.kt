@@ -43,6 +43,7 @@ object AzSourcePrinter {
             is Stmt.InlineLet -> "${pad}inline ${decl("let", stmt.name, stmt.type, stmt.initializer)}"
             is Stmt.InlineFin -> "${pad}inline ${decl("fin", stmt.name, stmt.type, stmt.initializer)}"
             is Stmt.RemDecl -> "${pad}${reactiveKeyword(stmt.kind)} ${decl("var", stmt.name, stmt.type, stmt.initializer)}"
+            is Stmt.Exchange -> "$pad${printExpr(stmt.left)} <> ${printExpr(stmt.right)}"
             is Stmt.Assignment -> "$pad${stmt.name} = ${printExpr(stmt.value)}"
             is Stmt.InlineAssignment -> "${pad}inline ${stmt.name} = ${printExpr(stmt.value)}"
             is Stmt.IndexAssign -> "$pad${printExpr(stmt.target)}[${printExpr(stmt.index)}] = ${printExpr(stmt.value)}"
@@ -74,7 +75,6 @@ object AzSourcePrinter {
                 append(pad)
                 stmt.label?.let { append("@$it ") }
                 append("for ")
-                if (stmt.reverse) append("reverse ")
                 append("${stmt.name} in ${printExpr(stmt.iterable)}")
                 stmt.step?.let { append(" by ${printExpr(it)}") }
                 append(" {\n")
@@ -209,7 +209,7 @@ object AzSourcePrinter {
         is Expr.Member -> "${printExpr(expr.target)}.${expr.name}"
         is Expr.SafeMember -> "${printExpr(expr.target)}?.${expr.name}"
         is Expr.Index -> "${printExpr(expr.target)}[${printExpr(expr.index)}]"
-        is Expr.Range -> "${printExpr(expr.from)}${if (expr.inclusive) ".." else "..<"}${printExpr(expr.to)}"
+        is Expr.Range -> "${printExpr(expr.from)}${if (expr.descending) ">.." else if (expr.inclusive) ".." else "..<"}${printExpr(expr.to)}"
         is Expr.ArrayLiteral -> "[${expr.elements.joinToString(", ") { printExpr(it) }}]"
         is Expr.SetLiteral -> "setOf(${expr.elements.joinToString(", ") { printExpr(it) }})"
         is Expr.MapLit ->

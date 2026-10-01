@@ -66,7 +66,6 @@ class Lexer(private val source: String) {
             "break" to TokenType.BREAK,
             "continue" to TokenType.CONTINUE,
             "by" to TokenType.BY,
-            "reverse" to TokenType.REVERSE,
             "infx" to TokenType.INFX,
             "oper" to TokenType.OPER,
             "deco" to TokenType.DECO,
@@ -110,7 +109,6 @@ class Lexer(private val source: String) {
             "expose" to TokenType.EXPOSE,
             "confine" to TokenType.CONFINE,
             "protect" to TokenType.PROTECT,
-            "shield" to TokenType.SHIELD,
             "protected" to TokenType.PROTECT,
             "module" to TokenType.MODULE,
             "threadlocal" to TokenType.THREADLOCAL,
@@ -192,11 +190,13 @@ class Lexer(private val source: String) {
             '!' -> addToken(if (match('=')) TokenType.BANG_EQUAL else TokenType.BANG)
             '=' -> addToken(if (match('=')) TokenType.EQUAL_EQUAL else TokenType.EQUAL)
             '<' -> when {
+                match('>') -> addToken(TokenType.EXCHANGE)
                 match('=') -> addToken(TokenType.LESS_EQUAL)
                 match('<') -> addToken(TokenType.SHIFT_LEFT)
                 else -> addToken(TokenType.LESS)
             }
             '>' -> when {
+                source.getOrNull(current) == '.' && source.getOrNull(current + 1) == '.' -> { advance(); advance(); addToken(TokenType.GREATER_DOT_DOT) }
                 match('=') -> addToken(TokenType.GREATER_EQUAL)
                 match('>') -> addToken(TokenType.SHIFT_RIGHT)
                 else -> addToken(TokenType.GREATER)

@@ -3,6 +3,7 @@ package dev.azora.studio.az_script
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
@@ -43,7 +44,7 @@ class AzSyntaxTransformation(
                 val start = span.start.coerceIn(0, text.length)
                 val end = span.end.coerceIn(start, text.length)
                 if (start == end) continue
-                colorOf(span.type)?.let { addStyle(SpanStyle(color = it), start, end) }
+                styleOf(span.type)?.let { addStyle(it, start, end) }
             }
             if (errorLines.isNotEmpty() || warningLines.isNotEmpty() || debugLine != null) {
                 applyLineBackgrounds(text.text)
@@ -84,16 +85,20 @@ class AzSyntaxTransformation(
         }
     }
 
-    private fun colorOf(type: String): Color? = when (type) {
-        "keyword" -> AzoraPalette.AccentPurple
-        "string" -> AzoraPalette.AccentGreen
-        "char" -> AzoraPalette.AccentGreen
-        "interpolation" -> AzoraPalette.AccentTeal
-        "number" -> AzoraPalette.AccentCyan
-        "comment" -> AzoraPalette.Neutral50
-        "function" -> AzoraPalette.AccentBlue
-        "type" -> AzoraPalette.AccentYellow
-        "annotation" -> AzoraPalette.AccentOrange
+    private fun styleOf(type: String): SpanStyle? = when (type) {
+        "keyword" -> SpanStyle(color = AzoraPalette.AccentPurple)
+        "string", "char" -> SpanStyle(color = AzoraPalette.AccentGreen)
+        "interpolation", "interpolation-punctuation" -> SpanStyle(color = AzoraPalette.AccentTeal)
+        "number" -> SpanStyle(color = AzoraPalette.AccentCyan)
+        "comment" -> SpanStyle(color = AzoraPalette.Neutral50, fontStyle = FontStyle.Italic)
+        // Functions intentionally inherit the editor's ordinary foreground.
+        "function" -> null
+        "type" -> SpanStyle(color = AzoraPalette.AccentYellow)
+        "annotation" -> SpanStyle(color = AzoraPalette.AccentYellow)
+        "generic" -> SpanStyle(color = AzoraPalette.AccentOrange)
+        "label" -> SpanStyle(color = AzoraPalette.AccentBlue)
+        "macro" -> SpanStyle(color = AzoraPalette.AccentPurple)
+        "realm", "zone", "module-path" -> SpanStyle(fontStyle = FontStyle.Italic)
         else -> null
     }
 

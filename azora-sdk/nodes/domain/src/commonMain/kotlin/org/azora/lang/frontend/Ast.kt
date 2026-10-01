@@ -164,7 +164,7 @@ sealed class Expr {
      * @property to the end bound expression
      * @property inclusive whether the end is included (`..` vs `..<`)
      */
-    data class Range(val from: Expr, val to: Expr, val inclusive: Boolean, override val line: Int, override val column: Int = 0, override val length: Int = 0) : Expr()
+    data class Range(val from: Expr, val to: Expr, val inclusive: Boolean, override val line: Int, override val column: Int = 0, override val length: Int = 0, val descending: Boolean = false) : Expr()
 
     /**
      * Array literal `[a, b, c]` (or empty `[]`).
@@ -301,6 +301,14 @@ sealed class Expr {
  * Every statement carries source-location metadata for diagnostics.
  */
 sealed class Stmt {
+    data class Exchange(
+        val left: Expr,
+        val right: Expr,
+        override val line: Int,
+        override val column: Int = 0,
+        override val length: Int = 2,
+    ) : Stmt()
+
     /** 1-based line number where this statement starts. */
     abstract val line: Int
     /** 1-based column number where this statement starts. */
@@ -759,8 +767,6 @@ sealed class Stmt {
         override val length: Int = 0,
         /** Optional step for integer-range loops: `for x by N in a..b`. Null means step 1. */
         val step: Expr? = null,
-        /** Iterate the range downwards: `reverse for x in a..b`. */
-        val reverse: Boolean = false,
         /** Optional `@label` for labeled `break`/`continue`. */
         val label: String? = null
     ) : Stmt()
@@ -1033,7 +1039,7 @@ sealed class TypeAnnotation {
  * @property name the parameter name
  * @property type the structured type reference as written in source
  */
-enum class Visibility { EXPOSE, PROTECT, CONFINE, SHIELD }
+enum class Visibility { EXPOSE, PROTECT, CONFINE }
 
 enum class ReactiveKind { MEM, REM, RET }
 
@@ -1337,8 +1343,6 @@ sealed class TopLevel {
         val column: Int = 0,
         val annotations: List<Annotation> = emptyList(),
         val visibility: Visibility = Visibility.EXPOSE,
-        /** `shield pack X {}` prevents external extensions from taking `mut ref self`. */
-        val shielded: Boolean = false,
         /** Name of the variadic type param (`T` in `pack Tuple<T...>`), or null for a fixed pack. */
         val variadicParam: String? = null,
         /** Minimum element count from a `where <var>.length >= N` clause, or null if unconstrained. */

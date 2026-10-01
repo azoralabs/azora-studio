@@ -96,9 +96,9 @@ enum class TokenType {
     // Operators
     PLUS, MINUS, STAR, SLASH, PERCENT,
     EQUAL, EQUAL_EQUAL, BANG_EQUAL,
-    LESS, LESS_EQUAL, GREATER, GREATER_EQUAL,
+    LESS, LESS_EQUAL, GREATER, GREATER_EQUAL, EXCHANGE,
     AND_AND, OR_OR, BANG,
-    DOT, DOT_DOT, DOT_DOT_LESS,
+    DOT, DOT_DOT, DOT_DOT_LESS, GREATER_DOT_DOT,
     PLUS_EQUAL, MINUS_EQUAL, STAR_EQUAL, SLASH_EQUAL, PERCENT_EQUAL,
     PLUS_PLUS, MINUS_MINUS,
     AMP, PIPE, CARET, TILDE, SHIFT_LEFT, SHIFT_RIGHT,
@@ -109,9 +109,8 @@ enum class TokenType {
     QMARK_PLUS_PLUS, QMARK_MINUS_MINUS,
     NULL,
     USE,
-    // `for x by N in ...` (step) and `reverse for` / `for x in reverse ...`
+    // Range step: `for x in a>..b by N`.
     BY,
-    REVERSE,
     // `@label` for labeled loops and `break @label` / `continue @label`.
     AT,
     // `infx Type.method(params)` — extension method usable as an infix call (`a method b`).
@@ -143,8 +142,7 @@ enum class TokenType {
     // Ownership/reference modifiers: `ref T`, `mut ref T`, `shared ref T`, `weak ref T`.
     REF, OUT, MUT, SHARED, WEAK,
     // Visibility: `expose` (public), `confine` (private), `protect` (protected).
-    // `shield` — a pack/field modifier: externally read-only, internally mutable.
-    EXPOSE, CONFINE, PROTECT, SHIELD,
+    EXPOSE, CONFINE, PROTECT,
     // Module: `module Name` (alias for package).
     MODULE,
     // Thread-local storage: `threadlocal var x = 0` / `threadlocal fin y = 42`.
