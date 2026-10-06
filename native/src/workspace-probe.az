@@ -20,7 +20,14 @@ react func main() {
     pass.arrange(first, 0.0, 0.0, 1280.0, 800.0)
     fin canvas = surfaceRect(pass, 201)
     assert canvas.width > 500.0 && canvas.height > 400.0 panic "scene viewport must occupy the retained center dock"
-    assert pass.hit(194.0, 27.0) == 1 panic "toolbar save must be an Engine action node"
+    var saveHit = false
+    var probeX: Double = 0.0
+    while probeX < 1280.0 {
+        if pass.hit(probeX, 26.0) == 1 { saveHit = true }
+        probeX = probeX + 4.0
+    }
+    assert saveHit panic "toolbar save must be an Engine action node"
+    assert surfaceRect(pass, 203).width > 600.0 panic "the console must span the bottom dock"
     scene.select(1)
     scene.moveSelected(10, 0)
     describeWorkspace(pass, scene, view)

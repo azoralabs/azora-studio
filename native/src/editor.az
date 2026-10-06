@@ -29,56 +29,120 @@ func createNativeProject(root: String, template: String = ""): Bool {
 
 // Application state and history live in Azora. Each nonzero host handle has one
 // owner here; views returned by host calls are used only before their next edit.
-// This initial slice has one undo/redo snapshot. Extending history must retain
-// bounded independent buffers, never references into a replaced source buffer.
+// History keeps independent buffers, never references into a replaced source
+// buffer, and is bounded so a long session cannot grow without limit.
 pack Editor {
     var project: Long
     var source: Long
-    var previous: Long
-    var following: Long
+    var history: Array<Long>
+    var future: Array<Long>
     var dirty: Bool
+    /** Where a run of typing ends, so the next keystroke can extend it; -1 when none. */
+    var typingEnd: Int = -1
+}
+
+/** How many edits undo can walk back. */
+fin editorHistoryLimit = 256
+
+func editorOf(project: Long, source: Long): Editor {
+    return Editor(project, source, Array<Long>(), Array<Long>(), false)
+}
+
+func closeBuffers(buffers: Array<Long>!) {
+    while buffers.size > 0 { azsBufferClose(buffers.removeLast()) }
 }
 
 impl Editor {
+    /** Makes [next] the source, keeping the replaced one for undo. */
+    func !.commit(next: Long) {
+        self.typingEnd = -1
+        self.history.add(self.source)
+        if self.history.size > editorHistoryLimit { azsBufferClose(self.history.removeAt(0)) }
+        closeBuffers(self.future)
+        self.source = next
+        self.dirty = true
+    }
     func !.editByte(offset: Int, remove: Int, value: Int): Bool {
         fin next = azsBufferSpliceByte(self.source, offset, remove, value)
         if next == Long(0) { return false }
-        if self.previous != Long(0) { azsBufferClose(self.previous) }
-        if self.following != Long(0) { azsBufferClose(self.following) }
-        self.previous = self.source
-        self.source = next
-        self.following = Long(0)
-        self.dirty = true
+        self.commit(next)
         return true
+    }
+    /**
+     * Types [text] at [offset]. Keystrokes that continue a word share one
+     * undo step; a space or a new line starts the next one. Answers the
+     * inserted byte length, or -1.
+     */
+    func !.typeText(offset: Int, text: String): Int {
+        if offset != self.typingEnd || self.history.size == 0 || text == " " {
+            fin length = self.splice(offset, 0, text)
+            if length >= 0 { self.typingEnd = offset + length }
+            return length
+        }
+        fin size = azsBufferSize(self.source)
+        if offset > size { return -1 }
+        fin before = azsBufferSlice(self.source, 0, offset)
+        if before == Long(0) { return -1 }
+        fin after = azsBufferSlice(self.source, offset, size)
+        if after == Long(0) { azsBufferClose(before)
+            return -1 }
+        fin next = azsBufferNew("${azsBufferText(before)}${text}${azsBufferText(after)}")
+        azsBufferClose(before)
+        azsBufferClose(after)
+        if next == Long(0) { return -1 }
+        fin length = azsBufferSize(next) - size
+        // The run's starting state is already the newest undo entry.
+        azsBufferClose(self.source)
+        closeBuffers(self.future)
+        self.source = next
+        self.dirty = true
+        self.typingEnd = offset + length
+        return length
+    }
+
+    /** Replaces [remove] bytes at [offset] with [text]; one undo step. Answers the inserted byte length, or -1. */
+    func !.splice(offset: Int, remove: Int, text: String): Int {
+        fin size = azsBufferSize(self.source)
+        if offset < 0 || remove < 0 || offset + remove > size { return -1 }
+        fin before = azsBufferSlice(self.source, 0, offset)
+        if before == Long(0) { return -1 }
+        fin after = azsBufferSlice(self.source, offset + remove, size)
+        if after == Long(0) { azsBufferClose(before)
+            return -1 }
+        fin inserted = azsBufferNew(text)
+        if inserted == Long(0) { azsBufferClose(before)
+            azsBufferClose(after)
+            return -1 }
+        fin length = azsBufferSize(inserted)
+        azsBufferClose(inserted)
+        fin next = azsBufferNew("${azsBufferText(before)}${text}${azsBufferText(after)}")
+        azsBufferClose(before)
+        azsBufferClose(after)
+        if next == Long(0) { return -1 }
+        self.commit(next)
+        return length
     }
     func !.replace(text: String): Bool {
         fin next = azsBufferNew(text)
         if next == Long(0) { return false }
-        if self.previous != Long(0) { azsBufferClose(self.previous) }
-        if self.following != Long(0) { azsBufferClose(self.following) }
-        self.previous = self.source
-        self.source = next
-        self.following = Long(0)
-        self.dirty = true
+        self.commit(next)
         return true
     }
 
     func !.undo(): Bool {
-        if self.previous == Long(0) { return false }
-        if self.following != Long(0) { azsBufferClose(self.following) }
-        self.following = self.source
-        self.source = self.previous
-        self.previous = Long(0)
+        self.typingEnd = -1
+        if self.history.size == 0 { return false }
+        self.future.add(self.source)
+        self.source = self.history.removeLast()
         self.dirty = true
         return true
     }
 
     func !.redo(): Bool {
-        if self.following == Long(0) { return false }
-        if self.previous != Long(0) { azsBufferClose(self.previous) }
-        self.previous = self.source
-        self.source = self.following
-        self.following = Long(0)
+        self.typingEnd = -1
+        if self.future.size == 0 { return false }
+        self.history.add(self.source)
+        self.source = self.future.removeLast()
         self.dirty = true
         return true
     }
@@ -94,19 +158,17 @@ impl Editor {
         fin next = azsProjectRead(self.project, "src/main.az")
         if next == Long(0) { return false }
         azsBufferClose(self.source)
-        if self.previous != Long(0) { azsBufferClose(self.previous) }
-        if self.following != Long(0) { azsBufferClose(self.following) }
+        closeBuffers(self.history)
+        closeBuffers(self.future)
         self.source = next
-        self.previous = Long(0)
-        self.following = Long(0)
         self.dirty = false
         return true
     }
 
     dtor .() {
         if self.source != Long(0) { azsBufferClose(self.source) }
-        if self.previous != Long(0) { azsBufferClose(self.previous) }
-        if self.following != Long(0) { azsBufferClose(self.following) }
+        closeBuffers(self.history)
+        closeBuffers(self.future)
         if self.project != Long(0) { azsProjectClose(self.project) }
     }
 }

@@ -44,7 +44,7 @@ func execute(): Int {
     } else { source = azsProjectRead(project, "src/main.az") }
     if source == Long(0) { azsProjectClose(project)
         return reportFailure() }
-    var editor = Editor(project, source, Long(0), Long(0), false)
+    var editor = editorOf(project, source)
     var status = 0
     if action == "create" {
         fin manifest = azsBufferNew("{\"project\":{\"name\":\"native-project\",\"version\":\"0.1.0\",\"entry\":\"main.az\",\"src\":\"src\",\"targets\":[\"llvm\"]}}\n")

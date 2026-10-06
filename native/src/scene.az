@@ -141,6 +141,22 @@ impl StudioScene {
         self.dirty = true
         self.revision = self.revision + 1
     }
+    /** Moves the selection by a drag step; only the drag's first step records undo. */
+    func !.dragSelected(dx: Int, dy: Int, first: Bool) {
+        fin entity = self.world.entityAt(self.selected)
+        if !self.world.isAlive(entity) { return }
+        var current = storageGet<StudioTransform>(self.transforms, entity).clone()
+        if first {
+            self.previous = current.clone()
+            self.previousEntity = self.selected
+            self.canUndo = true
+        }
+        current.x = current.x + dx
+        current.y = current.y + dy
+        storageInsert<StudioTransform>(self.transforms, entity, take current)
+        self.dirty = true
+        self.revision = self.revision + 1
+    }
     func !.scaleSelected(delta: Int) {
         fin entity = self.world.entityAt(self.selected)
         if !self.world.isAlive(entity) { return }

@@ -13,19 +13,120 @@ import engine.ui.paint
 import studio.host
 import studio.editor
 
+// The Launcher shares the Studio's design tokens. Extension members do not yet
+// resolve across modules, so the few it uses are repeated here.
+func Modifier&.ground(): Modifier { return self.background(0.078, 0.078, 0.086) }
+func Modifier&.surface(): Modifier { return self.background(0.114, 0.114, 0.125) }
+func Modifier&.raised(): Modifier { return self.background(0.157, 0.157, 0.173) }
+func Modifier&.sunken(): Modifier { return self.background(0.063, 0.063, 0.071) }
+func Modifier&.hoverable(): Modifier { return self.hover(0.204, 0.204, 0.227) }
+func Modifier&.mutedText(): Modifier { return self.textColor(0.608, 0.608, 0.608) }
+func Modifier&.faintText(): Modifier { return self.textColor(0.404, 0.404, 0.404) }
+func Modifier&.caption(): Modifier { return self.mutedText().fontSize(11.0).semibold().textAlign(.Start) }
+
+/** One Engine template the Launcher offers. */
+func templateName(index: Int): String {
+    if index == 0 { return "game" }
+    if index == 1 { return "game-ecs" }
+    if index == 2 { return "game-sidescroller-2d" }
+    if index == 3 { return "game-tetris" }
+    if index == 4 { return "app" }
+    return "ui-compose"
+}
+func templateTitle(index: Int): String {
+    if index == 0 { return "3D game" }
+    if index == 1 { return "ECS game" }
+    if index == 2 { return "2D platformer" }
+    if index == 3 { return "Puzzle" }
+    if index == 4 { return "Native app" }
+    return "Compose UI"
+}
+func templateDetail(index: Int): String {
+    if index == 0 { return "Camera, mesh and light" }
+    if index == 1 { return "Systems over an ECS world" }
+    if index == 2 { return "Tiles, sprites, physics" }
+    if index == 3 { return "A falling-blocks game" }
+    if index == 4 { return "A windowed application" }
+    return "Declarative ECS interface"
+}
+func templateRed(index: Int): Double { if index < 2 { return 0.306 } else if index < 4 { return 0.820 } else { return 1.0 } }
+func templateGreen(index: Int): Double { if index < 2 { return 0.576 } else if index < 4 { return 0.306 } else { return 0.757 } }
+func templateBlue(index: Int): Double { if index < 2 { return 0.918 } else if index < 4 { return 0.918 } else { return 0.027 } }
+
+pack NavItem { }
+impl NavItem {
+    react ctor (anchor: Anchor!).(label: String, selected: Bool): Entity {
+        fin base = Modifier::fillMaxWidth().height(32.0).rounded(7.0).padding(start: 12.0)
+        return Button(modifier: if selected { base.background(0.820, 0.306, 0.918, 0.20) } else { base.background(0.0, 0.0, 0.0, 0.0).hoverable() }, action: 0, key: label) {
+            Text(label, modifier: if selected { Modifier::fontSize(13.0).textAlign(.Start) } else { Modifier::fontSize(13.0).mutedText().textAlign(.Start) })
+        }
+    }
+}
+
+pack TemplateCard { }
+impl TemplateCard {
+    react ctor (anchor: Anchor!).(index: Int, selected: Bool): Entity {
+        fin base = Modifier::weight(1.0).fillMaxHeight().rounded(10.0).surface().hoverable()
+        fin look = if selected { base.border(2.0, 0.820, 0.306, 0.918) } else { base.border(1.0, 0.173, 0.173, 0.192) }
+        return Button(modifier: look, action: 40 + index, key: templateName(index)) {
+            Column(modifier: Modifier::fillMaxSize().padding(all: 12.0), spacing: 4.0, key: "content") {
+                Shape(modifier: Modifier::fillMaxWidth().height(58.0).rounded(7.0).background(templateRed(index), templateGreen(index), templateBlue(index), 0.85))
+                Text(templateTitle(index), modifier: Modifier::fillMaxWidth().height(24.0).fontSize(14.0).semibold().textAlign(.Start))
+                Text(templateDetail(index), modifier: Modifier::fillMaxWidth().height(16.0).fontSize(11.0).mutedText().textAlign(.Start))
+            }
+        }
+    }
+}
+
+pack LauncherButton { }
+impl LauncherButton {
+    react ctor (anchor: Anchor!).(label: String, action: Int, width: Double, primary: Bool): Entity {
+        fin base = Modifier::width(width).height(36.0).rounded(8.0)
+        return Button(modifier: if primary { base.background(0.561, 0.180, 0.706).hover(0.663, 0.235, 0.820) } else { base.raised().hoverable() }, action: action, key: label) {
+            Text(label, modifier: Modifier::fontSize(13.0))
+        }
+    }
+}
+
 pack ProjectWelcome { }
 impl ProjectWelcome {
-    react ctor (anchor: Anchor!).(root: String, status: String): Entity {
-        return Column(modifier: Modifier::fillMaxSize().padding(28.0).background(0.05, 0.065, 0.10), spacing: 14.0, key: "welcome") {
-            Text("AZORA", modifier: Modifier::fillMaxWidth().height(58.0))
-            Text("Create games and native applications", modifier: Modifier::fillMaxWidth().height(30.0))
-            Text(root, modifier: Modifier::fillMaxWidth().height(44.0))
-            Row(modifier: Modifier::fillMaxWidth().height(48.0), horizontalArrangement: .Center, spacing: 16.0) {
-                Button(modifier: Modifier::width(190.0).height(44.0).background(0.14, 0.27, 0.43), action: 1, key: "create") { Text("Create game") }
-                Button(modifier: Modifier::width(190.0).height(44.0).background(0.14, 0.27, 0.43), action: 3, key: "app") { Text("Create app") }
+    react ctor (anchor: Anchor!).(root: String, status: String, selected: Int, studioOpen: Bool): Entity {
+        return Row(modifier: Modifier::fillMaxSize().ground(), key: "welcome") {
+            Column(modifier: Modifier::width(220.0).fillMaxHeight().surface().padding(all: 14.0), spacing: 4.0, key: "sidebar") {
+                Row(modifier: Modifier::fillMaxWidth().height(40.0), spacing: 10.0, verticalAlignment: .Center, key: "brand") {
+                    Shape(modifier: Modifier::size(24.0, 24.0).rounded(7.0).background(0.820, 0.306, 0.918))
+                    Text("Azora", modifier: Modifier::weight(1.0).fontSize(18.0).semibold().textAlign(.Start))
+                }
+                Text("Engine 0.1 · native toolchain", modifier: Modifier::fillMaxWidth().height(20.0).fontSize(11.0).faintText().textAlign(.Start), key: "version")
+                Shape(modifier: Modifier::fillMaxWidth().height(14.0).background(0.0, 0.0, 0.0, 0.0))
+                NavItem("New project", true)
+                NavItem("Recent", false)
+                NavItem("Learn", false)
+                Shape(modifier: Modifier::weight(1.0).background(0.0, 0.0, 0.0, 0.0))
+                Text(if studioOpen { "Studio is running" } else { "Studio is closed" }, modifier: Modifier::fillMaxWidth().height(20.0).fontSize(11.0).faintText().textAlign(.Start), key: "session")
             }
-            Button(modifier: Modifier::fillMaxWidth().height(40.0).background(0.10, 0.18, 0.30), action: 2, key: "open") { Text("Open Studio") }
-            Text(status, modifier: Modifier::fillMaxWidth().height(36.0))
+            Column(modifier: Modifier::weight(1.0).fillMaxHeight().padding(all: 28.0), spacing: 14.0, key: "main") {
+                Text("Create a project", modifier: Modifier::fillMaxWidth().height(34.0).fontSize(24.0).semibold().textAlign(.Start), key: "title")
+                Text("Start from an Azora Engine template. Studio opens it as soon as it is created.", modifier: Modifier::fillMaxWidth().height(20.0).fontSize(13.0).mutedText().textAlign(.Start), key: "subtitle")
+                Row(modifier: Modifier::fillMaxWidth().height(140.0), spacing: 12.0, key: "row-1") {
+                    TemplateCard(0, selected == 0)
+                    TemplateCard(1, selected == 1)
+                    TemplateCard(2, selected == 2)
+                }
+                Row(modifier: Modifier::fillMaxWidth().height(140.0), spacing: 12.0, key: "row-2") {
+                    TemplateCard(3, selected == 3)
+                    TemplateCard(4, selected == 4)
+                    TemplateCard(5, selected == 5)
+                }
+                Text("LOCATION", modifier: Modifier::fillMaxWidth().height(22.0).caption(), key: "location-caption")
+                Text(root, modifier: Modifier::fillMaxWidth().height(36.0).sunken().rounded(8.0).border(1.0, 0.173, 0.173, 0.192).padding(start: 12.0).monospace().fontSize(12.0).textAlign(.Start), key: "location")
+                Shape(modifier: Modifier::weight(1.0).background(0.0, 0.0, 0.0, 0.0))
+                Row(modifier: Modifier::fillMaxWidth().height(40.0), spacing: 10.0, verticalAlignment: .Center, key: "actions") {
+                    Text(status, modifier: Modifier::weight(1.0).fontSize(12.0).mutedText().textAlign(.Start), key: "status")
+                    LauncherButton("Open in Studio", 2, 140.0, false)
+                    LauncherButton("Create project", 1, 150.0, true)
+                }
+            }
         }
     }
 }
@@ -36,42 +137,52 @@ react func main() {
     fin root = azsEnvironment("AZORA_STUDIO_PROJECT")
     var world = World()
     var pass = Composition::of(world, "launcher")
-    var app = appInit("Azora Launcher", 760, 380)
+    var app = appInit("Azora", 1040, 640)
     if !app.ok { return }
-    app.setClearColor(0.04, 0.05, 0.08)
-    var status: String = "Choose a native Engine template or Open Studio"
+    app.setClearColor(0.078, 0.078, 0.086)
+    var status: String = "Pick a template, then create the project."
+    var selected = 0
     var revision = Long(1)
     var studio = Long(0)
     var frames = 0
     var layoutVersion = Long(-1)
     var lastWidth: Double = -1.0
     var lastHeight: Double = -1.0
+    var paintList = PaintList()
+    var paintVersion = Long(-1)
     fin frameLimit = azsEnvironmentInt("AZORA_STUDIO_FRAME_LIMIT")
     while app.frame() {
         frames = frames + 1
         var action = 0
         if app.mouseClicked(mouseLeft) { action = pass.hit(app.mouseX(), app.mouseY()) }
-        if action == 1 || action == 3 {
-            fin name = if action == 1 { "game" } else { "app" }
-            fin template = "${azsEnvironment("AZORA_ENGINE_HOME")}/templates/${name}"
-            if createNativeProject(root, template) { status = "Project created" }
-            else { status = azsError() }
+        if action >= 40 && action <= 45 {
+            selected = action - 40
+            status = "${templateTitle(selected)} · templates/${templateName(selected)}"
             revision = revision + Long(1)
         }
-        if action == 2 && studio == Long(0) {
+        var openStudio = action == 2
+        if action == 1 {
+            fin template = "${azsEnvironment("AZORA_ENGINE_HOME")}/templates/${templateName(selected)}"
+            if createNativeProject(root, template) {
+                status = "Created a ${templateTitle(selected)} project. Opening Studio…"
+                openStudio = true
+            } else { status = azsError() }
+            revision = revision + Long(1)
+        }
+        if openStudio && studio == Long(0) {
             studio = azsProcessStart(azsEnvironment("AZORA_STUDIO_EXECUTABLE"), root, "", "")
             if studio == Long(0) { status = azsError() }
-            else { status = "Studio is open" }
+            else { status = "Studio is open on this project." }
             revision = revision + Long(1)
         }
         if studio != Long(0) && azsProcessPoll(studio) != -1 {
             println(azsProcessOutput(studio))
             azsProcessClose(studio)
             studio = Long(0)
-            status = "Studio closed"
+            status = "Studio closed."
             revision = revision + Long(1)
         }
-        composeIfChanged(pass, revision) { ProjectWelcome(root, status) }
+        composeIfChanged(pass, revision) { ProjectWelcome(root, status, selected, studio != Long(0)) }
         fin welcome = pass.findChild(pass.root, "welcome")
         fin width = app.width() as Double
         fin height = app.height() as Double
@@ -81,7 +192,12 @@ react func main() {
             lastWidth = width
             lastHeight = height
         }
-        paintTree(app, pass, welcome, 0.0, height)
+        if paintVersion != layoutVersion {
+            paintList.clear()
+            recordTree(app, pass, welcome, 0.0, height, paintList)
+            paintVersion = layoutVersion
+        }
+        replayPaint(app, paintList)
         app.present()
         if frameLimit > 0 && frames >= frameLimit { app.quit() }
     }

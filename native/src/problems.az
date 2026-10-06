@@ -1,0 +1,157 @@
+module studio.problems
+import std.traits
+import studio.host
+
+// The native compiler's `inspect` protocol, read just far enough to list
+// problems: one object per diagnostic with its code, severity, message,
+// source path, and zero-based start/end lines with UTF-8 byte columns.
+// Nothing is guessed - a field that is missing or malformed drops the
+// diagnostic rather than placing it somewhere it was not reported.
+
+pack Diagnostic derives (Copy, Clone) {
+    /** 0 error, 1 warning, 2 note. */
+    var severity: Int = 0
+    var code: String = ""
+    var message: String = ""
+    /** Zero-based line and byte column of the span's start and end. */
+    var line: Int = 0
+    var startByte: Int = 0
+    var endLine: Int = 0
+    var endByte: Int = 0
+}
+
+/** The offset just after `"key":` within [from, to), or -1. */
+func jsonKey(buffer: Long, from: Int, to: Int, key: String): Int {
+    fin probe = azsBufferNew("\"${key}\":")
+    if probe == Long(0) { return -1 }
+    fin length = azsBufferSize(probe)
+    var found = -1
+    var offset = from
+    while found < 0 && offset + length <= to {
+        var matched = 0
+        while matched < length && azsBufferByte(buffer, offset + matched) == azsBufferByte(probe, matched) { matched = matched + 1 }
+        if matched == length { found = offset + length }
+        offset = offset + 1
+    }
+    azsBufferClose(probe)
+    return found
+}
+
+/**
+ * The JSON string starting at [at] (its opening quote), unescaped.
+ *
+ * The text lives in a host buffer appended to [keep]; whoever owns [keep]
+ * closes it when the strings are no longer shown.
+ */
+func jsonString(buffer: Long, at: Int, to: Int, keep: Array<Long>!): String {
+    if at < 0 || at >= to || azsBufferByte(buffer, at) != 34 { return "" }
+    fin text = azsBufferAllocate(to - at)
+    if text == Long(0) { return "" }
+    var length = 0
+    var offset = at + 1
+    while offset < to && azsBufferByte(buffer, offset) != 34 {
+        var value = azsBufferByte(buffer, offset)
+        if value == 92 && offset + 1 < to {
+            offset = offset + 1
+            fin escaped = azsBufferByte(buffer, offset)
+            value = if escaped == 110 { 10 } else if escaped == 116 { 9 } else { escaped }
+        }
+        azsBufferSetByte(text, length, value)
+        length = length + 1
+        offset = offset + 1
+    }
+    if azsBufferTruncate(text, length) == 0 {
+        azsBufferClose(text)
+        return ""
+    }
+    keep.add(text)
+    return azsBufferText(text)
+}
+
+/** The JSON integer at [at], or -1 when there is none. */
+func jsonInt(buffer: Long, at: Int, to: Int): Int {
+    if at < 0 { return -1 }
+    var offset = at
+    var value = 0
+    var digits = 0
+    while offset < to && azsBufferByte(buffer, offset) >= 48 && azsBufferByte(buffer, offset) <= 57 {
+        value = value * 10 + azsBufferByte(buffer, offset) - 48
+        offset = offset + 1
+        digits = digits + 1
+    }
+    return if digits == 0 { -1 } else { value }
+}
+
+/** Whether the string field at [at] ends with [suffix]. */
+func jsonEndsWith(buffer: Long, at: Int, to: Int, suffix: String): Bool {
+    if at < 0 || azsBufferByte(buffer, at) != 34 { return false }
+    var close = at + 1
+    while close < to && azsBufferByte(buffer, close) != 34 { close = close + 1 }
+    fin probe = azsBufferNew(suffix)
+    if probe == Long(0) { return false }
+    fin length = azsBufferSize(probe)
+    var matches = close - (at + 1) >= length
+    var index = 0
+    while matches && index < length {
+        if azsBufferByte(buffer, close - length + index) != azsBufferByte(probe, index) { matches = false }
+        index = index + 1
+    }
+    azsBufferClose(probe)
+    return matches
+}
+
+/**
+ * The diagnostics in an inspect snapshot that belong to a source whose path
+ * ends with [file], in the order the compiler reported them.
+ */
+func parseDiagnostics(snapshot: String, file: String, keep: Array<Long>!): Array<Diagnostic> {
+    var found: Array<Diagnostic> = Array<Diagnostic>()
+    fin buffer = azsBufferNew(snapshot)
+    if buffer == Long(0) { return found }
+    fin size = azsBufferSize(buffer)
+    var offset = jsonKey(buffer, 0, size, "diagnostics")
+    while offset >= 0 && offset < size {
+        while offset < size && azsBufferByte(buffer, offset) != 123 && azsBufferByte(buffer, offset) != 93 { offset = offset + 1 }
+        if offset >= size || azsBufferByte(buffer, offset) == 93 { break }
+        // One diagnostic object: its end is the brace that closes it, outside strings.
+        var end = offset + 1
+        var depth = 1
+        var quoted = false
+        while end < size && depth > 0 {
+            fin value = azsBufferByte(buffer, end)
+            if quoted {
+                if value == 92 { end = end + 1 } else if value == 34 { quoted = false }
+            } else if value == 34 { quoted = true }
+            else if value == 123 { depth = depth + 1 }
+            else if value == 125 { depth = depth - 1 }
+            end = end + 1
+        }
+        fin source = jsonKey(buffer, offset, end, "source")
+        fin line = jsonInt(buffer, jsonKey(buffer, offset, end, "startLine"), end)
+        fin startByte = jsonInt(buffer, jsonKey(buffer, offset, end, "startByte"), end)
+        if (source < 0 || jsonEndsWith(buffer, source, end, file)) && line >= 0 && startByte >= 0 {
+            fin severityText = jsonString(buffer, jsonKey(buffer, offset, end, "severity"), end, keep)
+            fin severity = if severityText == "warning" { 1 } else if severityText == "error" { 0 } else { 2 }
+            var endLine = jsonInt(buffer, jsonKey(buffer, offset, end, "endLine"), end)
+            var endByte = jsonInt(buffer, jsonKey(buffer, offset, end, "endByte"), end)
+            if endLine < 0 || endByte < 0 { endLine = line
+                endByte = startByte + 1 }
+            found.add(Diagnostic(severity,
+                jsonString(buffer, jsonKey(buffer, offset, end, "code"), end, keep),
+                jsonString(buffer, jsonKey(buffer, offset, end, "message"), end, keep),
+                line, startByte, endLine, endByte))
+        }
+        offset = end
+    }
+    azsBufferClose(buffer)
+    return found
+}
+
+/** Whether a snapshot is the inspect protocol at all, rather than a tool's own failure text. */
+func isInspectSnapshot(output: String): Bool {
+    fin buffer = azsBufferNew(output)
+    if buffer == Long(0) { return false }
+    fin found = jsonKey(buffer, 0, azsBufferSize(buffer), "protocol") >= 0
+    azsBufferClose(buffer)
+    return found
+}

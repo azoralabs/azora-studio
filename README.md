@@ -20,23 +20,23 @@ implementation and acceptance gates.
 
 ## Current status
 
-**Native Studio is in development and is not ready for installation.** The
-[`native/` development slice](native/README.md) contains real `.az` application
-sources, native editor persistence/history, an Engine ECS scene model and a
-retained constructor UI for Studio and Launcher. Services now use the actual
-Kotlin/Native compiler for semantic diagnostics and native build/play. Service
-and scene probes pass under Apple ASan/UBSan, including real Engine template
-creation/build/play. The original native window is visible; the richer retained
-workspace and installed toolchain qualification remain open.
+**Native Studio is in development and is not ready for installation**, but it
+runs: `bash native/tools/run.sh` opens the Azora-written Studio, rendered by the
+Engine and compiled through LLVM with the native compiler. It has a themed
+retained workspace (toolbar, hierarchy, project, inspector, console/problems
+dock, status bar), a syntax-coloured source editor with selection, clipboard and
+undo, an ECS scene viewport with drag editing, live semantic diagnostics with
+navigation, and build/run through the native compiler. The Launcher creates
+projects from Engine templates and opens them in Studio. It runs clean under
+Apple ASan/UBSan.
 
 Preserve the Kotlin/Compose prototype as behavior/UI reference for the port;
 its successful builds do not qualify the native Studio.
 
 The [foundation inventory](../azora-lang/ROADMAPs/FOUNDATION_REPAIR_2026_10_04.md)
-tracks the remaining ownership, ABI and Engine compatibility repairs. The native
-compiler exists; installed distribution and complete editor language services
-remain acceptance gates. Slice evidence is in
-[native qualification](native/NATIVE_QUALIFICATION_2026_10_05.md).
+tracks the remaining ownership, ABI and Engine compatibility repairs. Installed
+distribution and complete editor language services remain acceptance gates.
+Slice evidence is in [native qualification](native/NATIVE_QUALIFICATION_2026_10_06.md).
 
 Existing prototype architecture and build instructions are documented separately
 in [the legacy prototype reference](docs/LEGACY_PROTOTYPE.md).

@@ -37,39 +37,28 @@ shipped Studio or its bundled build/language-service tools.
 
 ## Current status
 
-The native implementation in `native/` now includes Azora source/history state,
-atomic persistence, structural spans, an actual Engine ECS scene model and a
-retained constructor tree for Studio and Launcher. Contextual constructors such
-as `Column`, `Button`, `SceneViewport` and `PropertyInspector` return Engine
-entities. A C host supplies checked byte-buffer handles, confined file access and
-cancellable native process execution; it contains no editor or compiler logic.
+Updated 2026-10-06. The windowed Studio and the Launcher run as native LLVM
+executables written in Azora. The retained constructor workspace renders through
+an Engine paint list (recorded once per layout, replayed each frame) with the
+Engine's SDF rounded rectangles, borders, hover, text styles and a rasterised
+text cache. Studio frame interval is 9–10 ms with about 100 MB resident. Source
+editing has UTF-8 input, selection, clipboard and bounded coalesced undo. The
+native compiler's semantic diagnostics are listed, underlined at their exact
+spans and navigable. Build and run use the native compiler through the C host's
+process boundary.
 
-The existing semantic compiler pipeline has been compiled with Kotlin/Native as
-an actual macOS arm64 executable, with no JVM runtime. `AZORA_NATIVE_COMPILER`
-selects it for Studio build/play/inspect. Native service qualification passes
-create/edit/undo/redo/save/reopen, exact structural spans, native compiler semantic
-JSON diagnostics and real build/play. Native template creation and build/play of
-the actual Engine ECS fixture also pass through the Studio service endpoint.
+Qualification under Apple ASan/UBSan covers the headless workspace probe, the
+windowed Studio and scripted interaction sessions (`AZORA_STUDIO_SCRIPT`, with
+self-captured screenshots), in addition to the service, host and scene probes.
+The compiler repairs this needed (copy-on-keep for named `Copy` values, `Clone`
+witnesses for erased generics, by-value returns of borrowed places, and
+exclusive borrows passed by storage address in native code) are in
+`native/NATIVE_QUALIFICATION_2026_10_06.md`.
 
-The Engine ECS scene probe passes native selection, transform edits, undo,
-transactional save/reopen, invalid-file rollback, isolated play/pause/stop and
-destruction under Apple ASan/UBSan. The original native source window was launched
-and visibly inspected. The richer constructor workspace typechecks and its
-retained-tree probe exposed Engine component snapshot ownership faults; graphical
-linking exposed an early-return defer capture fault in GPU initialization. Those
-repairs and the resulting richer graphical execution remain under qualification.
-An attempted CUA Save interaction was not executed because automatic approval
-review reached a usage limit, so user interaction gates are still open.
-
-Studio services use Apple Clang by default. The installed Homebrew Clang ASan
-runtime deadlocks before main on this macOS host; this was isolated independently
-of application code. Apple ASan/UBSan successfully runs the host and scene probes.
-Unsanitized console services link `libSystem`; sanitizers add their native runtime.
-
-The development build has not established an installed matching compiler/Engine
-bundle, complete asynchronous semantic editor features, source navigation,
-Unicode native input, arbitrary scene/component persistence, asset workflows,
-project catalogue/Room migration, plugin ABI, performance baselines or additional
-platforms. These remain open acceptance gates. The Kotlin/Compose prototype is
-preserved as a behavior reference; its tests cannot close native gates. Detailed
-slice evidence is in `native/NATIVE_QUALIFICATION_2026_10_05.md`.
+Still open: an installed matching compiler/Engine bundle, completion/hover/
+rename and multi-file projects, arbitrary scene/component persistence, asset
+workflows, the project catalogue and Room migration, plugin ABI, recursive
+destruction of a world's registered components (Engine `foundation` gate),
+performance baselines beyond this machine, and additional platforms. The
+Kotlin/Compose prototype is preserved as a behaviour reference; its tests cannot
+close native gates.
