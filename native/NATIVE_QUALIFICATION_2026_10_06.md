@@ -58,6 +58,16 @@ deadlock, Wasm clone, GpuStdlib, two SemanticFacts tests).
 5. `VariadicMonomorphizer` used the JVM-only `putIfAbsent`, so the native
    compiler did not build.
 
+## Receiver spelling (same day, later)
+
+Single receivers are written as their type everywhere (`func Modifier&.card()`,
+`prop Int&.milliseconds`), multiple unnamed ones as `(A&, B&).f()` with
+`self.0`/`self.1`, per FUNCTIONS_DIP §5.3. The Studio's theme is one module,
+`src/theme.az`, shared by Studio and Launcher: extensions now resolve in every
+module that imports their declaring module. Studio, Launcher and the headless
+probe build; a scripted Studio session is ASan/UBSan-clean; `tests/qualify.sh`
+and the Engine `headless`/`game` gates pass.
+
 ## Open
 
 - `qualify-native.sh foundation`: `owned-ecs` passes every insert/replace/
@@ -67,8 +77,6 @@ deadlock, Wasm clone, GpuStdlib, two SemanticFacts tests).
   inline `store(pass)` argument inside such a call then folds `T.typeName` to
   `"T"`. The Engine's paint code names its storages explicitly until the
   resolver infers through specialised parameters.
-- Free extension members (`func (self: Modifier&).card()`) do not resolve from
-  another module, so the Launcher repeats the Studio's few theme helpers.
 - A program function named like an LLVM runtime helper (`isDigit`) collides at
   link time.
 - Scene format is still the fixed Cube/Camera/Light set; arbitrary entities,

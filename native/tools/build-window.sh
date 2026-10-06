@@ -21,7 +21,7 @@ BUILD="$ROOT/build/$MODE"
 rm -rf "$BUILD/staged" "$BUILD/project/src"
 mkdir -p "$BUILD/project/src" "$BUILD/staged"
 cp "$ROOT/src/$ENTRY.az" "$BUILD/project/src/main.az"
-cp "$ROOT/src/host.az" "$ROOT/src/editor.az" "$ROOT/src/intelligence.az" "$BUILD/project/src/"
+cp "$ROOT/src/host.az" "$ROOT/src/editor.az" "$ROOT/src/intelligence.az" "$ROOT/src/theme.az" "$BUILD/project/src/"
 if [ "$MODE" != launcher ]; then cp "$ROOT/src/scene.az" "$BUILD/project/src/"; fi
 if [ "$MODE" = studio ] || [ "$MODE" = workspace-probe ]; then cp "$ROOT/src/workspace.az" "$ROOT/src/problems.az" "$BUILD/project/src/"; fi
 python3 "$ENGINE/tools/azpm.py" resolve "$BUILD/project" > "$BUILD/resolve.tsv"

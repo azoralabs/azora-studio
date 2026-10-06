@@ -12,17 +12,7 @@ import engine.ui.systems
 import engine.ui.paint
 import studio.host
 import studio.editor
-
-// The Launcher shares the Studio's design tokens. Extension members do not yet
-// resolve across modules, so the few it uses are repeated here.
-func Modifier&.ground(): Modifier { return self.background(0.078, 0.078, 0.086) }
-func Modifier&.surface(): Modifier { return self.background(0.114, 0.114, 0.125) }
-func Modifier&.raised(): Modifier { return self.background(0.157, 0.157, 0.173) }
-func Modifier&.sunken(): Modifier { return self.background(0.063, 0.063, 0.071) }
-func Modifier&.hoverable(): Modifier { return self.hover(0.204, 0.204, 0.227) }
-func Modifier&.mutedText(): Modifier { return self.textColor(0.608, 0.608, 0.608) }
-func Modifier&.faintText(): Modifier { return self.textColor(0.404, 0.404, 0.404) }
-func Modifier&.caption(): Modifier { return self.mutedText().fontSize(11.0).semibold().textAlign(.Start) }
+import studio.theme
 
 /** One Engine template the Launcher offers. */
 func templateName(index: Int): String {

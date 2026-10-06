@@ -1,0 +1,64 @@
+module studio.theme
+import engine.ui.node
+
+// Azora design tokens (azora-design/azora-design.css) as 0..1 channels, so the
+// Studio reads as the same product as the Azora sites. Each token is a
+// modifier link, which keeps a constructor tree free of raw colour numbers.
+
+// ── Surfaces ────────────────────────────────────────────────────────────
+
+/** The window behind every panel. */
+func Modifier&.ground(): Modifier { return self.background(0.078, 0.078, 0.086) }
+
+/** A panel or card. */
+func Modifier&.surface(): Modifier { return self.background(0.114, 0.114, 0.125) }
+
+/** A control on a panel. */
+func Modifier&.raised(): Modifier { return self.background(0.157, 0.157, 0.173) }
+
+/** A well inset into a panel: the viewport, the editor, a value field. */
+func Modifier&.sunken(): Modifier { return self.background(0.063, 0.063, 0.071) }
+
+/** A hairline between regions. */
+func Modifier&.hairline(): Modifier { return self.background(0.173, 0.173, 0.192) }
+
+/** A card: a surface with the design system's radius and a hairline border. */
+func Modifier&.card(): Modifier {
+    return self.surface().rounded(10.0).border(1.0, 0.173, 0.173, 0.192)
+}
+
+/** Lifts a control under the pointer. */
+func Modifier&.hoverable(): Modifier { return self.hover(0.204, 0.204, 0.227) }
+
+/** A transparent fill that still lifts under the pointer. */
+func Modifier&.ghost(): Modifier { return self.background(0.0, 0.0, 0.0, 0.0).hoverable() }
+
+// ── Accents ─────────────────────────────────────────────────────────────
+
+/** Selection and focus: the brand's primary magenta at low strength. */
+func Modifier&.selected(): Modifier {
+    return self.background(0.820, 0.306, 0.918, 0.20).hover(0.820, 0.306, 0.918, 0.28)
+}
+
+/** The primary call to action. */
+func Modifier&.accent(): Modifier {
+    return self.background(0.561, 0.180, 0.706).hover(0.663, 0.235, 0.820)
+}
+
+/** Running something: the brand green, deepened for white text. */
+func Modifier&.go(): Modifier {
+    return self.background(0.161, 0.471, 0.235).hover(0.200, 0.560, 0.290)
+}
+
+// ── Text ────────────────────────────────────────────────────────────────
+
+func Modifier&.bodyText(): Modifier { return self.textColor(0.769, 0.769, 0.769) }
+
+func Modifier&.mutedText(): Modifier { return self.textColor(0.608, 0.608, 0.608) }
+
+func Modifier&.faintText(): Modifier { return self.textColor(0.404, 0.404, 0.404) }
+
+/** A section caption: small, semibold, muted and set flush left. */
+func Modifier&.caption(): Modifier {
+    return self.mutedText().fontSize(11.0).semibold().textAlign(.Start)
+}
