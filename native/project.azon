@@ -1,0 +1,8 @@
+{
+    name: "azora-studio-native-services",
+    version: "0.1.0",
+    nativeHostAbi: 1,
+    source: "src",
+    entry: "main.az",
+    qualification: "development-bootstrap-only"
+}

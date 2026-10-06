@@ -1,0 +1,37 @@
+module studio.host
+
+// ABI 1. Long values are opaque generation-qualified host IDs, never pointers.
+// Returned text is borrowed and must not outlive/mutate the owning buffer.
+bridge .C {
+    func @foreignName("azs_abi_version")(): Int
+    func @foreignName("azs_environment")(name: String): String
+    func @foreignName("azs_environment_int")(name: String): Int
+    func @foreignName("azs_monotonic_seconds")(): Double
+    func @foreignName("azs_peak_memory_bytes")(): Long
+    func @foreignName("azs_error")(): String
+    func @foreignName("azs_live_handles")(): Int
+    func @foreignName("azs_project_open")(root: String, create: Int): Long
+    func @foreignName("azs_project_close")(project: Long): Int
+    func @foreignName("azs_buffer_new")(text: String): Long
+    func @foreignName("azs_buffer_allocate")(size: Int): Long
+    func @foreignName("azs_buffer_set_byte")(buffer: Long, offset: Int, value: Int): Int
+    func @foreignName("azs_buffer_splice_byte")(buffer: Long, offset: Int, remove: Int, value: Int): Long
+    func @foreignName("azs_buffer_slice")(buffer: Long, start: Int, end: Int): Long
+    func @foreignName("azs_buffer_truncate")(buffer: Long, size: Int): Int
+    func @foreignName("azs_buffer_clone")(buffer: Long): Long
+    func @foreignName("azs_buffer_close")(buffer: Long): Int
+    func @foreignName("azs_buffer_size")(buffer: Long): Int
+    func @foreignName("azs_buffer_byte")(buffer: Long, offset: Int): Int
+    func @foreignName("azs_buffer_text")(buffer: Long): String
+    func @foreignName("azs_project_read")(project: Long, relative: String): Long
+    func @foreignName("azs_project_write")(project: Long, relative: String, buffer: Long): Int
+    func @foreignName("azs_process_start")(program: String, directory: String, first: String, second: String): Long
+    func @foreignName("azs_process_poll")(process: Long): Int
+    func @foreignName("azs_process_output")(process: Long): String
+    func @foreignName("azs_process_cancel")(process: Long): Int
+    func @foreignName("azs_process_close")(process: Long): Int
+    func @foreignName("azs_diagnostic")(offset: Int, length: Int, line: Int, column: Int, message: String)
+    func @foreignName("azs_symbol")(offset: Int, length: Int, line: Int, column: Int)
+    func @foreignName("azs_exit")(status: Int)
+    func @foreignName("azs_wait_tick")()
+}

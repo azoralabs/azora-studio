@@ -1,0 +1,180 @@
+module studio.workspace
+import std.format
+import engine.ecs
+import engine.ui.node
+import engine.ui.compose
+import engine.ui.systems
+import studio.scene
+import studio.host
+
+// Studio panels are constructor-built ECS subtrees. Only the source and scene
+// surfaces use custom render systems; their bounds belong to Engine layout.
+pack WorkspaceView {
+    var tab: Int = 0
+    var focused: Bool = false
+    var cursor: Int = 0
+    var revision: Long = 1
+    var status: String = "Ready"
+    var console: Long = 0
+}
+impl WorkspaceView {
+    dtor .() { if self.console != Long(0) { azsBufferClose(self.console) } }
+    func !.message(value: String) {
+        self.status = value
+        self.revision = self.revision + Long(1)
+    }
+    func !.output(value: String) {
+        fin next = azsBufferNew(value)
+        if next == Long(0) { return }
+        if self.console != Long(0) { azsBufferClose(self.console) }
+        self.console = next
+        self.revision = self.revision + Long(1)
+    }
+}
+
+pack Caption { }
+impl Caption {
+    react ctor (anchor: Anchor!).(value: String): Entity {
+        return Text(value, modifier: Modifier::fillMaxWidth().height(26.0))
+    }
+}
+pack Control { }
+impl Control {
+    react ctor (anchor: Anchor!).(value: String, action: Int, width: Double = 72.0): Entity {
+        return Button(modifier: Modifier::width(width).height(30.0).background(0.13, 0.18, 0.26), action: action) {
+            Text(value)
+        }
+    }
+}
+
+pack SceneHierarchy { }
+impl SceneHierarchy {
+    react ctor (anchor: Anchor!).(selected: Int): Entity {
+        return Column(modifier: Modifier::fillMaxWidth().height(172.0).background(0.075, 0.085, 0.115), spacing: 4.0, key: "hierarchy") {
+            Caption("SCENE HIERARCHY")
+            for id in 0..<3 {
+                fin name = if id == 0 { "Cube" } else if id == 1 { "Camera" } else { "Light" }
+                fin r: Double = if selected == id { 0.16 } else { 0.09 }
+                fin b: Double = if selected == id { 0.32 } else { 0.15 }
+                Button(modifier: Modifier::fillMaxWidth().height(32.0).background(r, 0.14, b), action: 100 + id, key: name) {
+                    Text(name)
+                }
+            }
+        }
+    }
+}
+pack ProjectBrowser { }
+impl ProjectBrowser {
+    react ctor (anchor: Anchor!).(): Entity {
+        return Column(modifier: Modifier::fillMaxWidth().weight(1.0).background(0.075, 0.085, 0.115), spacing: 4.0, key: "assets") {
+            Caption("PROJECT / ASSETS")
+            Button(modifier: Modifier::fillMaxWidth().height(32.0), action: 13, key: "main") { Text("src / main.az") }
+            Button(modifier: Modifier::fillMaxWidth().height(32.0), action: 12, key: "scene") { Text("scene.azscene") }
+            Caption("Engine packages")
+            Caption("Native compiler")
+            Shape(modifier: Modifier::fillMaxWidth().weight(1.0).background(0.075, 0.085, 0.115))
+        }
+    }
+}
+pack SceneViewport { }
+impl SceneViewport {
+    react ctor (anchor: Anchor!).(): Entity {
+        fin node = Shape(modifier: Modifier::fillMaxSize().weight(1.0).background(0.045, 0.060, 0.085), group: 201, key: "canvas")
+        storageInsert<Action>(store<Action>(anchor.pass), node, Action(201))
+        return node
+    }
+}
+pack SourceEditor { }
+impl SourceEditor {
+    react ctor (anchor: Anchor!).(): Entity {
+        fin node = Shape(modifier: Modifier::fillMaxSize().weight(1.0).background(0.045, 0.055, 0.078), group: 202, key: "canvas")
+        storageInsert<Action>(store<Action>(anchor.pass), node, Action(202))
+        return node
+    }
+}
+pack PropertyInspector { }
+impl PropertyInspector {
+    react ctor (anchor: Anchor!).(scene: StudioScene&): Entity {
+        fin value = scene.selectedTransform()
+        return Column(modifier: Modifier::width(236.0).fillMaxHeight().background(0.075, 0.085, 0.115), spacing: 8.0, key: "inspector") {
+            Caption("INSPECTOR")
+            Caption(scene.selectedName())
+            Caption("Transform component")
+            Caption("Position X   ${value.x}")
+            Row(modifier: Modifier::fillMaxWidth().height(30.0), horizontalArrangement: .Center, spacing: 6.0) {
+                Control("- 10", 20)
+                Control("+ 10", 21)
+            }
+            Caption("Position Y   ${value.y}")
+            Row(modifier: Modifier::fillMaxWidth().height(30.0), horizontalArrangement: .Center, spacing: 6.0) {
+                Control("- 10", 22)
+                Control("+ 10", 23)
+            }
+            Caption("Scale   ${value.scale}%")
+            Row(modifier: Modifier::fillMaxWidth().height(30.0), horizontalArrangement: .Center, spacing: 6.0) {
+                Control("- 10%", 24)
+                Control("+ 10%", 25)
+            }
+            Caption(if scene.dirty { "Scene has unsaved changes" } else { "Scene saved" })
+            Shape(modifier: Modifier::fillMaxWidth().weight(1.0).background(0.075, 0.085, 0.115))
+        }
+    }
+}
+pack ConsolePanel { }
+impl ConsolePanel {
+    react ctor (anchor: Anchor!).(status: String): Entity {
+        return Column(modifier: Modifier::fillMaxWidth().height(150.0).background(0.055, 0.065, 0.095), key: "console") {
+            Text("CONSOLE / DIAGNOSTICS     ${status}", modifier: Modifier::fillMaxWidth().height(30.0), key: "status")
+            Shape(modifier: Modifier::fillMaxSize().weight(1.0).background(0.055, 0.065, 0.095), group: 203, key: "output")
+        }
+    }
+}
+
+react func describeWorkspace(pass: Composition!, scene: StudioScene&, view: WorkspaceView&) {
+    fin stamp = view.revision + (scene.revision as Long)
+    composeIfChanged(pass, stamp) {
+        Column(modifier: Modifier::fillMaxSize().background(0.04, 0.05, 0.08), key: "workspace") {
+            Row(modifier: Modifier::fillMaxWidth().height(54.0).padding(10.0).background(0.09, 0.11, 0.16), spacing: 6.0, verticalAlignment: .Center, key: "toolbar") {
+                Text("AZORA STUDIO", modifier: Modifier::width(142.0))
+                Control("Save", 1)
+                Control("Undo", 2)
+                Control("Redo", 3)
+                Control("Reopen", 4, 82.0)
+                Control("Build", 5)
+                Control(if scene.playing { "Restart" } else { "Play" }, 6)
+                Control(if scene.paused { "Resume" } else { "Pause" }, 7)
+                Control("Stop", 8)
+                Control("Inspect", 9, 82.0)
+                Control("Run app", 17, 82.0)
+                Control("Cancel", 10, 82.0)
+            }
+            Row(modifier: Modifier::fillMaxWidth().weight(1.0), spacing: 3.0, key: "body") {
+                Column(modifier: Modifier::width(210.0).fillMaxHeight(), spacing: 3.0, key: "browser") {
+                    SceneHierarchy(scene.selected)
+                    ProjectBrowser()
+                }
+                Column(modifier: Modifier::weight(1.0).fillMaxHeight(), key: "center") {
+                    Row(modifier: Modifier::fillMaxWidth().height(40.0).background(0.085, 0.105, 0.15), spacing: 4.0, verticalAlignment: .Center, key: "tabs") {
+                        Control("Scene", 12, 104.0)
+                        Control("main.az", 13, 104.0)
+                        Text(if view.tab == 0 { "2D scene / ECS preview" } else { "Native source editor" }, modifier: Modifier::weight(1.0))
+                    }
+                    if view.tab == 0 { SceneViewport() } else { SourceEditor() }
+                }
+                PropertyInspector(scene)
+            }
+            ConsolePanel(view.status)
+        }
+    }
+}
+
+func surfaceRect(pass: Composition!, group: Int): Rect {
+    var index = 0
+    while index < storageLength<TagI>(store<TagI>(pass)) {
+        fin entity = storageEntityAt<TagI>(store<TagI>(pass), index)
+        fin tag = storageGet<TagI>(store<TagI>(pass), entity)
+        if tag.index == group { return storageGet<Rect>(store<Rect>(pass), entity).clone() }
+        index = index + 1
+    }
+    return Rect()
+}

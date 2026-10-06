@@ -1,0 +1,257 @@
+module studio.scene
+import engine.ecs
+import std.traits
+import studio.host
+
+// Scene data belongs to ECS, independently of the UI composition's entities.
+// Integer editor units make the initial scene format precise and inspectable.
+pack StudioTransform derives (Copy, Clone) {
+    var x: Int = 0
+    var y: Int = 0
+    var scale: Int = 100
+    var rotation: Int = 0
+}
+
+pack StudioScene {
+    var world: World
+    var transforms: Storage<StudioTransform>
+    var selected: Int
+    var previous: StudioTransform
+    var previousEntity: Int
+    var canUndo: Bool
+    var dirty: Bool
+    var playing: Bool
+    var paused: Bool
+    var playX: Double
+    var revision: Int
+}
+
+pack SceneNumber derives (Copy, Clone) {
+    var value: Int
+    var next: Int
+    var valid: Bool
+}
+
+func appendSceneNumber(output: Long, offset: Int, value: Int): Int {
+    if offset < 0 { return -1 }
+    fin digits = azsBufferAllocate(16)
+    if digits == Long(0) { return -1 }
+    var work = value
+    var count = 0
+    if work == 0 { azsBufferSetByte(digits, 0, 48)
+        count = 1 }
+    while work != 0 {
+        var digit = work % 10
+        if digit < 0 { digit = -digit }
+        azsBufferSetByte(digits, count, digit + 48)
+        count = count + 1
+        work = work / 10
+    }
+    var next = offset
+    if value < 0 { azsBufferSetByte(output, next, 45)
+        next = next + 1 }
+    while count > 0 {
+        count = count - 1
+        azsBufferSetByte(output, next, azsBufferByte(digits, count))
+        next = next + 1
+    }
+    azsBufferClose(digits)
+    azsBufferSetByte(output, next, 32)
+    return next + 1
+}
+
+func readSceneNumber(source: Long, offset: Int): SceneNumber {
+    var next = offset
+    fin size = azsBufferSize(source)
+    while next < size && (azsBufferByte(source, next) == 32 || azsBufferByte(source, next) == 10) { next = next + 1 }
+    var negative = false
+    if azsBufferByte(source, next) == 45 { negative = true
+        next = next + 1 }
+    var value = 0
+    var count = 0
+    var limit = -2147483647
+    if negative { limit = -2147483648 }
+    while next < size {
+        fin digit = azsBufferByte(source, next) - 48
+        if digit < 0 || digit > 9 { break }
+        if value < limit / 10 { return SceneNumber(0, next, false) }
+        value = value * 10
+        if value < limit + digit { return SceneNumber(0, next, false) }
+        value = value - digit
+        next = next + 1
+        count = count + 1
+    }
+    if count == 0 { return SceneNumber(0, next, false) }
+    if next < size && azsBufferByte(source, next) != 32 && azsBufferByte(source, next) != 10 {
+        return SceneNumber(0, next, false)
+    }
+    if !negative { value = -value }
+    return SceneNumber(value, next, true)
+}
+
+func sceneHeader(source: Long): Bool {
+    fin expected = azsBufferNew("AZORA-SCENE 1\n")
+    if expected == Long(0) { return false }
+    var offset = 0
+    var valid = true
+    while offset < 14 {
+        if azsBufferByte(source, offset) != azsBufferByte(expected, offset) { valid = false }
+        offset = offset + 1
+    }
+    azsBufferClose(expected)
+    return valid
+}
+
+func studioScene(): StudioScene {
+    var world = World()
+    fin cube = world.spawnNamed("Cube")
+    fin camera = world.spawnNamed("Camera")
+    fin light = world.spawnNamed("Light")
+    var transforms = storageInit<StudioTransform>(StudioTransform())
+    storageInsert<StudioTransform>(transforms, cube, StudioTransform(0, 0, 100, 0))
+    storageInsert<StudioTransform>(transforms, camera, StudioTransform(-150, -100, 100, 0))
+    storageInsert<StudioTransform>(transforms, light, StudioTransform(180, -80, 100, 0))
+    return StudioScene(take world, take transforms, cube.id, StudioTransform(), -1,
+        false, false, false, false, 0.0, 1)
+}
+
+impl StudioScene {
+    func &.selectedEntity(): Entity { return self.world.entityAt(self.selected) }
+    func &.selectedName(): String { return self.world.getName(self.world.entityAt(self.selected)) }
+    func &.selectedTransform(): StudioTransform {
+        return storageGet<StudioTransform>(self.transforms, self.world.entityAt(self.selected)).clone()
+    }
+    func !.select(id: Int): Bool {
+        fin entity = self.world.entityAt(id)
+        if !self.world.isAlive(entity) { return false }
+        self.selected = id
+        self.revision = self.revision + 1
+        return true
+    }
+    func !.moveSelected(dx: Int, dy: Int) {
+        fin entity = self.world.entityAt(self.selected)
+        if !self.world.isAlive(entity) { return }
+        var current = storageGet<StudioTransform>(self.transforms, entity).clone()
+        self.previous = current.clone()
+        self.previousEntity = self.selected
+        self.canUndo = true
+        current.x = current.x + dx
+        current.y = current.y + dy
+        storageInsert<StudioTransform>(self.transforms, entity, take current)
+        self.dirty = true
+        self.revision = self.revision + 1
+    }
+    func !.scaleSelected(delta: Int) {
+        fin entity = self.world.entityAt(self.selected)
+        if !self.world.isAlive(entity) { return }
+        var current = storageGet<StudioTransform>(self.transforms, entity).clone()
+        self.previous = current.clone()
+        self.previousEntity = self.selected
+        self.canUndo = true
+        current.scale = current.scale + delta
+        if current.scale < 10 { current.scale = 10 }
+        if current.scale > 10000 { current.scale = 10000 }
+        storageInsert<StudioTransform>(self.transforms, entity, take current)
+        self.dirty = true
+        self.revision = self.revision + 1
+    }
+    func !.undoEdit(): Bool {
+        if !self.canUndo { return false }
+        fin entity = self.world.entityAt(self.previousEntity)
+        if !self.world.isAlive(entity) { return false }
+        storageInsert<StudioTransform>(self.transforms, entity, self.previous.clone())
+        self.canUndo = false
+        self.dirty = true
+        self.revision = self.revision + 1
+        return true
+    }
+    func !.togglePlay() {
+        self.playing = !self.playing
+        self.paused = false
+        self.playX = 0.0
+        self.revision = self.revision + 1
+    }
+    func !.stop() {
+        self.playing = false
+        self.paused = false
+        self.playX = 0.0
+        self.revision = self.revision + 1
+    }
+    func !.advance(seconds: Double) {
+        if self.playing && !self.paused {
+            self.playX = self.playX + seconds * 30.0
+            if self.playX > 160.0 { self.playX = -160.0 }
+        }
+    }
+    func !.save(project: Long): Bool {
+        fin output = azsBufferAllocate(256)
+        if output == Long(0) { return false }
+        fin header = azsBufferNew("AZORA-SCENE 1\n")
+        if header == Long(0) { azsBufferClose(output)
+        return false }
+        var offset = 0
+        while offset < 14 {
+            azsBufferSetByte(output, offset, azsBufferByte(header, offset))
+            offset = offset + 1
+        }
+        azsBufferClose(header)
+        for id in 0..<3 {
+            fin entity = self.world.entityAt(id)
+            fin value = storageGet<StudioTransform>(self.transforms, entity).clone()
+            offset = appendSceneNumber(output, offset, id)
+            offset = appendSceneNumber(output, offset, value.x)
+            offset = appendSceneNumber(output, offset, value.y)
+            offset = appendSceneNumber(output, offset, value.scale)
+            offset = appendSceneNumber(output, offset, value.rotation)
+            azsBufferSetByte(output, offset - 1, 10)
+        }
+        var saved = false
+        if offset > 0 && azsBufferTruncate(output, offset) != 0 {
+            saved = azsProjectWrite(project, "scene.azscene", output) != 0
+        }
+        azsBufferClose(output)
+        if saved { self.dirty = false }
+        return saved
+    }
+    // Validate the entire file first. A failed reload never partly applies a
+    // scene edit. The initial format has exactly Cube/Camera/Light records.
+    func !.reopen(project: Long): Bool {
+        fin source = azsProjectRead(project, "scene.azscene")
+        if source == Long(0) { return false }
+        if !sceneHeader(source) { azsBufferClose(source)
+        return false }
+        var valid = true
+        var offset = 14
+        for id in 0..<3 {
+            fin identity = readSceneNumber(source, offset)
+            if !identity.valid || identity.value != id { valid = false }
+            offset = identity.next
+            for field in 0..<4 {
+                fin number = readSceneNumber(source, offset)
+                if !number.valid { valid = false }
+                if field == 2 && (number.value < 10 || number.value > 10000) { valid = false }
+                offset = number.next
+            }
+        }
+        while offset < azsBufferSize(source) && (azsBufferByte(source, offset) == 32 || azsBufferByte(source, offset) == 10) { offset = offset + 1 }
+        if offset != azsBufferSize(source) { valid = false }
+        if !valid { azsBufferClose(source)
+        return false }
+        offset = 14
+        for id in 0..<3 {
+            fin identity = readSceneNumber(source, offset)
+            fin x = readSceneNumber(source, identity.next)
+            fin y = readSceneNumber(source, x.next)
+            fin scale = readSceneNumber(source, y.next)
+            fin rotation = readSceneNumber(source, scale.next)
+            offset = rotation.next
+            storageInsert<StudioTransform>(self.transforms, self.world.entityAt(id),
+                StudioTransform(x.value, y.value, scale.value, rotation.value))
+        }
+        azsBufferClose(source)
+        self.canUndo = false
+        self.dirty = false
+        self.revision = self.revision + 1
+        return true
+    }
+}

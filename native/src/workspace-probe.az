@@ -1,0 +1,41 @@
+import std.io
+import engine.ecs
+import engine.ui.node
+import engine.ui.compose
+import engine.ui.systems
+import studio.host
+import studio.scene
+import studio.workspace
+
+react func main() {
+    var scene = studioScene()
+    var world = World()
+    var pass = Composition::of(world, "studio-probe")
+    var view = WorkspaceView()
+    describeWorkspace(pass, scene, view)
+    fin first = pass.findChild(pass.root, "workspace")
+    fin version = pass.version
+    describeWorkspace(pass, scene, view)
+    assert pass.version == version panic "unchanged workspace must not recompose"
+    pass.arrange(first, 0.0, 0.0, 1280.0, 800.0)
+    fin canvas = surfaceRect(pass, 201)
+    assert canvas.width > 500.0 && canvas.height > 400.0 panic "scene viewport must occupy the retained center dock"
+    assert pass.hit(194.0, 27.0) == 1 panic "toolbar save must be an Engine action node"
+    scene.select(1)
+    scene.moveSelected(10, 0)
+    describeWorkspace(pass, scene, view)
+    assert pass.findChild(pass.root, "workspace").id == first.id panic "scene edits must retain keyed workspace identity"
+    view.tab = 1
+    view.message("Source editor")
+    describeWorkspace(pass, scene, view)
+    pass.arrange(first, 0.0, 0.0, 1280.0, 800.0)
+    fin source = surfaceRect(pass, 202)
+    assert source.width == canvas.width panic "source tab must occupy the same arranged surface"
+    assert surfaceRect(pass, 201).width == 0.0 panic "reconciliation must remove the inactive scene surface"
+    assert pass.dispose() > 0 panic "composition disposal must remove owned ECS nodes"
+    assert pass.nodeCount() == 0 panic "composition disposal must leave no owned nodes"
+    purge view
+    purge scene
+    assert azsLiveHandles() == 0 panic "workspace probe must release native handles"
+    println("native Studio constructor tree, reactive invalidation, keyed identity, layout, hit test and disposal passed")
+}

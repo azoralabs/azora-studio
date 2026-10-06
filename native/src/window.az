@@ -1,0 +1,329 @@
+import std.io
+import std.format
+import engine.platform
+import engine.gpu.draw
+import engine.input
+import engine.io
+import engine.core
+import engine.ecs
+import engine.ui.node
+import engine.ui.compose
+import engine.ui.systems
+import engine.ui.paint
+import studio.host
+import studio.editor
+import studio.intelligence
+import studio.scene
+import studio.workspace
+
+func lines(app: App!, source: Long, cursor: Int, focused: Bool, rect: Rect&, scroll: Int = 0) {
+    var start = 0
+    var offset = 0
+    var row = 0
+    var y: Double = rect.y + 12.0
+    fin size = azsBufferSize(source)
+    while offset <= size && y < rect.y + rect.height - 12.0 {
+        if offset == size || azsBufferByte(source, offset) == 10 {
+            if row >= scroll {
+                fin line = azsBufferSlice(source, start, offset)
+                if line != Long(0) {
+                    app.uiTextColored(azsBufferText(line), rect.x + 14.0, y, 13.0, 0.78, 0.84, 0.92)
+                    azsBufferClose(line)
+                }
+                if focused && cursor >= start && cursor <= offset {
+                    fin prefix = azsBufferSlice(source, start, cursor)
+                    if prefix != Long(0) {
+                        fin dx = app.uiTextWidth(azsBufferText(prefix), 13.0)
+                        app.uiRect(rect.x + 14.0 + dx, y, 1.0, 18.0, 0.84, 0.88, 1.0, 1.0)
+                        azsBufferClose(prefix)
+                    }
+                }
+                y = y + 20.0
+            }
+            start = offset + 1
+            row = row + 1
+        }
+        offset = offset + 1
+    }
+}
+
+func sourceRow(source: Long, cursor: Int): Int {
+    var row = 0
+    var offset = 0
+    while offset < cursor && offset < azsBufferSize(source) {
+        if azsBufferByte(source, offset) == 10 { row = row + 1 }
+        offset = offset + 1
+    }
+    return row
+}
+
+func cursorAt(app: App!, source: Long, x: Double, y: Double, rect: Rect&, scroll: Int): Int {
+    var wanted = ((y - rect.y - 12.0) / 20.0) as Int
+    if wanted < 0 { wanted = 0 }
+    wanted = wanted + scroll
+    var row = 0
+    var start = 0
+    fin size = azsBufferSize(source)
+    while start < size && row < wanted {
+        if azsBufferByte(source, start) == 10 { row = row + 1 }
+        start = start + 1
+    }
+    var end = start
+    while end < size && azsBufferByte(source, end) != 10 { end = end + 1 }
+    var cursor = start
+    var priorWidth: Double = 0.0
+    fin target = x - rect.x - 14.0
+    while cursor < end {
+        var next = cursor + 1
+        while next < end && azsBufferByte(source, next) >= 128 && azsBufferByte(source, next) < 192 { next = next + 1 }
+        fin prefix = azsBufferSlice(source, start, next)
+        if prefix == Long(0) { return cursor }
+        fin width = app.uiTextWidth(azsBufferText(prefix), 13.0)
+        azsBufferClose(prefix)
+        if width >= target {
+            if target - priorWidth < width - target { return cursor }
+            return next
+        }
+        priorWidth = width
+        cursor = next
+    }
+    return end
+}
+
+func sceneCanvas(app: App!, scene: StudioScene&, rect: Rect&) {
+    app.setScissor(rect.x, rect.y, rect.width, rect.height)
+    fin centerX = rect.x + rect.width * 0.5
+    fin centerY = rect.y + rect.height * 0.5
+    var gridX = centerX
+    while gridX > rect.x { gridX = gridX - 32.0 }
+    while gridX < rect.x + rect.width {
+        app.uiRect(gridX, rect.y, 1.0, rect.height, 0.09, 0.12, 0.17, 1.0)
+        gridX = gridX + 32.0
+    }
+    var gridY = centerY
+    while gridY > rect.y { gridY = gridY - 32.0 }
+    while gridY < rect.y + rect.height {
+        app.uiRect(rect.x, gridY, rect.width, 1.0, 0.09, 0.12, 0.17, 1.0)
+        gridY = gridY + 32.0
+    }
+    app.uiRect(centerX, rect.y, 1.0, rect.height, 0.15, 0.36, 0.28, 1.0)
+    app.uiRect(rect.x, centerY, rect.width, 1.0, 0.40, 0.18, 0.22, 1.0)
+    for id in 0..<3 {
+        fin entity = scene.world.entityAt(id)
+        fin value = storageGet<StudioTransform>(scene.transforms, entity).clone()
+        var x = centerX + (value.x as Double)
+        if id == 0 && scene.playing { x = x + scene.playX }
+        fin y = centerY + (value.y as Double)
+        fin side: Double = if id == 0 { (value.scale as Double) * 0.56 } else { 24.0 }
+        if scene.selected == id {
+            app.uiRect(x - side * 0.5 - 3.0, y - side * 0.5 - 3.0, side + 6.0, side + 6.0, 0.92, 0.62, 0.27, 1.0)
+        }
+        fin r: Double = if id == 0 { 0.24 } else if id == 1 { 0.20 } else { 0.86 }
+        fin g: Double = if id == 0 { 0.48 } else if id == 1 { 0.70 } else { 0.66 }
+        fin b: Double = if id == 0 { 0.80 } else if id == 1 { 0.50 } else { 0.24 }
+        app.uiRect(x - side * 0.5, y - side * 0.5, side, side, r, g, b, 1.0)
+        app.uiTextColored(scene.world.getName(entity), x - side * 0.5, y + side * 0.5 + 8.0, 12.0, 0.80, 0.85, 0.92)
+    }
+    app.uiTextColored(if scene.playing { if scene.paused { "PAUSED" } else { "PLAYING — isolated scene preview" } } else { "EDIT SCENE" }, rect.x + 14.0, rect.y + 14.0, 12.0, 0.68, 0.76, 0.88)
+    app.clearScissor()
+}
+
+func selectCanvas(scene: StudioScene!, x: Double, y: Double, rect: Rect&) {
+    fin centerX = rect.x + rect.width * 0.5
+    fin centerY = rect.y + rect.height * 0.5
+    for id in 0..<3 {
+        fin value = storageGet<StudioTransform>(scene.transforms, scene.world.entityAt(id)).clone()
+        fin px = centerX + (value.x as Double)
+        fin py = centerY + (value.y as Double)
+        if x >= px - 35.0 && x <= px + 35.0 && y >= py - 35.0 && y <= py + 35.0 { scene.select(id) }
+    }
+}
+
+func editKeys(app: App&, editor: Editor!, view: WorkspaceView!) {
+    if !view.focused || view.tab != 1 { return }
+    if app.keyPressed(keyArrowLeft) && view.cursor > 0 {
+        view.cursor = view.cursor - 1
+        while view.cursor > 0 && azsBufferByte(editor.source, view.cursor) >= 128 && azsBufferByte(editor.source, view.cursor) < 192 { view.cursor = view.cursor - 1 }
+    }
+    if app.keyPressed(keyArrowRight) && view.cursor < azsBufferSize(editor.source) {
+        view.cursor = view.cursor + 1
+        while view.cursor < azsBufferSize(editor.source) && azsBufferByte(editor.source, view.cursor) >= 128 && azsBufferByte(editor.source, view.cursor) < 192 { view.cursor = view.cursor + 1 }
+    }
+    if app.keyPressed(keyBackspace) && view.cursor > 0 {
+        var start = view.cursor - 1
+        while start > 0 && azsBufferByte(editor.source, start) >= 128 && azsBufferByte(editor.source, start) < 192 { start = start - 1 }
+        if editor.editByte(start, view.cursor - start, -1) { view.cursor = start
+            view.message("Source edited") }
+    }
+    if app.keyPressed(keyEnter) && editor.editByte(view.cursor, 0, 10) { view.cursor = view.cursor + 1
+        view.message("Source edited") }
+    for key in 32..<127 {
+        if app.keyPressed(key) {
+            var value = key
+            if value >= 65 && value <= 90 && !app.keyDown(keyShift) { value = value + 32 }
+            if editor.editByte(view.cursor, 0, value) { view.cursor = view.cursor + 1
+                view.message("Source edited") }
+        }
+    }
+}
+
+react func main() {
+    if azsAbiVersion() != 1 { println("incompatible Studio host ABI")
+        return }
+    fin root = azsEnvironment("AZORA_STUDIO_PROJECT")
+    fin project = azsProjectOpen(root, 0)
+    if project == Long(0) { println(azsError())
+        return }
+    fin source = azsProjectRead(project, "src/main.az")
+    if source == Long(0) { azsProjectClose(project)
+        println(azsError())
+        return }
+    var editor = Editor(project, source, Long(0), Long(0), false)
+    var scene = studioScene()
+    scene.reopen(project)
+    var view = WorkspaceView()
+    view.cursor = azsBufferSize(editor.source)
+    view.output("Native Studio. Select an entity to edit its Transform. Build / Inspect use the selected native compiler.")
+    var world = World()
+    var pass = Composition::of(world, "studio")
+    var app = appInit("Azora Studio — scene workspace", 1280, 800)
+    if !app.ok { return }
+    app.setClearColor(0.04, 0.05, 0.08)
+    var process = Long(0)
+    fin frameLimit = azsEnvironmentInt("AZORA_STUDIO_FRAME_LIMIT")
+    fin started = azsMonotonicSeconds()
+    var frames = 0
+    var sourceScroll = 0
+    var revealCursor = true
+    var layoutVersion = Long(-1)
+    var lastWidth: Double = -1.0
+    var lastHeight: Double = -1.0
+    while app.frame() {
+        frames = frames + 1
+        var action = 0
+        if app.mouseClicked(mouseLeft) { action = pass.hit(app.mouseX(), app.mouseY()) }
+        if action != 0 { println("Studio action ${action}") }
+        if action >= 100 && action <= 102 { scene.select(action - 100) }
+        if action == 12 { view.tab = 0
+            view.focused = false
+            view.message("Scene viewport") }
+        if action == 13 { view.tab = 1
+            revealCursor = true
+            view.focused = true
+            view.message("Source editor") }
+        if action == 202 {
+            view.focused = true
+            view.cursor = cursorAt(app, editor.source, app.mouseX(), app.mouseY(), surfaceRect(pass, 202), sourceScroll)
+            revealCursor = true
+        }
+        if action == 201 { selectCanvas(scene, app.mouseX(), app.mouseY(), surfaceRect(pass, 201)) }
+        if action == 20 { scene.moveSelected(-10, 0) }
+        if action == 21 { scene.moveSelected(10, 0) }
+        if action == 22 { scene.moveSelected(0, -10) }
+        if action == 23 { scene.moveSelected(0, 10) }
+        if action == 24 { scene.scaleSelected(-10) }
+        if action == 25 { scene.scaleSelected(10) }
+        if action == 1 {
+            if editor.save() && scene.save(project) { view.message("Source and scene saved") }
+            else { view.message(azsError()) }
+        }
+        if action == 2 {
+            if view.tab == 0 { scene.undoEdit() }
+            else if editor.undo() { view.cursor = azsBufferSize(editor.source)
+                view.message("Source undo") }
+        }
+        if action == 3 && view.tab == 1 && editor.redo() { view.cursor = azsBufferSize(editor.source)
+            view.message("Source redo") }
+        if action == 4 {
+            if editor.reopen() {
+                view.cursor = azsBufferSize(editor.source)
+                if scene.reopen(project) { view.message("Source and scene reopened") }
+                else { view.message("Source reopened; scene reload rejected") }
+            } else { view.message(azsError()) }
+        }
+        if action == 6 { scene.stop()
+            scene.togglePlay()
+            view.message("Scene preview playing") }
+        if action == 7 && scene.playing { scene.paused = !scene.paused
+            scene.revision = scene.revision + 1
+            view.message(if scene.paused { "Scene preview paused" } else { "Scene preview playing" }) }
+        if action == 8 { scene.stop()
+            view.message("Scene preview stopped") }
+        var toolAction: String = ""
+        if action == 5 { toolAction = "build" }
+        if action == 9 { toolAction = "inspect" }
+        if action == 17 { toolAction = "play" }
+        if toolAction != "" && process == Long(0) {
+            if editor.save() {
+                process = azsProcessStart(azsEnvironment("AZORA_NATIVE_COMPILER"), root, root, toolAction)
+                if process == Long(0) { view.message(azsError()) }
+                else { view.message("Native compiler ${toolAction} running") }
+            } else { view.message(azsError()) }
+        }
+        if action == 10 && process != Long(0) { azsProcessCancel(process)
+            view.message("Native tool cancelled") }
+        if process != Long(0) {
+            fin result = azsProcessPoll(process)
+            if result != -1 {
+                view.output(azsProcessOutput(process))
+                azsProcessClose(process)
+                process = Long(0)
+                if result == 0 { view.message("Native tool completed") }
+                else { view.message("Native tool exited ${result}") }
+            }
+        }
+        fin previousCursor = view.cursor
+        editKeys(app, editor, view)
+        if view.cursor != previousCursor { revealCursor = true }
+        if view.tab == 1 && app.scrollY() != 0.0 {
+            if app.scrollY() > 0.0 { sourceScroll = sourceScroll - 3 } else { sourceScroll = sourceScroll + 3 }
+            if sourceScroll < 0 { sourceScroll = 0 }
+        }
+        scene.advance(app.deltaTime())
+        describeWorkspace(pass, scene, view)
+        fin rootNode = pass.findChild(pass.root, "workspace")
+        fin width = app.width() as Double
+        fin height = app.height() as Double
+        if pass.version != layoutVersion || width != lastWidth || height != lastHeight {
+            pass.arrange(rootNode, 0.0, 0.0, width, height)
+            layoutVersion = pass.version
+            lastWidth = width
+            lastHeight = height
+        }
+        paintTree(app, pass, rootNode, 0.0, height)
+        if view.tab == 0 { sceneCanvas(app, scene, surfaceRect(pass, 201)) }
+        else {
+            fin rect = surfaceRect(pass, 202)
+            if revealCursor {
+                fin row = sourceRow(editor.source, view.cursor)
+                var visibleRows = ((rect.height - 24.0) / 20.0) as Int
+                if visibleRows < 1 { visibleRows = 1 }
+                if row < sourceScroll { sourceScroll = row }
+                if row >= sourceScroll + visibleRows { sourceScroll = row - visibleRows + 1 }
+                revealCursor = false
+            }
+            app.setScissor(rect.x, rect.y, rect.width, rect.height)
+            lines(app, editor.source, view.cursor, view.focused, rect, sourceScroll)
+            app.clearScissor()
+        }
+        if view.console != Long(0) {
+            fin rect = surfaceRect(pass, 203)
+            app.setScissor(rect.x, rect.y, rect.width, rect.height)
+            lines(app, view.console, 0, false, rect)
+            app.clearScissor()
+        }
+        app.present()
+        if frameLimit > 0 && frames >= frameLimit { app.quit() }
+    }
+    if process != Long(0) { azsProcessClose(process) }
+    pass.dispose()
+    app.shutdown()
+    purge view
+    purge scene
+    purge editor
+    println("frames ${frames}")
+    if frames > 0 { println("mean frame interval seconds ${(azsMonotonicSeconds() - started) / (frames as Double)}") }
+    println("peak resident bytes ${azsPeakMemoryBytes()}")
+    if azsLiveHandles() != 0 { println("native handle leak")
+        azsExit(1) }
+}

@@ -1,0 +1,112 @@
+module studio.editor
+import studio.host
+
+func createNativeProject(root: String, template: String = ""): Bool {
+    var source = Long(0)
+    if template == "" {
+        source = azsBufferNew("import std.io\nfunc main() { println(\"Azora native project\") }\n")
+    } else {
+        fin sourceProject = azsProjectOpen(template, 0)
+        if sourceProject == Long(0) { return false }
+        source = azsProjectRead(sourceProject, "src/main.az")
+        azsProjectClose(sourceProject)
+    }
+    if source == Long(0) { return false }
+    fin project = azsProjectOpen(root, 1)
+    if project == Long(0) { azsBufferClose(source)
+        return false }
+    fin manifest = azsBufferNew("{\"project\":{\"name\":\"native-project\",\"version\":\"0.1.0\",\"entry\":\"main.az\",\"src\":\"src\",\"targets\":[\"llvm\"]}}\n")
+    var saved = false
+    if manifest != Long(0) {
+        saved = azsProjectWrite(project, "azora.azon", manifest) != 0 &&
+            azsProjectWrite(project, "src/main.az", source) != 0
+    }
+    azsBufferClose(source)
+    if manifest != Long(0) { azsBufferClose(manifest) }
+    azsProjectClose(project)
+    return saved
+}
+
+// Application state and history live in Azora. Each nonzero host handle has one
+// owner here; views returned by host calls are used only before their next edit.
+// This initial slice has one undo/redo snapshot. Extending history must retain
+// bounded independent buffers, never references into a replaced source buffer.
+pack Editor {
+    var project: Long
+    var source: Long
+    var previous: Long
+    var following: Long
+    var dirty: Bool
+}
+
+impl Editor {
+    func !.editByte(offset: Int, remove: Int, value: Int): Bool {
+        fin next = azsBufferSpliceByte(self.source, offset, remove, value)
+        if next == Long(0) { return false }
+        if self.previous != Long(0) { azsBufferClose(self.previous) }
+        if self.following != Long(0) { azsBufferClose(self.following) }
+        self.previous = self.source
+        self.source = next
+        self.following = Long(0)
+        self.dirty = true
+        return true
+    }
+    func !.replace(text: String): Bool {
+        fin next = azsBufferNew(text)
+        if next == Long(0) { return false }
+        if self.previous != Long(0) { azsBufferClose(self.previous) }
+        if self.following != Long(0) { azsBufferClose(self.following) }
+        self.previous = self.source
+        self.source = next
+        self.following = Long(0)
+        self.dirty = true
+        return true
+    }
+
+    func !.undo(): Bool {
+        if self.previous == Long(0) { return false }
+        if self.following != Long(0) { azsBufferClose(self.following) }
+        self.following = self.source
+        self.source = self.previous
+        self.previous = Long(0)
+        self.dirty = true
+        return true
+    }
+
+    func !.redo(): Bool {
+        if self.following == Long(0) { return false }
+        if self.previous != Long(0) { azsBufferClose(self.previous) }
+        self.previous = self.source
+        self.source = self.following
+        self.following = Long(0)
+        self.dirty = true
+        return true
+    }
+
+    func !.save(): Bool {
+        if azsProjectWrite(self.project, "src/main.az", self.source) == 0 { return false }
+        self.dirty = false
+        return true
+    }
+
+    // Reload is transactional: failure leaves source and history intact.
+    func !.reopen(): Bool {
+        fin next = azsProjectRead(self.project, "src/main.az")
+        if next == Long(0) { return false }
+        azsBufferClose(self.source)
+        if self.previous != Long(0) { azsBufferClose(self.previous) }
+        if self.following != Long(0) { azsBufferClose(self.following) }
+        self.source = next
+        self.previous = Long(0)
+        self.following = Long(0)
+        self.dirty = false
+        return true
+    }
+
+    dtor .() {
+        if self.source != Long(0) { azsBufferClose(self.source) }
+        if self.previous != Long(0) { azsBufferClose(self.previous) }
+        if self.following != Long(0) { azsBufferClose(self.following) }
+        if self.project != Long(0) { azsProjectClose(self.project) }
+    }
+}

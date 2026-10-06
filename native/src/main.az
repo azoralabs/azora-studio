@@ -1,0 +1,101 @@
+import std.io
+import studio.host
+import studio.editor
+import studio.intelligence
+
+func reportFailure(): Int {
+    println(azsError())
+    return 1
+}
+
+// A real native backend is explicitly selected; it receives the project root
+// and action as argv, never shell text. Missing tools do not discover Java or
+// invoke the prototype compiler. poll() is available to a window frame loop;
+// this console service waits synchronously for its selected build/play action.
+func runTool(root: String, tool: String, action: String): Int {
+    fin process = azsProcessStart(tool, root, root, action)
+    if process == Long(0) { return reportFailure() }
+    var status = azsProcessPoll(process)
+    while status == -1 {
+        azsWaitTick()
+        status = azsProcessPoll(process)
+    }
+    println(azsProcessOutput(process))
+    azsProcessClose(process)
+    return status
+}
+
+func execute(): Int {
+    if azsAbiVersion() != 1 { println("incompatible Studio host ABI")
+        return 1 }
+    fin root = azsEnvironment("AZORA_STUDIO_PROJECT")
+    fin action = azsEnvironment("AZORA_STUDIO_ACTION")
+    var create = 0
+    if action == "template" {
+        if createNativeProject(root, azsEnvironment("AZORA_STUDIO_TEMPLATE")) { return 0 }
+        return reportFailure()
+    }
+    if action == "create" || action == "probe" { create = 1 }
+    fin project = azsProjectOpen(root, create)
+    if project == Long(0) { return reportFailure() }
+    var source = Long(0)
+    if create == 1 {
+        source = azsBufferNew("import std.io\nfunc main() { println(\"Azora native project\") }\n")
+    } else { source = azsProjectRead(project, "src/main.az") }
+    if source == Long(0) { azsProjectClose(project)
+        return reportFailure() }
+    var editor = Editor(project, source, Long(0), Long(0), false)
+    var status = 0
+    if action == "create" {
+        fin manifest = azsBufferNew("{\"project\":{\"name\":\"native-project\",\"version\":\"0.1.0\",\"entry\":\"main.az\",\"src\":\"src\",\"targets\":[\"llvm\"]}}\n")
+        if manifest == Long(0) || azsProjectWrite(project, "azora.azon", manifest) == 0 || !editor.save() {
+            status = reportFailure()
+        }
+        if manifest != Long(0) { azsBufferClose(manifest) }
+    } else if action == "edit" {
+        if !editor.replace(azsEnvironment("AZORA_STUDIO_SOURCE")) || !editor.save() { status = reportFailure() }
+    } else if action == "structure" {
+        status = inspectSource(editor.source)
+    } else if action == "inspect" {
+        if azsEnvironment("AZORA_NATIVE_COMPILER") != "" {
+            status = runTool(root, azsEnvironment("AZORA_NATIVE_COMPILER"), "inspect")
+        } else { status = inspectSource(editor.source) }
+    } else if action == "build" {
+        fin nativeTool = azsEnvironment("AZORA_NATIVE_COMPILER")
+        fin tool = if nativeTool != "" { nativeTool } else { azsEnvironment("AZORA_STUDIO_BUILDER") }
+        status = runTool(root, tool, "build")
+    } else if action == "play" {
+        fin nativeTool = azsEnvironment("AZORA_NATIVE_COMPILER")
+        fin tool = if nativeTool != "" { nativeTool } else { azsEnvironment("AZORA_STUDIO_PLAYER") }
+        status = runTool(root, tool, "play")
+    } else if action == "probe" {
+        if !editor.save() || !editor.replace("func main() { }\n") || !editor.undo() {
+            status = reportFailure()
+        } else if azsBufferText(editor.source) != "import std.io\nfunc main() { println(\"Azora native project\") }\n" {
+            println("undo differs from original source")
+            status = 1
+        } else if !editor.redo() {
+            status = reportFailure()
+        } else if !editor.save() || !editor.reopen() {
+            status = reportFailure()
+        } else if azsBufferText(editor.source) != "func main() { }\n" {
+            println("reopened source differs from saved edit")
+            status = 1
+        } else {
+            status = inspectSource(editor.source)
+            println("native create/edit/undo/redo/save/reopen passed")
+        }
+    } else {
+        println("set AZORA_STUDIO_ACTION=create|template|edit|structure|inspect|build|play|probe and AZORA_STUDIO_PROJECT")
+        status = 1
+    }
+    purge editor
+    return status
+}
+
+func main() {
+    fin status = execute()
+    if azsLiveHandles() != 0 { println("native handle leak")
+        azsExit(1) }
+    azsExit(status)
+}

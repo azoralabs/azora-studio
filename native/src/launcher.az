@@ -1,0 +1,95 @@
+import std.io
+import std.format
+import engine.platform
+import engine.gpu.draw
+import engine.input
+import engine.io
+import engine.core
+import engine.ecs
+import engine.ui.node
+import engine.ui.compose
+import engine.ui.systems
+import engine.ui.paint
+import studio.host
+import studio.editor
+
+pack ProjectWelcome { }
+impl ProjectWelcome {
+    react ctor (anchor: Anchor!).(root: String, status: String): Entity {
+        return Column(modifier: Modifier::fillMaxSize().padding(28.0).background(0.05, 0.065, 0.10), spacing: 14.0, key: "welcome") {
+            Text("AZORA", modifier: Modifier::fillMaxWidth().height(58.0))
+            Text("Create games and native applications", modifier: Modifier::fillMaxWidth().height(30.0))
+            Text(root, modifier: Modifier::fillMaxWidth().height(44.0))
+            Row(modifier: Modifier::fillMaxWidth().height(48.0), horizontalArrangement: .Center, spacing: 16.0) {
+                Button(modifier: Modifier::width(190.0).height(44.0).background(0.14, 0.27, 0.43), action: 1, key: "create") { Text("Create game") }
+                Button(modifier: Modifier::width(190.0).height(44.0).background(0.14, 0.27, 0.43), action: 3, key: "app") { Text("Create app") }
+            }
+            Button(modifier: Modifier::fillMaxWidth().height(40.0).background(0.10, 0.18, 0.30), action: 2, key: "open") { Text("Open Studio") }
+            Text(status, modifier: Modifier::fillMaxWidth().height(36.0))
+        }
+    }
+}
+
+react func main() {
+    if azsAbiVersion() != 1 { println("incompatible Launcher host ABI")
+        return }
+    fin root = azsEnvironment("AZORA_STUDIO_PROJECT")
+    var world = World()
+    var pass = Composition::of(world, "launcher")
+    var app = appInit("Azora Launcher", 760, 380)
+    if !app.ok { return }
+    app.setClearColor(0.04, 0.05, 0.08)
+    var status: String = "Choose a native Engine template or Open Studio"
+    var revision = Long(1)
+    var studio = Long(0)
+    var frames = 0
+    var layoutVersion = Long(-1)
+    var lastWidth: Double = -1.0
+    var lastHeight: Double = -1.0
+    fin frameLimit = azsEnvironmentInt("AZORA_STUDIO_FRAME_LIMIT")
+    while app.frame() {
+        frames = frames + 1
+        var action = 0
+        if app.mouseClicked(mouseLeft) { action = pass.hit(app.mouseX(), app.mouseY()) }
+        if action == 1 || action == 3 {
+            fin name = if action == 1 { "game" } else { "app" }
+            fin template = "${azsEnvironment("AZORA_ENGINE_HOME")}/templates/${name}"
+            if createNativeProject(root, template) { status = "Project created" }
+            else { status = azsError() }
+            revision = revision + Long(1)
+        }
+        if action == 2 && studio == Long(0) {
+            studio = azsProcessStart(azsEnvironment("AZORA_STUDIO_EXECUTABLE"), root, "", "")
+            if studio == Long(0) { status = azsError() }
+            else { status = "Studio is open" }
+            revision = revision + Long(1)
+        }
+        if studio != Long(0) && azsProcessPoll(studio) != -1 {
+            println(azsProcessOutput(studio))
+            azsProcessClose(studio)
+            studio = Long(0)
+            status = "Studio closed"
+            revision = revision + Long(1)
+        }
+        composeIfChanged(pass, revision) { ProjectWelcome(root, status) }
+        fin welcome = pass.findChild(pass.root, "welcome")
+        fin width = app.width() as Double
+        fin height = app.height() as Double
+        if pass.version != layoutVersion || width != lastWidth || height != lastHeight {
+            pass.arrange(welcome, 0.0, 0.0, width, height)
+            layoutVersion = pass.version
+            lastWidth = width
+            lastHeight = height
+        }
+        paintTree(app, pass, welcome, 0.0, height)
+        app.present()
+        if frameLimit > 0 && frames >= frameLimit { app.quit() }
+    }
+    // The development launcher owns its child; an installed detached session
+    // and project catalogue are separate qualification gates.
+    if studio != Long(0) { azsProcessClose(studio) }
+    pass.dispose()
+    app.shutdown()
+    if azsLiveHandles() != 0 { println("native handle leak")
+        azsExit(1) }
+}

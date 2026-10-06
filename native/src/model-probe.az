@@ -1,0 +1,47 @@
+import std.io
+import engine.ecs
+import studio.host
+import studio.scene
+
+func main() {
+    fin project = azsProjectOpen(azsEnvironment("AZORA_STUDIO_PROJECT"), 1)
+    if project == Long(0) { println(azsError())
+        azsExit(1) }
+    println("scene create")
+    var scene = studioScene()
+    println("scene created")
+    assert scene.world.count == 3 panic "scene must hold real ECS entities"
+    assert scene.selectedName() == "Cube" panic "initial selection must be Cube"
+    println("scene edit")
+    scene.moveSelected(32, -16)
+    assert scene.selectedTransform().x == 32 panic "property edit must update the ECS component"
+    assert scene.undoEdit() panic "scene property edit must be undoable"
+    assert scene.selectedTransform().x == 0 panic "undo must restore the component"
+    scene.moveSelected(50, 25)
+    scene.scaleSelected(20)
+    println("scene save")
+    assert scene.save(project) panic "scene must save natively"
+    scene.moveSelected(10, 10)
+    assert scene.reopen(project) panic "scene must reopen natively"
+    assert scene.selectedTransform().x == 50 panic "reopen must restore saved ECS positions"
+    assert scene.selectedTransform().scale == 120 panic "reopen must restore scale"
+    fin broken = azsBufferNew("AZORA-SCENE 1\n0 0 0 broken 0\n")
+    assert azsProjectWrite(project, "scene.azscene", broken) != 0 panic "write invalid fixture"
+    azsBufferClose(broken)
+    assert !scene.reopen(project) panic "invalid scene must be rejected"
+    assert scene.selectedTransform().x == 50 panic "failed reopen must preserve live scene"
+    scene.togglePlay()
+    scene.advance(0.5)
+    assert scene.playX == 15.0 panic "play preview must advance"
+    scene.paused = true
+    scene.advance(0.5)
+    assert scene.playX == 15.0 panic "pause must suspend preview"
+    scene.stop()
+    assert scene.playX == 0.0 panic "stop must restore preview origin"
+    assert scene.selectedTransform().x == 50 panic "play must preserve the edited scene"
+    println("scene dispose")
+    purge scene
+    azsProjectClose(project)
+    assert azsLiveHandles() == 0 panic "scene probe must release native handles"
+    println("native ECS scene select/edit/undo/save/reopen/play/pause/stop passed")
+}

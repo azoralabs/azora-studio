@@ -1,0 +1,116 @@
+module studio.intelligence
+import studio.host
+
+// Native structural intelligence only, deliberately separate from compiler
+// semantic diagnostics. Spans are UTF-8 byte offsets, lines/columns are 1-based
+// byte coordinates. Non-ASCII bytes remain opaque; Unicode identifiers and
+// UTF-16 LSP coordinates need a qualified decoder before protocol publication.
+func identifierByte(value: Int): Bool {
+    return (value >= 65 && value <= 90) || (value >= 97 && value <= 122) ||
+        (value >= 48 && value <= 57) || value == 95 || value >= 128
+}
+
+func declarationWidth(source: Long, offset: Int): Int {
+    fin a = azsBufferByte(source, offset)
+    fin b = azsBufferByte(source, offset + 1)
+    fin c = azsBufferByte(source, offset + 2)
+    fin d = azsBufferByte(source, offset + 3)
+    var width = 0
+    if a == 102 && b == 117 && c == 110 && d == 99 { width = 4 }
+    if a == 112 && b == 97 && c == 99 && d == 107 { width = 4 }
+    if a == 115 && b == 112 && c == 101 && d == 99 { width = 4 }
+    if a == 101 && b == 110 && c == 117 && d == 109 { width = 4 }
+    if a == 108 && b == 101 && c == 116 { width = 3 }
+    if a == 118 && b == 97 && c == 114 { width = 3 }
+    if a == 102 && b == 105 && c == 110 { width = 3 }
+    if width > 0 && identifierByte(azsBufferByte(source, offset + width)) { return 0 }
+    return width
+}
+
+func inspectSource(source: Long): Int {
+    fin stack = azsBufferAllocate(256)
+    if stack == Long(0) { return 1 }
+    var depth = 0
+    var offset = 0
+    var line = 1
+    var column = 1
+    var quote = 0
+    var escape = false
+    var lineComment = false
+    var blockDepth = 0
+    var errors = 0
+    var declaration = false
+    var beforeIdentifier = false
+    fin size = azsBufferSize(source)
+    while offset < size {
+        fin value = azsBufferByte(source, offset)
+        fin next = azsBufferByte(source, offset + 1)
+        var skip = 1
+        if lineComment {
+            if value == 10 { lineComment = false }
+        } else if blockDepth > 0 {
+            if value == 47 && next == 42 { blockDepth = blockDepth + 1
+        skip = 2 }
+            if value == 42 && next == 47 { blockDepth = blockDepth - 1
+        skip = 2 }
+        } else if quote != 0 {
+            if escape { escape = false }
+            else if value == 92 { escape = true }
+            else if value == quote { quote = 0 }
+        } else if value == 47 && next == 47 {
+            lineComment = true
+            skip = 2
+        } else if value == 47 && next == 42 {
+            blockDepth = 1
+            skip = 2
+        } else if value == 34 || value == 39 {
+            quote = value
+        } else {
+            if value == 40 || value == 91 || value == 123 {
+                if depth == 256 {
+                    azsDiagnostic(offset, 1, line, column, "structural nesting exceeds 256")
+                    errors = errors + 1
+                } else { azsBufferSetByte(stack, depth, value)
+        depth = depth + 1 }
+            } else if value == 41 || value == 93 || value == 125 {
+                var expected = value - 2
+                if value == 41 { expected = 40 }
+                if depth == 0 {
+                    azsDiagnostic(offset, 1, line, column, "unexpected closing delimiter")
+                    errors = errors + 1
+                } else if azsBufferByte(stack, depth - 1) != expected {
+                    azsDiagnostic(offset, 1, line, column, "mismatched closing delimiter")
+                    errors = errors + 1
+                    depth = depth - 1
+                } else { depth = depth - 1 }
+            }
+            if identifierByte(value) && !beforeIdentifier {
+                if declaration {
+                    var end = offset + 1
+                    while identifierByte(azsBufferByte(source, end)) { end = end + 1 }
+                    azsSymbol(offset, end - offset, line, column)
+                    declaration = false
+                } else if declarationWidth(source, offset) > 0 { declaration = true }
+            }
+            // Computed member declarations and generics are not approximated as
+            // semantic definitions. A punctuation boundary abandons this hint.
+            if declaration && value != 32 && value != 9 && !identifierByte(value) {
+                declaration = false
+            }
+            beforeIdentifier = identifierByte(value)
+        }
+        if value == 10 { line = line + 1
+        column = 1
+        beforeIdentifier = false }
+        else { column = column + skip }
+        offset = offset + skip
+    }
+    if quote != 0 { azsDiagnostic(size, 0, line, column, "unterminated literal")
+        errors = errors + 1 }
+    if blockDepth > 0 { azsDiagnostic(size, 0, line, column, "unterminated block comment")
+        errors = errors + 1 }
+    if depth > 0 { azsDiagnostic(size, 0, line, column, "unclosed delimiter")
+        errors = errors + 1 }
+    azsBufferClose(stack)
+    return errors
+}
