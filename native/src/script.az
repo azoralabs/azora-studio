@@ -1,0 +1,206 @@
+module studio.script
+
+import std.io
+import std.string
+import engine.platform
+import engine.objc
+import studio.host
+
+// ── Input script ────────────────────────────────────────────────────────
+//
+// AZORA_STUDIO_SCRIPT drives the window through the same paths as a user:
+// `wait N`, `command NAME`, `click X Y`, `move X Y`, `press X Y`, `release`,
+// `rpress X Y`, `rrelease`, `scroll N`, `type TEXT`, `key N`, `meta N`,
+// `shot NAME`, `quit`. Once a script moves the pointer, the real mouse is
+// ignored for the rest of the session.
+
+/** One parsed step of a script. */
+pack ScriptStep derives (Copy, Clone) {
+    /** 0 wait, 1 command, 2 click, 3 type, 4 key, 5 quit, 6 meta key, 7 shot, 8 move, 9 press, 10 release, 11 rpress, 12 rrelease, 13 scroll. */
+    var kind: Int = 0
+    var a: Int = 0
+    var b: Int = 0
+    var start: Int = 0
+    var end: Int = 0
+}
+
+func scriptNumber(script: Long, offset: Int, end: Int): Int {
+    var index = offset
+    while index < end && azsBufferByte(script, index) == 32 { index = index + 1 }
+    var negative = false
+    if index < end && azsBufferByte(script, index) == 45 { negative = true
+        index = index + 1 }
+    var value = 0
+    while index < end && azsBufferByte(script, index) >= 48 && azsBufferByte(script, index) <= 57 {
+        value = value * 10 + azsBufferByte(script, index) - 48
+        index = index + 1
+    }
+    return if negative { -value } else { value }
+}
+
+func scriptSkipWord(script: Long, offset: Int, end: Int): Int {
+    var index = offset
+    while index < end && azsBufferByte(script, index) == 32 { index = index + 1 }
+    while index < end && azsBufferByte(script, index) != 32 { index = index + 1 }
+    return index
+}
+
+/** The step's word, as text. */
+func scriptWord(script: Long, start: Int, end: Int): String {
+    fin word = azsBufferSlice(script, start, end)
+    if word == Long(0) { return "" }
+    fin text = "${azsBufferText(word)} "
+    azsBufferClose(word)
+    return substring(text, 0, stringLength(text) - 1)
+}
+
+func parseScript(script: Long): Array<ScriptStep> {
+    var steps: Array<ScriptStep> = Array<ScriptStep>()
+    if script == Long(0) { return steps }
+    fin size = azsBufferSize(script)
+    var start = 0
+    while start < size {
+        var end = start
+        while end < size && azsBufferByte(script, end) != 59 { end = end + 1 }
+        var word = start
+        while word < end && azsBufferByte(script, word) == 32 { word = word + 1 }
+        if word < end {
+            fin wordEnd = scriptSkipWord(script, word, end)
+            fin name = scriptWord(script, word, wordEnd)
+            fin argument = wordEnd
+            fin second = scriptSkipWord(script, argument, end)
+            fin textStart = if argument < end { argument + 1 } else { end }
+            when name {
+                "wait" -> steps.add(ScriptStep(0, scriptNumber(script, argument, end), 0, 0, 0))
+                "command" -> steps.add(ScriptStep(1, 0, 0, textStart, end))
+                "click" -> steps.add(ScriptStep(2, scriptNumber(script, argument, end), scriptNumber(script, second, end), 0, 0))
+                "type" -> steps.add(ScriptStep(3, 0, 0, textStart, end))
+                "key" -> steps.add(ScriptStep(4, scriptNumber(script, argument, end), 0, 0, 0))
+                "quit" -> steps.add(ScriptStep(5, 0, 0, 0, 0))
+                "meta" -> steps.add(ScriptStep(6, scriptNumber(script, argument, end), 0, 0, 0))
+                "shot" -> steps.add(ScriptStep(7, 0, 0, textStart, end))
+                "move" -> steps.add(ScriptStep(8, scriptNumber(script, argument, end), scriptNumber(script, second, end), 0, 0))
+                "press" -> steps.add(ScriptStep(9, scriptNumber(script, argument, end), scriptNumber(script, second, end), 0, 0))
+                "release" -> steps.add(ScriptStep(10, 0, 0, 0, 0))
+                "rpress" -> steps.add(ScriptStep(11, scriptNumber(script, argument, end), scriptNumber(script, second, end), 0, 0))
+                "rrelease" -> steps.add(ScriptStep(12, 0, 0, 0, 0))
+                "scroll" -> steps.add(ScriptStep(13, scriptNumber(script, argument, end), 0, 0, 0))
+                else -> { }
+            }
+        }
+        start = end + 1
+    }
+    return steps
+}
+
+// ── Playing a script ────────────────────────────────────────────────────
+
+/** What a script asks of one frame. Empty fields ask for nothing. */
+pack ScriptFrame derives Clone {
+    var command: String = ""
+    var typed: String = ""
+    var key: Int = -1
+    var meta: Bool = false
+    var shot: String = ""
+    var scroll: Double = 0.0
+    /** The pointer is down for this frame only: a click. */
+    var click: Bool = false
+    var rightClick: Bool = false
+}
+
+/**
+ * Plays AZORA_STUDIO_SCRIPT against a window, one step per frame once the
+ * step before it is done. Once a step moves the pointer, [pointing] is set and
+ * the window reads [x], [y], [down] and [rightDown] instead of the mouse.
+ */
+pack ScriptPlayer {
+    var script: Long = Long(0)
+    var steps: Array<ScriptStep> = Array<ScriptStep>()
+    var index: Int = 0
+    var waitUntil: Int = 0
+    var pointing: Bool = false
+    var x: Double = 0.0
+    var y: Double = 0.0
+    var down: Bool = false
+    var rightDown: Bool = false
+    /** The screenshot being taken; the script waits for it. */
+    var shooting: Long = Long(0)
+}
+
+impl ScriptPlayer {
+    /** The script AZORA_STUDIO_SCRIPT holds, or one with no steps. */
+    func open(): ScriptPlayer {
+        fin script = azsBufferNew(azsEnvironment("AZORA_STUDIO_SCRIPT"))
+        return ScriptPlayer(script, parseScript(script))
+    }
+
+    /** This frame's step, if one is due. A screenshot in progress holds the script. */
+    func !.next(app: App!, frames: Int): ScriptFrame {
+        var cue = ScriptFrame()
+        if self.index >= self.steps.size || frames < self.waitUntil || self.shooting != Long(0) {
+            return cue
+        }
+        fin step = self.steps[self.index]
+        self.index = self.index + 1
+        when step.kind {
+            0 -> { self.waitUntil = frames + step.a }
+            1 -> { cue.command = scriptWord(self.script, step.start, step.end) }
+            2 -> {
+                self.point(step)
+                cue.click = true
+            }
+            3 -> { cue.typed = scriptWord(self.script, step.start, step.end) }
+            4 -> { cue.key = step.a }
+            5 -> { app.quit() }
+            6 -> {
+                cue.key = step.a
+                cue.meta = true
+            }
+            7 -> { cue.shot = scriptWord(self.script, step.start, step.end) }
+            8 -> { self.point(step) }
+            9 -> {
+                self.point(step)
+                self.down = true
+            }
+            10 -> { self.down = false }
+            11 -> {
+                self.point(step)
+                self.rightDown = true
+                cue.rightClick = true
+            }
+            12 -> { self.rightDown = false }
+            13 -> { cue.scroll = step.a as Double }
+            else -> { }
+        }
+        return cue
+    }
+
+    /** Moves the scripted pointer to [step]'s point and takes the pointer over. */
+    func !.point(step: ScriptStep) {
+        self.pointing = true
+        self.x = step.a as Double
+        self.y = step.b as Double
+    }
+
+    /**
+     * Captures [app]'s window as just presented into AZORA_STUDIO_SHOTS/[shot].png
+     * when [shot] names one, and notices when a capture finishes.
+     */
+    func !.capture(app: App&, root: String, shot: String) {
+        if shot != "" && self.shooting == Long(0) {
+            fin window = send0(app.win.handle, sel("windowNumber"))
+            self.shooting = azsProcessStart("/usr/sbin/screencapture", root, "-xol${window}", "${azsEnvironment("AZORA_STUDIO_SHOTS")}/${shot}.png")
+            if self.shooting == Long(0) { println("screenshot failed: ${azsError()}") }
+        }
+        if self.shooting != Long(0) && azsProcessPoll(self.shooting) != -1 {
+            if azsProcessPoll(self.shooting) != 0 { println("screenshot exited ${azsProcessPoll(self.shooting)}: ${azsProcessOutput(self.shooting)}") }
+            azsProcessClose(self.shooting)
+            self.shooting = Long(0)
+        }
+    }
+
+    func !.close() {
+        if self.shooting != Long(0) { azsProcessClose(self.shooting) }
+        if self.script != Long(0) { azsBufferClose(self.script) }
+    }
+}

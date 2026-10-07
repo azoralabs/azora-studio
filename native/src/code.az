@@ -1,0 +1,577 @@
+module studio.code
+import std.traits
+import engine.core
+import engine.ecs
+import engine.platform
+import engine.gpu.draw
+import engine.input
+import engine.gizmos
+import engine.ui.node
+import engine.ui.compose
+import engine.ui.docking
+import studio.host
+import studio.editor
+import studio.theme
+import studio.state
+import studio.ui
+import studio.panels
+import studio.problems
+
+// The source editor and the console: custom-drawn surfaces in two panels. The
+// editor draws fixed-pitch text with the AZLS roles' colours from the theme;
+// the buffer and its history belong to [Editor], the caret and selection to
+// [Studio].
+
+// ── Source text geometry ────────────────────────────────────────────────
+//
+// The editor draws in a fixed-pitch font, so a column is a fixed advance and
+// both drawing and hit-testing are arithmetic on columns. A tab advances to
+// the next multiple of four, and a UTF-8 continuation byte advances nothing.
+
+fin sourceFontSize: Double = 13.0
+fin sourceLineHeight: Double = 20.0
+fin sourceTop: Double = 10.0
+fin sourceGutter: Double = 58.0
+
+func isContinuation(value: Int): Bool { return value >= 128 && value < 192 }
+func isDigitByte(value: Int): Bool { return value >= 48 && value <= 57 }
+func isWordStart(value: Int): Bool { return (value >= 65 && value <= 90) || (value >= 97 && value <= 122) || value == 95 || value >= 192 }
+func isWordPart(value: Int): Bool { return isWordStart(value) || isDigitByte(value) || isContinuation(value) }
+
+/** The visual column [offset] reaches, starting from [start] at column 0. */
+func columnsBetween(source: Long, start: Int, offset: Int): Int {
+    var column = 0
+    var index = start
+    while index < offset {
+        fin value = azsBufferByte(source, index)
+        if value == 9 { column = column + 4 - column % 4 }
+        else if !isContinuation(value) { column = column + 1 }
+        index = index + 1
+    }
+    return column
+}
+
+func lineStartOf(source: Long, offset: Int): Int {
+    var start = offset
+    while start > 0 && azsBufferByte(source, start - 1) != 10 { start = start - 1 }
+    return start
+}
+
+func lineEndOf(source: Long, offset: Int): Int {
+    var end = offset
+    fin size = azsBufferSize(source)
+    while end < size && azsBufferByte(source, end) != 10 { end = end + 1 }
+    return end
+}
+
+/** The byte offset on the line starting at [start] closest to visual [column]. */
+func offsetAtColumn(source: Long, start: Int, column: Int): Int {
+    fin end = lineEndOf(source, start)
+    var offset = start
+    var current = 0
+    while offset < end {
+        fin value = azsBufferByte(source, offset)
+        var next = offset + 1
+        while next < end && isContinuation(azsBufferByte(source, next)) { next = next + 1 }
+        fin width = if value == 9 { 4 - current % 4 } else { 1 }
+        if current + width > column {
+            if column - current >= (width + 1) / 2 { return next }
+            return offset
+        }
+        current = current + width
+        offset = next
+    }
+    return end
+}
+
+func sourceRow(source: Long, cursor: Int): Int {
+    var row = 0
+    var offset = 0
+    while offset < cursor && offset < azsBufferSize(source) {
+        if azsBufferByte(source, offset) == 10 { row = row + 1 }
+        offset = offset + 1
+    }
+    return row
+}
+
+func lineCount(source: Long): Int { return sourceRow(source, azsBufferSize(source)) + 1 }
+
+/** The offset of zero-based [row]'s byte [column], clamped to that line. */
+func offsetAt(source: Long, row: Int, column: Int): Int {
+    var start = 0
+    var current = 0
+    fin size = azsBufferSize(source)
+    while start < size && current < row {
+        if azsBufferByte(source, start) == 10 { current = current + 1 }
+        start = start + 1
+    }
+    fin end = lineEndOf(source, start)
+    var offset = start + column
+    if offset > end { offset = end }
+    while offset > start && isContinuation(azsBufferByte(source, offset)) { offset = offset - 1 }
+    return offset
+}
+
+func isKeyword(word: String): Bool {
+    return word == "func" || word == "fin" || word == "var" || word == "let" || word == "import" ||
+        word == "module" || word == "pack" || word == "impl" || word == "spec" || word == "enum" ||
+        word == "if" || word == "else" || word == "while" || word == "for" || word == "in" ||
+        word == "loop" || word == "return" || word == "break" || word == "continue" || word == "when" ||
+        word == "react" || word == "ctor" || word == "dtor" || word == "bridge" || word == "using" ||
+        word == "take" || word == "lend" || word == "alloc" || word == "purge" || word == "defer" ||
+        word == "derives" || word == "where" || word == "inline" || word == "async" || word == "await" ||
+        word == "true" || word == "false" || word == "null" || word == "self" || word == "Self" ||
+        word == "assert" || word == "panic" || word == "as" || word == "is"
+}
+
+/** Draws one source line with token colours, from byte [start] to [end]. */
+func drawSourceLine(app: App!, source: Long, start: Int, end: Int, x: Double, y: Double, advance: Double) {
+    var offset = start
+    var column = 0
+    while offset < end {
+        fin value = azsBufferByte(source, offset)
+        var stop = offset + 1
+        // 0 plain, 1 keyword, 2 type, 3 string, 4 number, 5 comment, 6 punctuation, 7 call, -1 space
+        var kind = 6
+        if value == 32 || value == 9 {
+            while stop < end && (azsBufferByte(source, stop) == 32 || azsBufferByte(source, stop) == 9) { stop = stop + 1 }
+            kind = -1
+        } else if value == 47 && stop < end && azsBufferByte(source, stop) == 47 {
+            stop = end
+            kind = 5
+        } else if value == 34 {
+            while stop < end && azsBufferByte(source, stop) != 34 {
+                if azsBufferByte(source, stop) == 92 { stop = stop + 1 }
+                stop = stop + 1
+            }
+            if stop < end { stop = stop + 1 }
+            if stop > end { stop = end }
+            kind = 3
+        } else if isDigitByte(value) {
+            while stop < end && (isWordPart(azsBufferByte(source, stop)) || azsBufferByte(source, stop) == 46) { stop = stop + 1 }
+            kind = 4
+        } else if isWordStart(value) {
+            while stop < end && isWordPart(azsBufferByte(source, stop)) { stop = stop + 1 }
+            kind = 0
+            fin word = azsBufferSlice(source, offset, stop)
+            if word != Long(0) {
+                if isKeyword(azsBufferText(word)) { kind = 1 }
+                else if value >= 65 && value <= 90 { kind = 2 }
+                else if stop < end && azsBufferByte(source, stop) == 40 { kind = 7 }
+                azsBufferClose(word)
+            }
+        } else {
+            while stop < end && isContinuation(azsBufferByte(source, stop)) { stop = stop + 1 }
+        }
+        if kind >= 0 {
+            fin run = azsBufferSlice(source, offset, stop)
+            if run != Long(0) {
+                fin color = tokenColor(kind)
+                app.uiTextFont(azsBufferText(run), x + (column as Double) * advance, y, sourceFontSize, color.r, color.g, color.b, uiFontMonospace)
+                azsBufferClose(run)
+            }
+        }
+        column = column + columnsBetween(source, offset, stop)
+        offset = stop
+    }
+}
+
+/** Underlines each problem's span on [row] and marks the gutter. */
+func drawProblems(app: App!, source: Long, problems: Array<Diagnostic>&, stale: Bool, row: Int, start: Int, end: Int, textX: Double, y: Double, advance: Double, gutterX: Double) {
+    var index = 0
+    while index < problems.size {
+        if problems[index].line == row {
+            fin severity = problems[index].severity
+            fin tint = when severity {
+                0 -> studioTheme.error
+                1 -> studioTheme.warning
+                else -> studioTheme.info
+            }
+            fin r = tint.r
+            fin g = tint.g
+            fin b = tint.b
+            fin alpha: Double = if stale { 0.35 } else { 0.95 }
+            var from = start + problems[index].startByte
+            var to = if problems[index].endLine == row { start + problems[index].endByte } else { end }
+            if from > end { from = end }
+            if to > end { to = end }
+            if to <= from { to = from + 1 }
+            fin left = textX + (columnsBetween(source, start, from) as Double) * advance
+            var width = (columnsBetween(source, from, to) as Double) * advance
+            if width < advance { width = advance }
+            // A dotted underline: short dashes read as a squiggle at this size.
+            var dash: Double = 0.0
+            while dash < width {
+                app.uiRect(left + dash, y + sourceLineHeight - 3.0, 3.0, 2.0, r, g, b, alpha)
+                dash = dash + 5.0
+            }
+            app.uiRoundRect(gutterX + 6.0, y + sourceLineHeight * 0.5 - 3.0, 6.0, 6.0, 3.0, r, g, b, alpha)
+        }
+        index = index + 1
+    }
+}
+
+func drawSource(app: App!, source: Long, cursor: Int, focused: Bool, rect: Rect&, scroll: Int, caretVisible: Bool, problems: Array<Diagnostic>&, stale: Bool, selectionStart: Int, selectionEnd: Int) {
+    fin advance = app.uiTextWidthFont("0", sourceFontSize, uiFontMonospace)
+    fin textHeight = app.uiTextHeight(sourceFontSize)
+    fin cursorRow = sourceRow(source, cursor)
+    fin size = azsBufferSize(source)
+    fin textX = rect.x + sourceGutter + 10.0
+    // The gutter is a band of its own, separated by a hairline.
+    app.uiRect(rect.x, rect.y, rect.width, rect.height, studioTheme.codeBackground.r, studioTheme.codeBackground.g, studioTheme.codeBackground.b, 1.0)
+    app.uiRect(rect.x + sourceGutter, rect.y, 1.0, rect.height, studioTheme.hairline.r, studioTheme.hairline.g, studioTheme.hairline.b, studioTheme.hairline.a)
+    var start = 0
+    var row = 0
+    var y: Double = rect.y + sourceTop
+    var offset = 0
+    while offset <= size && y < rect.y + rect.height {
+        if offset == size || azsBufferByte(source, offset) == 10 {
+            if row >= scroll {
+                fin current = row == cursorRow
+                if current && focused && selectionStart == selectionEnd {
+                    app.uiRect(rect.x + sourceGutter + 1.0, y, rect.width - sourceGutter - 1.0, sourceLineHeight, studioTheme.codeLine.r, studioTheme.codeLine.g, studioTheme.codeLine.b, studioTheme.codeLine.a)
+                }
+                // The selected part of this line, plus its line break when the
+                // selection continues past it.
+                if selectionStart < selectionEnd && selectionStart <= offset && selectionEnd >= start {
+                    fin from = if selectionStart > start { selectionStart } else { start }
+                    fin to = if selectionEnd < offset { selectionEnd } else { offset }
+                    fin left = textX + (columnsBetween(source, start, from) as Double) * advance
+                    var width = (columnsBetween(source, from, to) as Double) * advance
+                    if selectionEnd > offset { width = width + advance * 0.6 }
+                    if width > 0.0 { app.uiRect(left, y, width, sourceLineHeight, studioTheme.codeSelection.r, studioTheme.codeSelection.g, studioTheme.codeSelection.b, studioTheme.codeSelection.a) }
+                }
+                fin number = "${row + 1}"
+                fin numberWidth = app.uiTextWidthFont(number, 12.0, uiFontMonospace)
+                fin shade = if current { studioTheme.codeGutterActive } else { studioTheme.codeGutter }
+                app.uiTextFont(number, rect.x + sourceGutter - 10.0 - numberWidth, y + (sourceLineHeight - textHeight) * 0.5, 12.0, shade.r, shade.g, shade.b, uiFontMonospace)
+                drawSourceLine(app, source, start, offset, textX, y + (sourceLineHeight - textHeight) * 0.5, advance)
+                drawProblems(app, source, problems, stale, row, start, offset, textX, y, advance, rect.x)
+                if focused && current && caretVisible {
+                    fin caretX = textX + (columnsBetween(source, start, cursor) as Double) * advance
+                    app.uiRect(caretX - 1.0, y + 2.0, 2.0, sourceLineHeight - 4.0, studioTheme.caret.r, studioTheme.caret.g, studioTheme.caret.b, 1.0)
+                }
+                y = y + sourceLineHeight
+            }
+            start = offset + 1
+            row = row + 1
+        }
+        offset = offset + 1
+    }
+}
+
+/** The byte offset a click at ([x], [y]) lands on. */
+func sourceOffsetAt(app: App&, source: Long, x: Double, y: Double, rect: Rect&, scroll: Int): Int {
+    fin advance = app.uiTextWidthFont("0", sourceFontSize, uiFontMonospace)
+    var wanted = ((y - rect.y - sourceTop) / sourceLineHeight) as Int
+    if wanted < 0 { wanted = 0 }
+    wanted = wanted + scroll
+    var row = 0
+    var start = 0
+    fin size = azsBufferSize(source)
+    while start < size && row < wanted {
+        if azsBufferByte(source, start) == 10 { row = row + 1 }
+        start = start + 1
+    }
+    var column = ((x - rect.x - sourceGutter - 10.0) / advance + 0.5) as Int
+    if column < 0 { column = 0 }
+    return offsetAtColumn(source, start, column)
+}
+
+// ── Console ─────────────────────────────────────────────────────────────
+
+func containsWord(source: Long, start: Int, end: Int, word: String): Bool {
+    fin probe = azsBufferNew(word)
+    if probe == Long(0) { return false }
+    fin length = azsBufferSize(probe)
+    var found = false
+    var offset = start
+    while !found && offset + length <= end {
+        var matched = 0
+        while matched < length && (azsBufferByte(source, offset + matched) | 32) == azsBufferByte(probe, matched) { matched = matched + 1 }
+        if matched == length { found = true }
+        offset = offset + 1
+    }
+    azsBufferClose(probe)
+    return found
+}
+
+func drawConsole(app: App!, output: Long, rect: Rect&) {
+    fin size = azsBufferSize(output)
+    fin textHeight = app.uiTextHeight(12.0)
+    var start = 0
+    var y: Double = rect.y + 8.0
+    var offset = 0
+    while offset <= size && y < rect.y + rect.height - 4.0 {
+        if offset == size || azsBufferByte(output, offset) == 10 {
+            if offset > start {
+                fin line = azsBufferSlice(output, start, offset)
+                if line != Long(0) {
+                    fin tint = when {
+                        containsWord(output, start, offset, "error") -> studioTheme.error
+                        containsWord(output, start, offset, "warn") -> studioTheme.warning
+                        else -> studioTheme.codeText
+                    }
+                    app.uiTextFont(azsBufferText(line), rect.x + 12.0, y + (18.0 - textHeight) * 0.5, 12.0, tint.r, tint.g, tint.b, uiFontMonospace)
+                    azsBufferClose(line)
+                }
+            }
+            y = y + 18.0
+            start = offset + 1
+        }
+        offset = offset + 1
+    }
+}
+
+
+/** The theme colour of a token kind: 0 plain, 1 keyword, 2 type, 3 string, 4 number, 5 comment, 6 punctuation, 7 call. */
+func tokenColor(kind: Int): Rgba {
+    return when kind {
+        1 -> studioTheme.keyword
+        2 -> studioTheme.type
+        3 -> studioTheme.string
+        4 -> studioTheme.number
+        5 -> studioTheme.comment
+        6 -> studioTheme.punctuation
+        7 -> studioTheme.function
+        else -> studioTheme.codeText
+    }
+}
+
+// ── Editing ─────────────────────────────────────────────────────────────
+
+/** Whether [key] was pressed this frame, by the user or by the input script. */
+func pressedKey(app: App&, injected: Int, key: Int): Bool { return injected == key || app.keyPressed(key) }
+
+/** Deletes the selection, if any, leaving the cursor where it began. */
+func deleteSelection(view: Studio!): Bool {
+    if !view.hasSelection() { view.anchor = -1
+        return false }
+    fin start = view.selectionStart()
+    if view.editor.splice(start, view.selectionEnd() - start, "") < 0 { return false }
+    view.cursor = start
+    view.anchor = -1
+    return true
+}
+
+/** ⌘A, ⌘C, ⌘X and ⌘V on the source. Answers whether the source changed. */
+func clipboardKeys(app: App&, view: Studio!, injected: Int): Bool {
+    if pressedKey(app, injected, keyA) {
+        view.anchor = 0
+        view.cursor = azsBufferSize(view.editor.source)
+        return false
+    }
+    if (pressedKey(app, injected, keyC) || pressedKey(app, injected, keyX)) && view.hasSelection() {
+        fin start = view.selectionStart()
+        fin copied = azsBufferSlice(view.editor.source, start, view.selectionEnd())
+        if copied != Long(0) {
+            app.setClipboardText(azsBufferText(copied))
+            azsBufferClose(copied)
+        }
+        if pressedKey(app, injected, keyX) { return deleteSelection(view) }
+        return false
+    }
+    if pressedKey(app, injected, keyV) {
+        fin pasted = app.clipboardText()
+        if pasted == "" { return false }
+        deleteSelection(view)
+        fin inserted = view.editor.splice(view.cursor, 0, pasted)
+        if inserted < 0 { return false }
+        view.cursor = view.cursor + inserted
+        return true
+    }
+    return false
+}
+
+func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool): Bool {
+    if !view.sourceFocused { return false }
+    if meta { return clipboardKeys(app, view, injected) }
+    if app.keyDown(keyControl) { return false }
+    var changed = false
+    fin source = view.editor.source
+    // Movement extends the selection while Shift is held and drops it otherwise.
+    fin extending = app.keyDown(keyShift)
+    fin moving = pressedKey(app, injected, keyArrowLeft) || pressedKey(app, injected, keyArrowRight) ||
+        pressedKey(app, injected, keyArrowUp) || pressedKey(app, injected, keyArrowDown) ||
+        pressedKey(app, injected, keyHome) || pressedKey(app, injected, keyEnd)
+    if moving {
+        if extending && view.anchor < 0 { view.anchor = view.cursor }
+        if !extending { view.anchor = -1 }
+    }
+    if pressedKey(app, injected, keyArrowLeft) && view.cursor > 0 {
+        view.cursor = view.cursor - 1
+        while view.cursor > 0 && isContinuation(azsBufferByte(view.editor.source, view.cursor)) { view.cursor = view.cursor - 1 }
+    }
+    if pressedKey(app, injected, keyArrowRight) && view.cursor < azsBufferSize(view.editor.source) {
+        view.cursor = view.cursor + 1
+        while view.cursor < azsBufferSize(view.editor.source) && isContinuation(azsBufferByte(view.editor.source, view.cursor)) { view.cursor = view.cursor + 1 }
+    }
+    if pressedKey(app, injected, keyArrowUp) {
+        fin start = lineStartOf(view.editor.source, view.cursor)
+        if start > 0 {
+            fin column = columnsBetween(view.editor.source, start, view.cursor)
+            view.cursor = offsetAtColumn(view.editor.source, lineStartOf(view.editor.source, start - 1), column)
+        }
+    }
+    if pressedKey(app, injected, keyArrowDown) {
+        fin start = lineStartOf(view.editor.source, view.cursor)
+        fin end = lineEndOf(view.editor.source, view.cursor)
+        if end < azsBufferSize(view.editor.source) {
+            fin column = columnsBetween(view.editor.source, start, view.cursor)
+            view.cursor = offsetAtColumn(view.editor.source, end + 1, column)
+        }
+    }
+    if pressedKey(app, injected, keyHome) { view.cursor = lineStartOf(view.editor.source, view.cursor) }
+    if pressedKey(app, injected, keyEnd) { view.cursor = lineEndOf(view.editor.source, view.cursor) }
+    if (pressedKey(app, injected, keyBackspace) || pressedKey(app, injected, keyDelete)) && view.hasSelection() {
+        return deleteSelection(view)
+    }
+    if (typed != "" || pressedKey(app, injected, keyEnter) || pressedKey(app, injected, keyTab)) && view.hasSelection() {
+        if deleteSelection(view) { changed = true }
+    }
+    if !moving && view.anchor == view.cursor { view.anchor = -1 }
+    if pressedKey(app, injected, keyBackspace) && view.cursor > 0 {
+        var start = view.cursor - 1
+        while start > 0 && isContinuation(azsBufferByte(view.editor.source, start)) { start = start - 1 }
+        if view.editor.splice(start, view.cursor - start, "") >= 0 { view.cursor = start
+            changed = true }
+    }
+    if pressedKey(app, injected, keyDelete) && view.cursor < azsBufferSize(view.editor.source) {
+        var end = view.cursor + 1
+        while end < azsBufferSize(view.editor.source) && isContinuation(azsBufferByte(view.editor.source, end)) { end = end + 1 }
+        if view.editor.splice(view.cursor, end - view.cursor, "") >= 0 { changed = true }
+    }
+    if pressedKey(app, injected, keyEnter) {
+        // A new line keeps the current line's indentation.
+        fin start = lineStartOf(view.editor.source, view.cursor)
+        var indent = start
+        while indent < view.cursor && (azsBufferByte(view.editor.source, indent) == 32 || azsBufferByte(view.editor.source, indent) == 9) { indent = indent + 1 }
+        var prefix = "\n"
+        if indent > start {
+            fin lead = azsBufferSlice(view.editor.source, start, indent)
+            if lead != Long(0) {
+                prefix = "\n${azsBufferText(lead)}"
+                azsBufferClose(lead)
+            }
+        }
+        fin inserted = view.editor.splice(view.cursor, 0, prefix)
+        if inserted >= 0 { view.cursor = view.cursor + inserted
+            changed = true }
+    }
+    if pressedKey(app, injected, keyTab) {
+        fin inserted = view.editor.splice(view.cursor, 0, "    ")
+        if inserted >= 0 { view.cursor = view.cursor + inserted
+            changed = true }
+    }
+    if typed != "" {
+        fin inserted = view.editor.typeText(view.cursor, typed)
+        if inserted >= 0 { view.cursor = view.cursor + inserted
+            changed = true }
+    }
+    if source != view.editor.source { changed = true }
+    return changed
+}
+
+
+// ── Panels ──────────────────────────────────────────────────────────────
+
+@Panel(title: "main.az", icon: "file-code", area: .Center, order: 1)
+@Canvas
+pack CodePanel { }
+impl CodePanel {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        return Column(modifier: Modifier::fillMaxSize(), key: "code") {
+            PanelBar {
+                Label("src / main.az", app, studioTheme.muted, key: "path")
+                if studio.editor.dirty { Shape(modifier: Modifier::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty") }
+                Spacer(key: "fill")
+                Label("Ln ${studio.line}, Col ${studio.column}", app, studioTheme.faint, key: "position")
+                Label("Azora · UTF-8", app, studioTheme.faint, key: "encoding")
+            }
+            Surface("CodePanel", studioTheme.codeBackground)
+        }
+    }
+
+    func draw(app: App!, studio: Studio!, rect: ViewRect&) {
+        fin area = Rect(rect.x, rect.y, rect.width, rect.height)
+        if studio.revealCursor {
+            fin cursorLine = sourceRow(studio.editor.source, studio.cursor)
+            var visibleRows = ((area.height - sourceTop * 2.0) / sourceLineHeight) as Int
+            if visibleRows < 1 { visibleRows = 1 }
+            if cursorLine < studio.sourceScroll { studio.sourceScroll = cursorLine }
+            if cursorLine >= studio.sourceScroll + visibleRows { studio.sourceScroll = cursorLine - visibleRows + 1 }
+            studio.revealCursor = false
+        }
+        // The caret holds steady while typing and blinks once idle.
+        fin idle = app.timeNow() - studio.lastEdit
+        fin caretVisible = idle < 0.6 || ((idle * 1.6) as Int) % 2 == 0
+        app.setScissor(rect.x, rect.y, rect.width, rect.height)
+        drawSource(app, studio.editor.source, studio.cursor, studio.sourceFocused, area, studio.sourceScroll, caretVisible,
+            studio.problems, studio.problemsStale, studio.selectionStart(), studio.selectionEnd())
+        app.clearScissor()
+    }
+
+    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+        fin area = Rect(rect.x, rect.y, rect.width, rect.height)
+        if studio.viewDrag == 4 {
+            if !input.down {
+                studio.viewDrag = 0
+                return true
+            }
+            studio.cursor = sourceOffsetAt(app, studio.editor.source, input.x, input.y, area, studio.sourceScroll)
+            studio.lastEdit = app.timeNow()
+            return true
+        }
+        if !rect.contains(input.x, input.y) { return false }
+        if input.scrollY != 0.0 {
+            if input.scrollY > 0.0 { studio.sourceScroll = studio.sourceScroll - 2 } else { studio.sourceScroll = studio.sourceScroll + 2 }
+            if studio.sourceScroll < 0 { studio.sourceScroll = 0 }
+        }
+        if !input.pressed { return false }
+        studio.sourceFocused = true
+        studio.focus = FieldFocus()
+        fin clicked = sourceOffsetAt(app, studio.editor.source, input.x, input.y, area, studio.sourceScroll)
+        if input.shift { if studio.anchor < 0 { studio.anchor = studio.cursor } }
+        else { studio.anchor = clicked }
+        studio.cursor = clicked
+        studio.viewDrag = 4
+        studio.lastEdit = app.timeNow()
+        studio.changed()
+        return true
+    }
+}
+
+@Panel(title: "Console", icon: "terminal", area: .Bottom, order: 1)
+@Canvas
+pack ConsolePanel { }
+impl ConsolePanel {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        return Column(modifier: Modifier::fillMaxSize(), key: "console") {
+            PanelBar {
+                Shape(modifier: Modifier::size(8.0, 8.0).rounded(4.0).fill(when studio.statusKind {
+                    3 -> studioTheme.error
+                    1 -> studioTheme.warning
+                    2 -> studioTheme.green
+                    else -> studioTheme.faint
+                }), key: "state")
+                Label(studio.status, app, studioTheme.muted, key: "status")
+                Spacer(key: "fill")
+                BarButton("toolBuild", app, icon: "hammer", label: "Build", key: "build")
+                BarButton("toolRun", app, icon: "play", label: "Run app", key: "run")
+            }
+            Surface("ConsolePanel", studioTheme.codeBackground)
+        }
+    }
+
+    func draw(app: App!, studio: Studio!, rect: ViewRect&) {
+        if studio.console == Long(0) { return }
+        fin area = Rect(rect.x, rect.y, rect.width, rect.height)
+        app.setScissor(rect.x, rect.y, rect.width, rect.height)
+        drawConsole(app, studio.console, area)
+        app.clearScissor()
+    }
+
+    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+        return false
+    }
+}

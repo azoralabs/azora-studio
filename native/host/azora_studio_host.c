@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 #include "azora_studio_host.h"
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -9,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/resource.h>
 #include <sys/types.h>
@@ -90,6 +92,67 @@ double azs_monotonic_seconds(void) {
     struct timespec time;
     if (clock_gettime(CLOCK_MONOTONIC, &time) < 0) return 0;
     return (double)time.tv_sec + (double)time.tv_nsec / 1000000000.0;
+}
+double azs_wall_seconds(void) {
+    struct timespec time;
+    if (clock_gettime(CLOCK_REALTIME, &time) < 0) return 0;
+    return (double)time.tv_sec + (double)time.tv_nsec / 1000000000.0;
+}
+int32_t azs_set_environment(const char *name, const char *value) {
+    if (!name || !*name || !value) { fail("invalid environment variable"); return 0; }
+    if (setenv(name, value, 1) < 0) { system_fail("set environment variable"); return 0; }
+    return 1;
+}
+static int copy_file(const char *from, const char *to, mode_t mode) {
+    int in = open(from, O_RDONLY);
+    if (in < 0) return 0;
+    int out = open(to, O_WRONLY | O_CREAT | O_TRUNC, mode & 0777);
+    if (out < 0) { close(in); return 0; }
+    char bytes[65536];
+    int ok = 1;
+    for (;;) {
+        ssize_t count = read(in, bytes, sizeof bytes);
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) { ok = 0; break; }
+        if (count == 0) break;
+        for (ssize_t written = 0; written < count;) {
+            ssize_t step = write(out, bytes + written, (size_t)(count - written));
+            if (step < 0 && errno == EINTR) continue;
+            if (step < 0) { ok = 0; break; }
+            written += step;
+        }
+        if (!ok) break;
+    }
+    close(in);
+    if (close(out) < 0) ok = 0;
+    return ok;
+}
+static int copy_tree(const char *from, const char *to, int depth) {
+    if (depth > 32) return 0;
+    if (mkdir(to, 0755) < 0 && errno != EEXIST) return 0;
+    DIR *dir = opendir(from);
+    if (!dir) return 0;
+    int ok = 1;
+    struct dirent *entry;
+    while (ok && (entry = readdir(dir))) {
+        const char *name = entry->d_name;
+        // Hidden entries (., .., .build, .azora-build, .DS_Store) and build output stay behind.
+        if (name[0] == '.' || strcmp(name, "build") == 0) continue;
+        char source[PATH_MAX], target[PATH_MAX];
+        if (snprintf(source, sizeof source, "%s/%s", from, name) >= (int)sizeof source ||
+            snprintf(target, sizeof target, "%s/%s", to, name) >= (int)sizeof target) { ok = 0; break; }
+        struct stat info;
+        if (lstat(source, &info) < 0 || S_ISLNK(info.st_mode)) { ok = 0; break; }
+        if (S_ISDIR(info.st_mode)) ok = copy_tree(source, target, depth + 1);
+        else if (S_ISREG(info.st_mode)) ok = copy_file(source, target, info.st_mode);
+    }
+    closedir(dir);
+    return ok;
+}
+int32_t azs_copy_tree(const char *from, const char *to) {
+    if (!from || from[0] != '/' || !to || to[0] != '/') { fail("copy needs absolute paths"); return 0; }
+    if (!copy_tree(from, to, 0)) { system_fail("copy template"); return 0; }
+    return 1;
 }
 int64_t azs_peak_memory_bytes(void) {
     struct rusage usage;
@@ -298,6 +361,81 @@ int32_t azs_project_write(int64_t handle, const char *relative, int64_t buffer) 
     if (ok && renameat(parent, temporary, parent, name) < 0) ok = system_fail("commit source");
     if (ok && fsync(parent) < 0) ok = system_fail("sync project directory");
     if (!ok) unlinkat(parent, temporary, 0);
+    close(parent); return ok;
+}
+
+/* Opens a project directory for listing: the root for "" or ".", otherwise a
+ * relative path walked one segment at a time, refusing symlinks. */
+static int directory_fd(Slot *project, const char *relative) {
+    if (!relative || !*relative || !strcmp(relative, ".")) {
+        int root = dup(project->fd);
+        if (root < 0) system_fail("duplicate project directory");
+        return root;
+    }
+    char name[NAME_MAX + 1]; int parent = parent_fd(project, relative, name);
+    if (parent < 0) return -1;
+    int fd = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    close(parent);
+    if (fd < 0) system_fail("open project directory");
+    return fd;
+}
+static int compare_entries(const void *a, const void *b) {
+    const char *left = *(const char *const *)a, *right = *(const char *const *)b;
+    if (left[0] != right[0]) return left[0] == 'd' ? -1 : 1;
+    return strcasecmp(left + 2, right + 2);
+}
+int64_t azs_project_list(int64_t handle, const char *relative) {
+    Slot *project = get(handle, PROJECT);
+    if (!project) return 0;
+    int fd = directory_fd(project, relative);
+    if (fd < 0) return 0;
+    DIR *directory = fdopendir(fd);
+    if (!directory) { close(fd); system_fail("list project directory"); return 0; }
+    char **entries = NULL; size_t count = 0, capacity = 0, bytes = 1;
+    struct dirent *entry;
+    while ((entry = readdir(directory))) {
+        if (entry->d_name[0] == '.') continue; /* hidden files, `.` and `..` */
+        struct stat info;
+        if (fstatat(dirfd(directory), entry->d_name, &info, AT_SYMLINK_NOFOLLOW) < 0) continue;
+        if (!S_ISDIR(info.st_mode) && !S_ISREG(info.st_mode)) continue;
+        if (count == capacity) {
+            capacity = capacity ? capacity * 2 : 32;
+            char **grown = realloc(entries, capacity * sizeof *entries);
+            if (!grown) break;
+            entries = grown;
+        }
+        size_t length = strlen(entry->d_name);
+        entries[count] = malloc(length + 3);
+        if (!entries[count]) break;
+        entries[count][0] = S_ISDIR(info.st_mode) ? 'd' : 'f';
+        entries[count][1] = ' ';
+        memcpy(entries[count] + 2, entry->d_name, length + 1);
+        bytes += length + 3;
+        ++count;
+    }
+    closedir(directory);
+    qsort(entries, count, sizeof *entries, compare_entries);
+    char *text = malloc(bytes);
+    if (!text) { for (size_t i = 0; i < count; ++i) free(entries[i]); free(entries); fail("out of memory"); return 0; }
+    size_t offset = 0;
+    for (size_t i = 0; i < count; ++i) {
+        size_t length = strlen(entries[i]);
+        memcpy(text + offset, entries[i], length);
+        offset += length;
+        text[offset++] = '\n';
+        free(entries[i]);
+    }
+    text[offset] = 0;
+    free(entries);
+    int64_t result = azs_buffer_new(text); free(text); return result;
+}
+int32_t azs_project_make_dir(int64_t handle, const char *relative) {
+    Slot *project = get(handle, PROJECT);
+    if (!project) return 0;
+    char name[NAME_MAX + 1]; int parent = parent_fd(project, relative, name);
+    if (parent < 0) return 0;
+    int ok = mkdirat(parent, name, 0700) == 0 || errno == EEXIST;
+    if (!ok) system_fail("create project directory");
     close(parent); return ok;
 }
 

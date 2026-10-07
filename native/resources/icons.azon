@@ -1,0 +1,18 @@
+{
+    "_comment": "Lucide icons Studio and the Launcher draw. tools/build-icons.sh rasterises them into icons.png and icons-index.azon.",
+    "source": "lucide",
+    "cell": 64,
+    "icons": [
+        "mouse-pointer-2", "move", "rotate-3d", "scale-3d", "play", "pause", "square", "hammer",
+        "box", "sun", "video", "camera", "circle", "layers", "folder", "folder-open",
+        "file-code", "file", "file-text", "search", "plus", "x", "chevron-down", "chevron-right",
+        "chevron-left", "ellipsis", "eye", "eye-off", "settings", "focus", "crosshair", "cylinder",
+        "circle-dot", "terminal", "triangle-alert", "circle-alert", "check", "list-tree", "sliders-horizontal", "package",
+        "image", "music", "code", "grid-3x3", "magnet", "lock", "undo-2", "redo-2",
+        "save", "trash-2", "copy", "folder-plus", "star", "layout-template", "download", "graduation-cap",
+        "users", "heart", "message-circle", "book-open", "house", "clock", "gamepad-2", "car",
+        "mountain", "puzzle", "map", "app-window", "swords", "rocket", "sparkles", "lightbulb",
+        "shapes", "globe", "component", "cuboid", "axis-3d", "orbit", "monitor-play", "wrench",
+        "circle-dashed", "move-3d", "rotate-cw", "circle-x", "palette", "tag", "refresh-cw"
+    ]
+}

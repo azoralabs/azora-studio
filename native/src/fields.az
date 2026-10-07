@@ -1,0 +1,84 @@
+module studio.fields
+import std.traits
+import engine.core
+import engine.ecs
+import engine.math
+import engine.ui.node
+import engine.ui.compose
+import studio.theme
+import studio.state
+
+// The inspector's editable fields. Each binds its node to one field of one
+// component of the selected entity ([FieldTarget]); the window turns a press
+// on one into a drag or into typing.
+
+/** A field's caption, small and muted. */
+pack FieldCaption { }
+impl FieldCaption {
+    react ctor (anchor: Anchor!).(text: String, key: String = ""): Entity {
+        return Text(text, modifier: Modifier::fillMaxWidth().height(17.0).padding(start: 1.0).fontSize(10.5).mutedText().textAlign(.Start), key: key)
+    }
+}
+
+/**
+ * Binds a composed node to one field of one component of the selected entity
+ * (one channel of it when [axis] names one). Pressing it starts a drag or, if
+ * released in place, typing.
+ */
+@Component
+pack FieldTarget derives Clone {
+    var component: String = ""
+    var field: String = ""
+    var axis: Int = 0
+    var numeric: Bool = true
+}
+
+/**
+ * A number in a well, with an optional coloured axis badge: drag sideways to
+ * change it by the field's step, click to type a value.
+ */
+pack NumberField { }
+impl NumberField {
+    react ctor (anchor: Anchor!).(
+        component: String
+        field: String
+        axis: Int
+        value: Double
+        focus: FieldFocus&
+        badge: String = ""
+        badgeColor: Rgba = Rgba(0.6, 0.6, 0.6, 1.0)
+        key: String = ""
+    ): Entity {
+        fin typing = focus.typing && focus.component == component && focus.field == field && focus.axis == axis
+        fin shown = if typing { "${focus.text}|" } else { formatDecimal(value, 3) }
+        fin node = Row(modifier: Modifier::weight(1.0).height(24.0).sunken().rounded(5.0)
+            .outline(1.0, if typing { studioTheme.accent } else { studioTheme.hairline }), verticalAlignment: .Center, key: key) {
+            if badge != "" {
+                Text(badge, modifier: Modifier::width(18.0).fillMaxHeight().fill(badgeColor.withAlpha(0.88)).rounded(4.0).fontSize(10.5).semibold().ink(studioTheme.ground), key: "badge")
+            }
+            Text(shown, modifier: Modifier::weight(1.0).fillMaxHeight().padding(end: 8.0).fontSize(12.0).ink(studioTheme.text).textAlign(.End).monospace(), key: "value")
+        }
+        storageInsert<FieldTarget>(store<FieldTarget>(anchor.pass), node, FieldTarget(component, field, axis, true))
+        return node
+    }
+}
+
+/** A single-line text field bound to a String field. */
+pack TextField { }
+impl TextField {
+    react ctor (anchor: Anchor!).(
+        component: String
+        field: String
+        value: String
+        focus: FieldFocus&
+        key: String = ""
+    ): Entity {
+        fin typing = focus.typing && focus.component == component && focus.field == field
+        fin node = Row(modifier: Modifier::weight(1.0).height(24.0).sunken().rounded(5.0).padding(start: 8.0, end: 8.0)
+            .outline(1.0, if typing { studioTheme.accent } else { studioTheme.hairline }), verticalAlignment: .Center, key: key) {
+            Text(if typing { "${focus.text}|" } else { value }, modifier: Modifier::weight(1.0).fillMaxHeight().fontSize(12.0).ink(studioTheme.text).textAlign(.Start), key: "value")
+        }
+        storageInsert<FieldTarget>(store<FieldTarget>(anchor.pass), node, FieldTarget(component, field, 0, false))
+        return node
+    }
+}

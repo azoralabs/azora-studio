@@ -1,0 +1,736 @@
+module studio.state
+import std.reflection
+import std.traits
+import std.container.list
+import std.serializer
+import engine.core
+import engine.ecs
+import engine.math
+import engine.scene
+import engine.scene.io
+import engine.gizmos
+import engine.gpu
+import engine.render.scene
+import engine.ui.docking
+import engine.ui.node
+import studio.host
+import studio.editor
+import studio.problems
+import studio.ui
+
+// Studio's state. The edited scene is an ECS world of Engine components; what
+// the editor adds to it (the selection) is components too, never saved because
+// they are not `@Inspectable`. Everything a panel shows is read from here, and
+// [Studio.revision] moves whenever any of it changes, so the window recomposes
+// only then.
+
+// ── Commands ────────────────────────────────────────────────────────────
+
+/**
+ * A Studio command: a function `(studio: Studio!, call: Invocation&)`.
+ *
+ * Commands are found, not registered. A node runs one through [Pressable] by
+ * its declaration name, the menu bar lists those with a [menu], and a key
+ * equivalent is [key] with ⌘ (and ⇧ when [shift]).
+ */
+annot @Command for .Func {
+    fin title: String = ""
+    fin menu: String = ""
+    fin group: Int = 0
+    fin order: Int = 0
+    fin key: String = ""
+    fin shift: Bool = false
+    /** A key that runs the command alone, while nothing is being typed. */
+    fin hotkey: String = ""
+    fin icon: String = ""
+}
+
+// ── Editor-only components on scene entities ────────────────────────────
+
+/** The entity the editor has selected. Not saved. */
+@Component
+pack Selected derives Clone {
+    var primary: Bool = true
+}
+
+/** A scene-tree row whose children are shown. Not saved. */
+@Component
+pack Expanded derives Clone {
+    var open: Bool = true
+}
+
+// ── History ─────────────────────────────────────────────────────────────
+
+/**
+ * One undoable change to one entity: everything it carried before and after,
+ * as AZON component objects. An empty [before] means the change created it; an
+ * empty [after] means the change removed it.
+ */
+pack SceneEdit derives Clone {
+    var entity: Int = -1
+    var before: String = ""
+    var after: String = ""
+    var parentBefore: Int = -1
+    var parentAfter: Int = -1
+    var label: String = ""
+}
+
+/** The value being dragged or typed into an inspector field. */
+pack FieldFocus derives Clone {
+    var component: String = ""
+    var field: String = ""
+    var axis: Int = 0
+    var typing: Bool = false
+    var scrubbing: Bool = false
+    var text: String = ""
+    var startX: Double = 0.0
+    var startValue: Double = 0.0
+    var step: Double = 0.1
+    var before: String = ""
+    /** Whether the field holds a number (typing parses it) or text. */
+    var numeric: Bool = true
+}
+
+/**
+ * The pointer and modifier keys for one frame, from the window or from a
+ * scripted session alike: panels read this, never the platform.
+ */
+pack FrameInput derives Clone {
+    var x: Double = 0.0
+    var y: Double = 0.0
+    var dx: Double = 0.0
+    var dy: Double = 0.0
+    var pressed: Bool = false
+    var down: Bool = false
+    var released: Bool = false
+    var rightPressed: Bool = false
+    var rightDown: Bool = false
+    var middleDown: Bool = false
+    var middlePressed: Bool = false
+    var scrollX: Double = 0.0
+    var scrollY: Double = 0.0
+    /** Whether the scroll came from two fingers on a trackpad, not a wheel. */
+    var preciseScroll: Bool = false
+    /** How much a trackpad pinch grew this frame. */
+    var pinch: Double = 0.0
+    /** Fly keys held this frame, each -1 to 1: W/S forward, D/A right, E/Q up. */
+    var flyForward: Double = 0.0
+    var flyRight: Double = 0.0
+    var flyUp: Double = 0.0
+    /** Seconds since the last frame. */
+    var seconds: Double = 0.0
+    var shift: Bool = false
+    var alt: Bool = false
+    var command: Bool = false
+}
+
+/** A popup shown over everything: a list of commands at a point. */
+pack Popup derives Clone {
+    var kind: String = ""
+    var x: Double = 0.0
+    var y: Double = 0.0
+    var target: Int = -1
+}
+
+pack Studio {
+    var root: String = ""
+    var editor: Editor
+    var scene: World = World()
+    var history: Array<SceneEdit> = Array<SceneEdit>()
+    var historyAt: Int = 0
+    var sceneDirty: Bool = false
+    var revision: Long = Long(1)
+    var dock: DockState = DockState()
+
+    var status: String = "Ready"
+    /** 0 ready, 1 working, 2 succeeded, 3 failed. */
+    var statusKind: Int = 0
+    var console: Long = Long(0)
+    var projectLabel: Long = Long(0)
+    var problems: Array<Diagnostic> = Array<Diagnostic>()
+    var problemText: Array<Long> = Array<Long>()
+    var problemsStale: Bool = false
+    var inspected: Bool = false
+    var busy: Bool = false
+    var process: Long = Long(0)
+    var processAction: String = ""
+    var requestedTool: String = ""
+
+    var sourceFocused: Bool = false
+    var cursor: Int = 0
+    /** The selection's fixed end; -1 when nothing is selected. */
+    var anchor: Int = -1
+    var sourceScroll: Int = 0
+    var revealCursor: Bool = true
+    var lastEdit: Double = 0.0
+    var line: Int = 1
+    var column: Int = 1
+    var lineCount: Int = 1
+
+    var camera: EditorCamera = EditorCamera()
+    var gizmo: TransformGizmo = TransformGizmo()
+    /** 0 none, 1 looking and flying, 2 panning, 3 dragging a handle, 4 selecting source text, 5 orbiting. */
+    var viewDrag: Int = 0
+    /** Print pointer handling as it happens (AZORA_STUDIO_TRACE). */
+    var tracing: Bool = false
+    var gizmoStart: Transform = Transform()
+    var gizmoBefore: String = ""
+    /** How the Assets panel shows each kind of file (resources/file-types.azon). */
+    var fileKinds: Array<FileKind> = Array<FileKind>()
+    /** The Azora mark the top bar shows (resources/azora-logo.png); 0 when missing. */
+    var logo: Long = Long(0)
+    /** The icon atlas, for canvases that draw icons directly. */
+    var icons: IconAtlas = IconAtlas()
+    var meshes: PrimitiveMeshes = PrimitiveMeshes(Mesh(Long(0), 0), Mesh(Long(0), 0), Mesh(Long(0), 0), Mesh(Long(0), 0))
+    var mode3d: Bool = true
+    /** 0 select, 1 move, 2 rotate, 3 scale. */
+    var tool: Int = 1
+    var playing: Bool = false
+    var paused: Bool = false
+    var playTime: Double = 0.0
+
+    var focus: FieldFocus = FieldFocus()
+    var popup: Popup = Popup()
+    var assetsPath: String = ""
+    /** The open asset folder's entries: "d name" or "f name", folders first. */
+    var assets: Array<String> = Array<String>()
+    var assetSelected: String = ""
+    var collapsed: Array<String> = Array<String>()
+    var quitting: Bool = false
+    var layoutDirty: Bool = false
+    var resetLayout: Bool = false
+    /** A panel a command asked to show; the window does it next frame. */
+    var showPanel: String = ""
+    var pointerX: Double = 0.0
+    var pointerY: Double = 0.0
+    var presets: Array<EntityPresetSlot> = Array<EntityPresetSlot>()
+}
+
+/** One entity preset from `resources/presets.azon`: its name, icon and components (AZON). */
+/** How the Assets panel shows files with [extension] ('/' a folder, '*' any other). */
+pack FileKind derives Clone {
+    var extension: String = ""
+    var icon: String = "file"
+    var color: String = "muted"
+}
+
+/** The file kinds in [text], a `file-types.azon`; none when it is not one. */
+func readFileKinds(text: String): Array<FileKind> {
+    var kinds: Array<FileKind> = Array<FileKind>()
+    fin root = decodeSerialValue(text, serializerOptions()) catch SerialValue.Null
+    when root {
+        SerialValue.Object(members) -> {
+            var index = 0
+            while index < members.size {
+                when members[index].value {
+                    SerialValue.Object(fields) -> {
+                        var kind = FileKind(members[index].name)
+                        var field = 0
+                        while field < fields.size {
+                            when fields[field].name {
+                                "icon" -> { kind.icon = serialAsText(fields[field].value) catch kind.icon }
+                                "color" -> { kind.color = serialAsText(fields[field].value) catch kind.color }
+                                else -> { }
+                            }
+                            field = field + 1
+                        }
+                        kinds.add(take kind)
+                    }
+                    else -> { }
+                }
+                index = index + 1
+            }
+        }
+        else -> { }
+    }
+    return kinds
+}
+
+pack EntityPresetSlot derives Clone {
+    var name: String = ""
+    var icon: String = ""
+    var components: String = "{}"
+}
+
+impl Studio {
+    dtor .() {
+        if self.console != Long(0) { azsBufferClose(self.console) }
+        if self.projectLabel != Long(0) { azsBufferClose(self.projectLabel) }
+        while self.problemText.size > 0 { azsBufferClose(self.problemText.removeLast()) }
+        if self.process != Long(0) { azsProcessClose(self.process) }
+    }
+
+    func !.changed() { self.revision = self.revision + Long(1) }
+
+    func !.message(value: String) { self.notify(value, 0) }
+
+    /** How the Assets panel shows [name]: by its extension, or as a folder. */
+    func &.fileKind(name: String, folder: Bool): FileKind {
+        var extension = if folder { "/" } else { "*" }
+        if !folder {
+            var dot = stringLength(name) - 1
+            while dot > 0 && charAt(name, dot) != '.' { dot = dot - 1 }
+            if dot > 0 { extension = substring(name, dot + 1, stringLength(name)) }
+        }
+        var fallback = FileKind("*")
+        var index = 0
+        while index < self.fileKinds.size {
+            if self.fileKinds[index].extension == extension { return self.fileKinds[index].clone() }
+            if self.fileKinds[index].extension == "*" { fallback = self.fileKinds[index].clone() }
+            index = index + 1
+        }
+        return fallback
+    }
+
+    func !.notify(value: String, kind: Int) {
+        self.status = value
+        self.statusKind = kind
+        self.changed()
+    }
+
+    func !.output(value: String) {
+        fin next = azsBufferNew(value)
+        if next == Long(0) { return }
+        if self.console != Long(0) { azsBufferClose(self.console) }
+        self.console = next
+        self.changed()
+    }
+
+    /** Names the project after the last component of [root]. */
+    func !.nameProject(root: String) {
+        fin path = azsBufferNew(root)
+        if path == Long(0) { return }
+        var end = azsBufferSize(path)
+        while end > 1 && azsBufferByte(path, end - 1) == 47 { end = end - 1 }
+        var start = end
+        while start > 0 && azsBufferByte(path, start - 1) != 47 { start = start - 1 }
+        fin label = azsBufferSlice(path, start, end)
+        azsBufferClose(path)
+        if label == Long(0) { return }
+        if self.projectLabel != Long(0) { azsBufferClose(self.projectLabel) }
+        self.projectLabel = label
+        self.changed()
+    }
+
+    func &.projectName(): String {
+        if self.projectLabel == Long(0) { return "project" }
+        return azsBufferText(self.projectLabel)
+    }
+
+    func &.hasSelection(): Bool { return self.anchor >= 0 && self.anchor != self.cursor }
+    func &.selectionStart(): Int { return if self.anchor >= 0 && self.anchor < self.cursor { self.anchor } else { self.cursor } }
+    func &.selectionEnd(): Int { return if self.anchor > self.cursor { self.anchor } else { self.cursor } }
+
+    /** Replaces the problems with an inspect snapshot's, for [file]. */
+    func !.inspect(snapshot: String, file: String) {
+        var text: Array<Long> = Array<Long>()
+        var found = parseDiagnostics(snapshot, file, text)
+        self.problems = take found
+        while self.problemText.size > 0 { azsBufferClose(self.problemText.removeLast()) }
+        self.problemText = take text
+        self.problemsStale = false
+        self.inspected = true
+        self.changed()
+    }
+
+    func &.countProblems(severity: Int): Int {
+        var count = 0
+        var index = 0
+        while index < self.problems.size {
+            if self.problems[index].severity == severity { count = count + 1 }
+            index = index + 1
+        }
+        return count
+    }
+
+    /** Records editor facts the chrome shows, recomposing only when one changed. */
+    func !.syncSource(line: Int, column: Int, lineCount: Int) {
+        if line == self.line && column == self.column && lineCount == self.lineCount { return }
+        self.line = line
+        self.column = column
+        self.lineCount = lineCount
+        self.changed()
+    }
+
+    /** Lists [assetsPath] into [assets]. */
+    func !.refreshAssets() {
+        while self.assets.size > 0 { self.assets.removeLast() }
+        fin listing = azsProjectList(self.editor.project, if self.assetsPath == "" { "." } else { self.assetsPath })
+        if listing == Long(0) {
+            self.changed()
+            return
+        }
+        fin size = azsBufferSize(listing)
+        var start = 0
+        var offset = 0
+        while offset < size {
+            if azsBufferByte(listing, offset) == 10 {
+                if offset > start {
+                    fin line = azsBufferSlice(listing, start, offset)
+                    if line != Long(0) {
+                        self.assets.add(ownedText(line))
+                        azsBufferClose(line)
+                    }
+                }
+                start = offset + 1
+            }
+            offset = offset + 1
+        }
+        azsBufferClose(listing)
+        self.changed()
+    }
+
+    // ── Selection ───────────────────────────────────────────────────────
+
+    /** The selected entity, or an invalid one. */
+    func !.selected(): Entity {
+        var index = 0
+        while index < storageLength<Selected>(ensureStorage<Selected>(self.scene)) {
+            fin entity = storageEntityAt<Selected>(ensureStorage<Selected>(self.scene), index)
+            if self.scene.isAlive(entity) { return entity }
+            index = index + 1
+        }
+        return Entity::invalid
+    }
+
+    func !.select(entity: Entity) {
+        while storageLength<Selected>(ensureStorage<Selected>(self.scene)) > 0 {
+            storageRemove<Selected>(ensureStorage<Selected>(self.scene), storageEntityAt<Selected>(ensureStorage<Selected>(self.scene), 0))
+        }
+        if self.scene.isAlive(entity) {
+            storageInsert<Selected>(ensureStorage<Selected>(self.scene), entity, Selected())
+        }
+        self.focus = FieldFocus()
+        self.changed()
+    }
+
+    /** [entity]'s display name. */
+    func !.nameOf(entity: Entity): String {
+        if storageHas<Name>(ensureStorage<Name>(self.scene), entity) {
+            return storageGet<Name>(ensureStorage<Name>(self.scene), entity).value
+        }
+        return "Entity ${entity.id}"
+    }
+
+    // ── History ─────────────────────────────────────────────────────────
+
+    /** Everything [entity] carries, for a [SceneEdit]; empty when it is gone. */
+    func !.snapshot(entity: Entity): String {
+        if !self.scene.isAlive(entity) { return "" }
+        return componentsAzon(self.scene, entity)
+    }
+
+    /** Records a change to [entity] that began from [before]. */
+    func !.record(entity: Entity, before: String, parentBefore: Int, label: String) {
+        fin after = self.snapshot(entity)
+        if before == after && parentBefore == self.scene.getParent(entity).id { return }
+        while self.history.size > self.historyAt { self.history.removeLast() }
+        self.history.add(SceneEdit(entity.id, before, after, parentBefore, self.scene.getParent(entity).id, label))
+        if self.history.size > 512 { self.history.removeAt(0) }
+        self.historyAt = self.history.size
+        self.sceneDirty = true
+        self.changed()
+    }
+
+    /** Makes [entity] carry exactly what [text] describes; an empty text removes it. */
+    func !.restore(id: Int, text: String, parent: Int): Int {
+        var entity = self.scene.entityAt(id)
+        if stringLength(text) == 0 {
+            if self.scene.isAlive(entity) { self.scene.despawn(entity) }
+            return id
+        }
+        if !self.scene.isAlive(entity) {
+            entity = self.scene.spawn()
+            // The entity comes back under a new id; every later edit names it by that.
+            var index = 0
+            while index < self.history.size {
+                if self.history[index].entity == id { self.history[index].entity = entity.id }
+                index = index + 1
+            }
+        }
+        clearComponents(self.scene, entity)
+        replaceComponents(self.scene, entity, text)
+        if parent >= 0 && self.scene.isAlive(self.scene.entityAt(parent)) {
+            self.scene.setParent(entity, self.scene.entityAt(parent))
+        } else if self.scene.getParent(entity).id >= 0 {
+            self.scene.removeParent(entity)
+        }
+        return entity.id
+    }
+
+    func !.undo(): Bool {
+        if self.historyAt == 0 { return false }
+        self.historyAt = self.historyAt - 1
+        fin edit = self.history[self.historyAt].clone()
+        self.restore(edit.entity, edit.before, edit.parentBefore)
+        self.sceneDirty = true
+        self.message("Undid ${edit.label}")
+        return true
+    }
+
+    func !.redo(): Bool {
+        if self.historyAt >= self.history.size { return false }
+        fin edit = self.history[self.historyAt].clone()
+        self.historyAt = self.historyAt + 1
+        self.restore(edit.entity, edit.after, edit.parentAfter)
+        self.sceneDirty = true
+        self.message("Redid ${edit.label}")
+        return true
+    }
+}
+
+/** Takes every inspectable component off [entity]. */
+func clearComponents(world: World!, entity: Entity) {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        storageRemove<C>(ensureStorage<C>(world), entity)
+    }
+}
+
+/** Puts the components in the AZON object [text] on [entity]. */
+func replaceComponents(world: World!, entity: Entity, text: String) {
+    fin root = decodeSerialValue(text, serializerOptions()) catch SerialValue.Null
+    when root {
+        SerialValue.Object(fields) -> readComponents(world, entity, fields)
+        else -> { }
+    }
+}
+
+// ── Reflected field edits ───────────────────────────────────────────────
+
+/** Whether [entity] carries the component declared as [component]. */
+func hasComponent(world: World!, entity: Entity, component: String): Bool {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        if component == reflect<C>.declName { return storageHas<C>(ensureStorage<C>(world), entity) }
+    }
+    return false
+}
+
+/** Adds the component declared as [component], with its defaults. */
+func addComponent(world: World!, entity: Entity, component: String) {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        if component == reflect<C>.declName && !storageHas<C>(ensureStorage<C>(world), entity) {
+            storageInsert<C>(ensureStorage<C>(world), entity, C())
+        }
+    }
+}
+
+func removeComponent(world: World!, entity: Entity, component: String) {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        if component == reflect<C>.declName { storageRemove<C>(ensureStorage<C>(world), entity) }
+    }
+}
+
+/** [value] kept within [min]..[max]. */
+func clampTo(value: Double, min: Double, max: Double): Double {
+    return when {
+        value < min -> min
+        value > max -> max
+        else -> value
+    }
+}
+
+/** The number a field shows: [axis] picks a vector's or colour's channel. */
+func fieldNumber(world: World!, entity: Entity, component: String, field: String, axis: Int): Double {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        if component == reflect<C>.declName && storageHas<C>(ensureStorage<C>(world), entity) {
+            fin value = storageGet<C>(ensureStorage<C>(world), entity).clone()
+            inline for f in reflect<C>.fields {
+                if field == f.name {
+                    inline if f.typeName == "Double" { return value.${f.name} }
+                    inline if f.typeName == "Int" { return value.${f.name} as Double }
+                    inline if f.typeName == "Vec3" {
+                        return when axis {
+                            0 -> value.${f.name}.x
+                            1 -> value.${f.name}.y
+                            else -> value.${f.name}.z
+                        }
+                    }
+                    inline if f.typeName == "Rgba" {
+                        return when axis {
+                            0 -> value.${f.name}.r
+                            1 -> value.${f.name}.g
+                            2 -> value.${f.name}.b
+                            else -> value.${f.name}.a
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return 0.0
+}
+
+/** The drag step a field declares with `@Range`. */
+func fieldStep(component: String, field: String): Double {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        if component == reflect<C>.declName {
+            inline for f in reflect<C>.fields {
+                if field == f.name { return reflect<f>.annotMeta<Range>.step }
+            }
+        }
+    }
+    return 0.1
+}
+
+/** Sets a numeric field (or one channel of it), within its declared range. */
+func setFieldNumber(world: World!, entity: Entity, component: String, field: String, axis: Int, number: Double) {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        if component == reflect<C>.declName && storageHas<C>(ensureStorage<C>(world), entity) {
+            var value = storageGet<C>(ensureStorage<C>(world), entity).clone()
+            inline for f in reflect<C>.fields {
+                if field == f.name {
+                    fin bounded = clampTo(number, reflect<f>.annotMeta<Range>.min, reflect<f>.annotMeta<Range>.max)
+                    inline if f.typeName == "Double" { value.${f.name} = bounded }
+                    inline if f.typeName == "Int" { value.${f.name} = bounded as Int }
+                    inline if f.typeName == "Vec3" {
+                        when axis {
+                            0 -> { value.${f.name}.x = bounded }
+                            1 -> { value.${f.name}.y = bounded }
+                            else -> { value.${f.name}.z = bounded }
+                        }
+                    }
+                    inline if f.typeName == "Rgba" {
+                        fin unit = clampTo(number, 0.0, 1.0)
+                        when axis {
+                            0 -> { value.${f.name}.r = unit }
+                            1 -> { value.${f.name}.g = unit }
+                            2 -> { value.${f.name}.b = unit }
+                            else -> { value.${f.name}.a = unit }
+                        }
+                    }
+                }
+            }
+            storageInsert<C>(ensureStorage<C>(world), entity, take value)
+        }
+    }
+}
+
+/** A `Bool` field's value. */
+func fieldFlag(world: World!, entity: Entity, component: String, field: String): Bool {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        if component == reflect<C>.declName && storageHas<C>(ensureStorage<C>(world), entity) {
+            fin value = storageGet<C>(ensureStorage<C>(world), entity).clone()
+            inline for f in reflect<C>.fields {
+                inline if f.typeName == "Bool" {
+                    if field == f.name { return value.${f.name} }
+                }
+            }
+        }
+    }
+    return false
+}
+
+func setFieldFlag(world: World!, entity: Entity, component: String, field: String, flag: Bool) {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        if component == reflect<C>.declName && storageHas<C>(ensureStorage<C>(world), entity) {
+            var value = storageGet<C>(ensureStorage<C>(world), entity).clone()
+            inline for f in reflect<C>.fields {
+                inline if f.typeName == "Bool" {
+                    if field == f.name { value.${f.name} = flag }
+                }
+            }
+            storageInsert<C>(ensureStorage<C>(world), entity, take value)
+        }
+    }
+}
+
+func setFieldText(world: World!, entity: Entity, component: String, field: String, text: String) {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        if component == reflect<C>.declName && storageHas<C>(ensureStorage<C>(world), entity) {
+            var value = storageGet<C>(ensureStorage<C>(world), entity).clone()
+            inline for f in reflect<C>.fields {
+                inline if f.typeName == "String" {
+                    if field == f.name { value.${f.name} = text }
+                }
+            }
+            storageInsert<C>(ensureStorage<C>(world), entity, take value)
+        }
+    }
+}
+
+/** How many choices an `@Choice` field offers. */
+func choiceCount(options: String): Int {
+    if stringLength(options) == 0 { return 0 }
+    var count = 1
+    var index = 0
+    while index < stringLength(options) {
+        if charAt(options, index) == '|' { count = count + 1 }
+        index = index + 1
+    }
+    return count
+}
+
+/** Choice [index] of the `|`-separated [options]. */
+func choiceAt(options: String, index: Int): String {
+    var current = 0
+    var start = 0
+    var at = 0
+    fin length = stringLength(options)
+    while at <= length {
+        if at == length || charAt(options, at) == '|' {
+            if current == index { return substring(options, start, at) }
+            current = current + 1
+            start = at + 1
+        }
+        at = at + 1
+    }
+    return "${index}"
+}
+
+// ── The scene file ──────────────────────────────────────────────────────
+
+/** Where the scene lives in a project. */
+fin sceneFile = "scene.azscene"
+
+/** An entity with [components] (AZON) under [parent]. */
+func spawnFromAzon(world: World!, components: String, parent: Entity): Entity {
+    fin entity = world.spawn()
+    replaceComponents(world, entity, components)
+    if world.isAlive(parent) { world.setParent(entity, parent) }
+    return entity
+}
+
+/**
+ * The decimal number [text] spells (`-12.5`, `3`, `.25`), or [fallback] when it
+ * spells none. What a person types into a field, nothing more: no exponent,
+ * surrounding spaces allowed.
+ */
+func parseNumber(text: String, fallback: Double): Double {
+    var index = 0
+    fin length = stringLength(text)
+    while index < length && charAt(text, index) == ' ' { index = index + 1 }
+    var negative = false
+    if index < length && (charAt(text, index) == '-' || charAt(text, index) == '+') {
+        negative = charAt(text, index) == '-'
+        index = index + 1
+    }
+    var value: Double = 0.0
+    var digits = 0
+    while index < length && (charAt(text, index) as Int) >= 48 && (charAt(text, index) as Int) <= 57 {
+        value = value * 10.0 + (((charAt(text, index) as Int) - 48) as Double)
+        index = index + 1
+        digits = digits + 1
+    }
+    if index < length && (charAt(text, index) == '.' || charAt(text, index) == ',') {
+        index = index + 1
+        var scale: Double = 0.1
+        while index < length && (charAt(text, index) as Int) >= 48 && (charAt(text, index) as Int) <= 57 {
+            value = value + scale * (((charAt(text, index) as Int) - 48) as Double)
+            scale = scale * 0.1
+            index = index + 1
+            digits = digits + 1
+        }
+    }
+    while index < length && charAt(text, index) == ' ' { index = index + 1 }
+    if digits == 0 || index != length { return fallback }
+    return if negative { 0.0 - value } else { value }
+}
+
+/**
+ * [buffer]'s text as a string of its own. The host lends `azsBufferText` only
+ * until the buffer changes or closes; anything kept longer is copied here.
+ */
+func ownedText(buffer: Long): String {
+    fin padded = "${azsBufferText(buffer)} "
+    return substring(padded, 0, stringLength(padded) - 1)
+}

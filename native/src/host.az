@@ -7,6 +7,9 @@ bridge .C {
     func @foreignName("azs_environment")(name: String): String
     func @foreignName("azs_environment_int")(name: String): Int
     func @foreignName("azs_monotonic_seconds")(): Double
+    func @foreignName("azs_wall_seconds")(): Double
+    func @foreignName("azs_set_environment")(name: String, value: String): Int
+    func @foreignName("azs_copy_tree")(from: String, to: String): Int
     func @foreignName("azs_peak_memory_bytes")(): Long
     func @foreignName("azs_error")(): String
     func @foreignName("azs_live_handles")(): Int
@@ -25,6 +28,8 @@ bridge .C {
     func @foreignName("azs_buffer_text")(buffer: Long): String
     func @foreignName("azs_project_read")(project: Long, relative: String): Long
     func @foreignName("azs_project_write")(project: Long, relative: String, buffer: Long): Int
+    func @foreignName("azs_project_list")(project: Long, relative: String): Long
+    func @foreignName("azs_project_make_dir")(project: Long, relative: String): Int
     func @foreignName("azs_process_start")(program: String, directory: String, first: String, second: String): Long
     func @foreignName("azs_process_poll")(process: Long): Int
     func @foreignName("azs_process_output")(process: Long): String

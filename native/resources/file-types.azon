@@ -1,0 +1,17 @@
+{
+    "_comment": "How the Assets panel shows a file: by extension, '/' for folders, '*' for anything else. Colours name theme colours.",
+    "/": {"icon": "folder", "color": "orange"},
+    "*": {"icon": "file", "color": "muted"},
+    "az": {"icon": "file-code", "color": "blue"},
+    "azon": {"icon": "file-text", "color": "teal"},
+    "azscene": {"icon": "box", "color": "purple"},
+    "azlayout": {"icon": "layout-template", "color": "teal"},
+    "png": {"icon": "image", "color": "pink"},
+    "jpg": {"icon": "image", "color": "pink"},
+    "jpeg": {"icon": "image", "color": "pink"},
+    "wav": {"icon": "music", "color": "green"},
+    "ogg": {"icon": "music", "color": "green"},
+    "mp3": {"icon": "music", "color": "green"},
+    "md": {"icon": "book-open", "color": "muted"},
+    "txt": {"icon": "file-text", "color": "muted"}
+}

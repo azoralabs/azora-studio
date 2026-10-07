@@ -1,0 +1,21 @@
+{
+    "format": "azora-presets",
+    "presets": [
+        {"name": "Empty", "icon": "circle-dashed",
+         "components": {"Name": {"value": "Entity"}, "Transform": {}}},
+        {"name": "Cube", "icon": "box",
+         "components": {"Name": {"value": "Cube"}, "Transform": {"translation": [0, 0.5, 0]}, "Mesh3d": {"shape": 0, "size": 1}, "StandardMaterial": {}}},
+        {"name": "Sphere", "icon": "circle",
+         "components": {"Name": {"value": "Sphere"}, "Transform": {"translation": [0, 0.5, 0]}, "Mesh3d": {"shape": 1, "size": 1}, "StandardMaterial": {"color": [0.49, 0.749, 0.541, 1]}}},
+        {"name": "Cylinder", "icon": "cylinder",
+         "components": {"Name": {"value": "Cylinder"}, "Transform": {"translation": [0, 0.5, 0]}, "Mesh3d": {"shape": 2, "size": 1}, "StandardMaterial": {"color": [0.831, 0.647, 0.455, 1]}}},
+        {"name": "Plane", "icon": "square",
+         "components": {"Name": {"value": "Plane"}, "Transform": {"scale": [4, 1, 4]}, "Mesh3d": {"shape": 3, "size": 1}, "StandardMaterial": {"color": [0.32, 0.33, 0.36, 1], "roughness": 0.9}}},
+        {"name": "Camera", "icon": "video",
+         "components": {"Name": {"value": "Camera"}, "Transform": {"translation": [0, 2, 6], "rotation": [-15, 0, 0]}, "Camera3d": {}}},
+        {"name": "Light", "icon": "sun",
+         "components": {"Name": {"value": "Light"}, "Transform": {"translation": [0, 4, 0], "rotation": [-50, -35, 0]}, "Light3d": {}}},
+        {"name": "Sprite", "icon": "image",
+         "components": {"Name": {"value": "Sprite"}, "Transform": {}, "Sprite": {"width": 1, "height": 1}}}
+    ]
+}

@@ -1,0 +1,415 @@
+module studio.panels
+import std.reflection
+import std.traits
+import engine.core
+import engine.ecs
+import engine.math
+import engine.platform
+import engine.gpu.draw
+import engine.scene
+import engine.ui.node
+import engine.ui.compose
+import engine.ui.docking
+import studio.host
+import studio.theme
+import studio.state
+import studio.ui
+import studio.fields
+import studio.problems
+
+// Studio's panels. Each is a `@Panel` pack the dock finds by reflection; its
+// constructor composes from [Studio] and nothing else. A panel that draws
+// pixels of its own (the viewport, the editor, the console) is also `@Canvas`:
+// it composes a [PanelSurface] and supplies `draw` and `pointer` statics that
+// the window calls for that surface's rectangle.
+
+/** A panel that draws into a surface of its own. */
+annot @Canvas for .Pack
+
+/** The node a `@Canvas` panel draws into. */
+@Component
+pack PanelSurface derives Clone {
+    var panel: String = ""
+}
+
+/** A panel's surface: the node its `draw` fills. */
+pack Surface { }
+impl Surface {
+    react ctor (anchor: Anchor!).(panel: String, color: Rgba, key: String = "surface"): Entity {
+        fin node = Shape(modifier: Modifier::fillMaxWidth().weight(1.0).fill(color), key: key)
+        storageInsert<PanelSurface>(store<PanelSurface>(anchor.pass), node, PanelSurface(panel))
+        return node
+    }
+}
+
+/** A panel's own bar under its tab strip. */
+pack PanelBar { }
+impl PanelBar {
+    react ctor (anchor: Anchor!).(key: String = "bar", children: inline react Anchor!.() -> Unit): Entity {
+        fin node = anchor.pass.row(anchor.parent, key, Modifier::fillMaxWidth().height(34.0).padding(start: 8.0, end: 8.0), .Start, .Center, 4.0)
+        using anchor.inside(node) {
+            children()
+        }
+        return node
+    }
+}
+
+// ── Names and glyphs ────────────────────────────────────────────────────
+
+/** "orthoSize" as "Ortho Size". */
+func fieldLabel(name: String): String {
+    var label = ""
+    var index = 0
+    fin length = stringLength(name)
+    while index < length {
+        fin ch = charAt(name, index)
+        fin code = ch as Int
+        if index == 0 && code >= 97 && code <= 122 {
+            label = "${label}${substring("ABCDEFGHIJKLMNOPQRSTUVWXYZ", code - 97, code - 96)}"
+        } else if code >= 65 && code <= 90 {
+            label = "${label} ${substring(name, index, index + 1)}"
+        } else {
+            label = "${label}${substring(name, index, index + 1)}"
+        }
+        index = index + 1
+    }
+    return label
+}
+
+/** The icon a scene-tree row shows for [entity]: its most telling component's. */
+func entityIcon(studio: Studio&, entity: Entity): String {
+    return when {
+        storageHas<Camera3d>(storageOf<Camera3d>(studio.scene), entity) -> "video"
+        storageHas<Light3d>(storageOf<Light3d>(studio.scene), entity) -> "sun"
+        storageHas<Mesh3d>(storageOf<Mesh3d>(studio.scene), entity) -> "box"
+        storageHas<Sprite>(storageOf<Sprite>(studio.scene), entity) -> "image"
+        else -> "circle-dashed"
+    }
+}
+
+func entityTint(studio: Studio&, entity: Entity): Rgba {
+    if storageHas<Camera3d>(storageOf<Camera3d>(studio.scene), entity) { return studioTheme.teal }
+    if storageHas<Light3d>(storageOf<Light3d>(studio.scene), entity) { return studioTheme.yellow }
+    if storageHas<Mesh3d>(storageOf<Mesh3d>(studio.scene), entity) {
+        if storageHas<StandardMaterial>(storageOf<StandardMaterial>(studio.scene), entity) {
+            return storageGet<StandardMaterial>(storageOf<StandardMaterial>(studio.scene), entity).color
+        }
+        return studioTheme.blue
+    }
+    return studioTheme.muted
+}
+
+func entityName(studio: Studio&, entity: Entity): String {
+    if storageHas<Name>(storageOf<Name>(studio.scene), entity) {
+        return storageGet<Name>(storageOf<Name>(studio.scene), entity).value
+    }
+    return "Entity ${entity.id}"
+}
+
+func isSelected(studio: Studio&, entity: Entity): Bool {
+    return storageHas<Selected>(storageOf<Selected>(studio.scene), entity)
+}
+
+func selectedEntity(studio: Studio&): Entity {
+    var index = 0
+    while index < storageLength<Selected>(storageOf<Selected>(studio.scene)) {
+        fin entity = storageEntityAt<Selected>(storageOf<Selected>(studio.scene), index)
+        if studio.scene.isAlive(entity) { return entity }
+        index = index + 1
+    }
+    return Entity::invalid
+}
+
+/** Whether [entity] has a live child. */
+func hasChildren(studio: Studio&, entity: Entity): Bool {
+    var id = 0
+    while id < studio.scene.entityCount {
+        if studio.scene.alive[id] && studio.scene.parents[id] == entity.id { return true }
+        id = id + 1
+    }
+    return false
+}
+
+// ── Scene Tree ──────────────────────────────────────────────────────────
+
+/** [entity]'s row and, when it is expanded, its children's. */
+react func (anchor: Anchor!).treeRows(studio: Studio&, app: App&, entity: Entity, depth: Int) {
+    fin selected = isSelected(studio, entity)
+    fin children = hasChildren(studio, entity)
+    fin open = storageHas<Expanded>(storageOf<Expanded>(studio.scene), entity)
+    fin visible = !storageHas<Visibility>(storageOf<Visibility>(studio.scene), entity) ||
+        storageGet<Visibility>(storageOf<Visibility>(studio.scene), entity).visible
+    fin base = Modifier::fillMaxWidth().height(studioTheme.rowHeight).rounded(5.0).padding(start: 4.0 + (depth as Double) * 14.0, end: 6.0)
+    Press("sceneSelect", modifier: if selected { base.selected() } else { base.ghost() }, target: entity.id, spacing: 4.0, key: "row-${entity.id}") {
+        if children {
+            Press("sceneToggleExpand", modifier: Modifier::size(16.0, 16.0).rounded(4.0).ghost(), target: entity.id, center: true, key: "chevron") {
+                Icon(if open { "chevron-down" } else { "chevron-right" }, studioTheme.muted, size: studioTheme.iconSmall, key: "mark")
+            }
+        } else {
+            Gap(16.0, key: "chevron")
+        }
+        Icon(entityIcon(studio, entity), entityTint(studio, entity), size: studioTheme.iconSize, key: "glyph")
+        Label(entityName(studio, entity), app, if visible { studioTheme.text } else { studioTheme.faint }, key: "name")
+        Spacer(key: "fill")
+        Press("sceneToggleVisible", modifier: Modifier::size(20.0, 20.0).rounded(4.0).ghost(), target: entity.id, center: true, key: "eye") {
+            Icon(if visible { "eye" } else { "eye-off" }, if visible { studioTheme.muted } else { studioTheme.faint }, size: studioTheme.iconSmall, key: "mark")
+        }
+    }
+    if children && open {
+        var id = 0
+        while id < studio.scene.entityCount {
+            if studio.scene.alive[id] && studio.scene.parents[id] == entity.id {
+                anchor.treeRows(studio, app, studio.scene.entityAt(id), depth + 1)
+            }
+            id = id + 1
+        }
+    }
+}
+
+@Panel(title: "Scene Tree", icon: "list-tree", area: .Right, stack: 0, order: 0)
+pack SceneTreePanel { }
+impl SceneTreePanel {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        return Column(modifier: Modifier::fillMaxSize(), key: "scene-tree") {
+            PanelBar {
+                Row(modifier: Modifier::weight(1.0).height(24.0).sunken().rounded(5.0).padding(start: 8.0, end: 6.0), verticalAlignment: .Center, key: "filter") {
+                    Text("Filter…", modifier: Modifier::weight(1.0).fontSize(12.0).faintText().textAlign(.Start), key: "hint")
+                    Icon("search", studioTheme.faint, size: studioTheme.iconSmall, key: "icon")
+                }
+                Press("popupAddEntity", modifier: Modifier::size(26.0, 24.0).rounded(5.0).ghost(), center: true, key: "add") {
+                    Icon("plus", studioTheme.text, size: studioTheme.iconSize, key: "plus")
+                }
+            }
+            ScrollColumn(modifier: Modifier::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0, bottom: 6.0), spacing: 1.0, key: "rows") {
+                var id = 0
+                while id < studio.scene.entityCount {
+                    if studio.scene.alive[id] && !studio.scene.resourceMarks[id] && studio.scene.parents[id] < 0 {
+                        treeRows(studio, app, studio.scene.entityAt(id), 0)
+                    }
+                    id = id + 1
+                }
+            }
+        }
+    }
+}
+
+// ── Components ──────────────────────────────────────────────────────────
+
+/** A labelled single-value row: caption on the left, editor on the right. */
+pack FieldLine { }
+impl FieldLine {
+    react ctor (anchor: Anchor!).(label: String, key: String = "", children: inline react Anchor!.() -> Unit): Entity {
+        fin node = anchor.pass.row(anchor.parent, if key == "" { anchor.pass.positionalKey(anchor.parent, "line") } else { key },
+            Modifier::fillMaxWidth().height(26.0), .Start, .Center, 6.0)
+        using anchor.inside(node) {
+            Text(label, modifier: Modifier::width(96.0).fontSize(11.5).mutedText().textAlign(.Start), key: "caption")
+            children()
+        }
+        return node
+    }
+}
+
+/** Every visible inspectable component [entity] carries, as cards. */
+react func (anchor: Anchor!).componentCards(studio: Studio&, app: App&, entity: Entity) {
+    inline for C in reflect<*>.withAnnot<Inspectable> {
+        inline if reflect<C>.annotMeta<Inspectable>.visible {
+            if storageHas<C>(storageOf<C>(studio.scene), entity) {
+                fin value = storageGet<C>(storageOf<C>(studio.scene), entity).clone()
+                fin name = reflect<C>.declName
+                fin declared = reflect<C>.annotMeta<Inspectable>.title
+                fin title = if stringLength(declared) > 0 { declared } else { name }
+                fin open = !studio.collapsed.contains(name)
+                Column(modifier: Modifier::fillMaxWidth().fill(studioTheme.raised.withAlpha(0.55)).rounded(7.0).padding(start: 8.0, end: 8.0, bottom: if open { 8.0 } else { 0.0 }),
+                    spacing: 2.0, key: "card-${name}") {
+                    Press("componentToggle", modifier: Modifier::fillMaxWidth().height(30.0), text: name, spacing: 6.0, key: "head") {
+                        Icon(if open { "chevron-down" } else { "chevron-right" }, studioTheme.muted, size: studioTheme.iconSmall, key: "chevron")
+                        Icon(reflect<C>.annotMeta<Inspectable>.icon, studioTheme.accent, size: studioTheme.iconSize, key: "icon")
+                        Label(title, app, studioTheme.text, bold: true, key: "title")
+                        Spacer(key: "fill")
+                        if reflect<C>.annotMeta<Inspectable>.removable {
+                            Press("componentRemove", modifier: Modifier::size(22.0, 22.0).rounded(5.0).ghost(), text: name, center: true, key: "remove") {
+                                Icon("ellipsis", studioTheme.muted, size: studioTheme.iconSize, key: "dots")
+                            }
+                        }
+                    }
+                    if open {
+                        inline for f in reflect<C>.fields {
+                            inline if !reflect<f>.hasAnnot<Hidden> {
+                                inline if f.typeName == "Vec3" {
+                                    FieldCaption(fieldLabel(f.name), key: "caption-${f.name}")
+                                    Row(modifier: Modifier::fillMaxWidth().height(24.0), spacing: 4.0, key: "vector-${f.name}") {
+                                        NumberField(name, f.name, 0, value.${f.name}.x, studio.focus, badge: "X", badgeColor: studioTheme.axisX, key: "x")
+                                        NumberField(name, f.name, 1, value.${f.name}.y, studio.focus, badge: "Y", badgeColor: studioTheme.axisY, key: "y")
+                                        NumberField(name, f.name, 2, value.${f.name}.z, studio.focus, badge: "Z", badgeColor: studioTheme.axisZ, key: "z")
+                                    }
+                                }
+                                inline if f.typeName == "Rgba" {
+                                    FieldCaption(fieldLabel(f.name), key: "caption-${f.name}")
+                                    Row(modifier: Modifier::fillMaxWidth().height(24.0), spacing: 4.0, key: "color-${f.name}") {
+                                        Shape(modifier: Modifier::size(24.0, 24.0).fill(value.${f.name}).rounded(5.0).outline(1.0, studioTheme.hairline), key: "swatch")
+                                        NumberField(name, f.name, 0, value.${f.name}.r, studio.focus, badge: "R", badgeColor: studioTheme.axisX, key: "r")
+                                        NumberField(name, f.name, 1, value.${f.name}.g, studio.focus, badge: "G", badgeColor: studioTheme.axisY, key: "g")
+                                        NumberField(name, f.name, 2, value.${f.name}.b, studio.focus, badge: "B", badgeColor: studioTheme.axisZ, key: "b")
+                                    }
+                                }
+                                inline if f.typeName == "Double" {
+                                    FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
+                                        NumberField(name, f.name, 0, value.${f.name}, studio.focus, key: "value")
+                                    }
+                                }
+                                inline if f.typeName == "Int" {
+                                    inline if reflect<f>.hasAnnot<Choice> {
+                                        FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
+                                            Press("fieldCycle", modifier: Modifier::weight(1.0).height(24.0).sunken().rounded(5.0).padding(start: 8.0, end: 8.0).hoverable(),
+                                                target: entity.id, arg: choiceCount(reflect<f>.annotMeta<Choice>.options), text: "${name}.${f.name}", key: "choice") {
+                                                Text(choiceAt(reflect<f>.annotMeta<Choice>.options, value.${f.name}), modifier: Modifier::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start), key: "value")
+                                                Icon("chevron-down", studioTheme.muted, size: studioTheme.iconSmall, key: "mark")
+                                            }
+                                        }
+                                    } else {
+                                        FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
+                                            NumberField(name, f.name, 0, value.${f.name} as Double, studio.focus, key: "value")
+                                        }
+                                    }
+                                }
+                                inline if f.typeName == "Bool" {
+                                    FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
+                                        Press("fieldToggle", modifier: Modifier::size(36.0, 20.0).rounded(10.0).fill(if value.${f.name} { studioTheme.accent.withAlpha(0.85) } else { studioTheme.sunken })
+                                            .outline(1.0, studioTheme.hairline), target: entity.id, text: "${name}.${f.name}", key: "toggle") {
+                                            if value.${f.name} { Gap(16.0, key: "pad") }
+                                            Shape(modifier: Modifier::size(16.0, 16.0).rounded(8.0).fill(studioTheme.text), key: "knob")
+                                        }
+                                        Spacer(key: "fill")
+                                    }
+                                }
+                                inline if f.typeName == "String" {
+                                    FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
+                                        TextField(name, f.name, value.${f.name}, studio.focus, key: "value")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Panel(title: "Components", icon: "sliders-horizontal", area: .Right, stack: 1, order: 0)
+pack InspectorPanel { }
+impl InspectorPanel {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        fin entity = selectedEntity(studio)
+        return Column(modifier: Modifier::fillMaxSize(), key: "inspector") {
+            if !studio.scene.isAlive(entity) {
+                Text("Select an entity to see its components", modifier: Modifier::fillMaxWidth().height(60.0).fontSize(12.0).faintText(), key: "empty")
+            } else {
+                PanelBar {
+                    Icon(entityIcon(studio, entity), entityTint(studio, entity), size: studioTheme.iconSize, key: "glyph")
+                    TextField("Name", "value", entityName(studio, entity), studio.focus, key: "name")
+                }
+                ScrollColumn(modifier: Modifier::fillMaxWidth().weight(1.0).padding(start: 8.0, end: 8.0, bottom: 8.0), spacing: 6.0, key: "cards") {
+                    Press("popupAddComponent", modifier: Modifier::fillMaxWidth().height(28.0).raised().rounded(6.0).hoverFill(studioTheme.hover.withAlpha(0.14)), center: true, spacing: 6.0, key: "add") {
+                        Icon("plus", studioTheme.accent, size: studioTheme.iconSmall, key: "plus")
+                        Label("Add Component", app, studioTheme.text, bold: true, key: "label")
+                    }
+                    componentCards(studio, app, entity)
+                }
+            }
+        }
+    }
+}
+
+// ── Assets ──────────────────────────────────────────────────────────────
+
+@Panel(title: "Assets", icon: "folder", area: .Bottom, order: 0)
+pack AssetsPanel { }
+impl AssetsPanel {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        return Column(modifier: Modifier::fillMaxSize(), key: "assets") {
+            PanelBar {
+                Press("assetsOpen", modifier: Modifier::height(24.0).rounded(5.0).ghost().padding(start: 6.0, end: 6.0), text: "", key: "home") {
+                    Label(studio.projectName(), app, if studio.assetsPath == "" { studioTheme.text } else { studioTheme.muted }, bold: studio.assetsPath == "", key: "name")
+                }
+                var start = 0
+                var index = 0
+                fin path = studio.assetsPath
+                fin length = stringLength(path)
+                while index <= length && length > 0 {
+                    if index == length || charAt(path, index) == '/' {
+                        fin segment = substring(path, start, index)
+                        fin last = index == length
+                        Text("/", modifier: Modifier::width(10.0).fontSize(12.0).faintText(), key: "sep-${index}")
+                        Press("assetsOpen", modifier: Modifier::height(24.0).rounded(5.0).ghost().padding(start: 6.0, end: 6.0), text: substring(path, 0, index), key: "crumb-${index}") {
+                            Label(segment, app, if last { studioTheme.text } else { studioTheme.muted }, bold: last, key: "name")
+                        }
+                        start = index + 1
+                    }
+                    index = index + 1
+                }
+                Spacer(key: "fill")
+                Row(modifier: Modifier::width(190.0).height(24.0).sunken().rounded(5.0).padding(start: 8.0, end: 6.0), verticalAlignment: .Center, key: "search") {
+                    Text("Search…", modifier: Modifier::weight(1.0).fontSize(12.0).faintText().textAlign(.Start), key: "hint")
+                    Icon("search", studioTheme.faint, size: studioTheme.iconSmall, key: "icon")
+                }
+            }
+            FlowRow(modifier: Modifier::fillMaxWidth().weight(1.0).padding(start: 10.0, end: 10.0, top: 4.0), spacing: 6.0, key: "tiles") {
+                var index = 0
+                while index < studio.assets.size {
+                    fin entry = studio.assets[index]
+                    fin folder = charAt(entry, 0) == 'd'
+                    fin name = substring(entry, 2, stringLength(entry))
+                    fin target = if studio.assetsPath == "" { name } else { "${studio.assetsPath}/${name}" }
+                    fin kind = studio.fileKind(name, folder)
+                    Press(if folder { "assetsOpen" } else { "assetsSelect" }, modifier: Modifier::size(84.0, 82.0).rounded(7.0).ghost(), text: target, key: "tile-${name}") {
+                        Column(modifier: Modifier::fillMaxSize().padding(top: 8.0), horizontalAlignment: .Center, spacing: 6.0, key: "stack") {
+                            Icon(kind.icon, themeColor(kind.color, studioTheme.muted), size: studioTheme.iconLarge, key: "icon")
+                            Text(name, modifier: Modifier::fillMaxWidth().height(18.0).padding(start: 4.0, end: 4.0).fontSize(11.5).bodyText(), key: "name")
+                        }
+                    }
+                    index = index + 1
+                }
+            }
+        }
+    }
+}
+
+// ── Problems ────────────────────────────────────────────────────────────
+
+func severityColor(severity: Int): Rgba {
+    return when severity {
+        0 -> studioTheme.error
+        1 -> studioTheme.warning
+        else -> studioTheme.info
+    }
+}
+
+@Panel(title: "Problems", icon: "triangle-alert", area: .Bottom, order: 2)
+pack ProblemsPanel { }
+impl ProblemsPanel {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        fin count = studio.problems.size
+        return Column(modifier: Modifier::fillMaxSize(), key: "problems") {
+            PanelBar {
+                Label(if !studio.inspected { "Not checked yet" } else if count == 0 { "No problems in src/main.az" } else if studio.problemsStale { "Edited since the last check · ⌘S re-checks" } else { "Click a problem to open it" },
+                    app, studioTheme.muted, key: "summary")
+                Spacer(key: "fill")
+                BarButton("toolInspect", app, icon: "refresh-cw", label: "Check", key: "check")
+            }
+            ScrollColumn(modifier: Modifier::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0, bottom: 6.0), spacing: 1.0, key: "rows") {
+                var index = 0
+                while index < count {
+                    fin problem = studio.problems[index].clone()
+                    Press("problemOpen", modifier: Modifier::fillMaxWidth().height(24.0).rounded(5.0).ghost().padding(start: 8.0, end: 8.0), arg: index, spacing: 8.0, key: "problem-${index}") {
+                        Shape(modifier: Modifier::size(8.0, 8.0).rounded(4.0).fill(severityColor(problem.severity)), key: "dot")
+                        Label("${problem.line + 1}:${problem.startByte + 1}", app, studioTheme.muted, mono: true, size: 11.5, key: "where")
+                        Label(problem.code, app, studioTheme.faint, mono: true, size: 11.0, key: "code")
+                        Text(problem.message, modifier: Modifier::weight(1.0).fontSize(12.0).ink(if studio.problemsStale { studioTheme.muted } else { studioTheme.text }).textAlign(.Start), key: "message")
+                    }
+                    index = index + 1
+                }
+            }
+        }
+    }
+}

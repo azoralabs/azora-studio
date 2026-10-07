@@ -1,0 +1,379 @@
+module studio.viewport
+import std.math
+import std.traits
+import engine.core
+import engine.ecs
+import engine.math
+import engine.platform
+import engine.gpu
+import engine.gpu.draw
+import engine.scene
+import engine.render.scene
+import engine.gizmos
+import engine.ui.node
+import engine.ui.icons
+import engine.ui.compose
+import engine.ui.docking
+import studio.theme
+import studio.state
+import studio.ui
+import studio.panels
+
+// The scene viewport: the Engine renders the scene into the panel's surface,
+// and the gizmos package draws the grid, the handles and the axis widget over
+// it. Picking casts the pointer's ray into each entity's own space, so a
+// rotated or scaled primitive is hit where it is drawn.
+
+@Panel(title: "Scene", icon: "box", area: .Center, order: 0, closable: false)
+@Canvas
+pack ScenePanel { }
+impl ScenePanel {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        return Column(modifier: Modifier::fillMaxSize(), key: "scene") {
+            PanelBar {
+                BarButton("toolSelect", app, icon: "mouse-pointer-2", active: studio.tool == 0, key: "select")
+                BarButton("toolMove", app, icon: "move", active: studio.tool == 1, key: "move")
+                BarButton("toolRotate", app, icon: "rotate-3d", active: studio.tool == 2, key: "rotate")
+                BarButton("toolScale", app, icon: "scale-3d", active: studio.tool == 3, key: "scale")
+                Divider(key: "divider")
+                BarButton("viewToggle2d", app, label: if studio.mode3d { "3D" } else { "2D" }, active: true, key: "mode")
+                Spacer(key: "fill")
+                BarButton("viewFocus", app, icon: "focus", label: "Focus", key: "focus")
+            }
+            Surface("ScenePanel", studioTheme.viewport)
+        }
+    }
+
+    func draw(app: App!, studio: Studio!, rect: ViewRect&) { drawViewport(app, studio, rect) }
+
+    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+        return viewportPointer(studio, rect, input)
+    }
+}
+
+func gizmoColors(): GizmoColors {
+    var colors = GizmoColors()
+    colors.x = studioTheme.axisX
+    colors.y = studioTheme.axisY
+    colors.z = studioTheme.axisZ
+    colors.highlight = studioTheme.yellow
+    colors.neutral = studioTheme.text
+    colors.gridMinor = studioTheme.gridMinor
+    colors.gridMajor = studioTheme.gridMajor
+    colors.label = studioTheme.ground
+    return colors
+}
+
+// ── Picking ─────────────────────────────────────────────────────────────
+
+/** [point] taken into the space of the transform [t]. */
+func intoLocal(point: Vec3&, t: Transform&): Vec3 {
+    fin turned = unrotateEuler(v3sub(point, t.translation), t.rotation)
+    return Vec3(turned.x / t.scale.x, turned.y / t.scale.y, turned.z / t.scale.z)
+}
+
+/** [direction] taken into the space of the transform [t]; not renormalised, so distances stay the world's. */
+func directionIntoLocal(direction: Vec3&, t: Transform&): Vec3 {
+    fin turned = unrotateEuler(direction, t.rotation)
+    return Vec3(turned.x / t.scale.x, turned.y / t.scale.y, turned.z / t.scale.z)
+}
+
+/** [ray] in [entity]'s own space: through each parent's transform, then its own. */
+func rayIntoEntity(world: World!, entity: Entity, ray: Ray&): Ray {
+    var chain: Array<Entity> = Array<Entity>()
+    var current = entity
+    var depth = 0
+    while world.isAlive(current) && depth < 64 {
+        chain.insert(0, current)
+        current = world.getParent(current)
+        depth = depth + 1
+    }
+    var origin = Vec3(ray.origin.x, ray.origin.y, ray.origin.z)
+    var direction = Vec3(ray.direction.x, ray.direction.y, ray.direction.z)
+    var index = 0
+    while index < chain.size {
+        if storageHas<Transform>(ensureStorage<Transform>(world), chain[index]) {
+            fin t = storageGet<Transform>(ensureStorage<Transform>(world), chain[index]).clone()
+            origin = intoLocal(origin, t)
+            direction = directionIntoLocal(direction, t)
+        }
+        index = index + 1
+    }
+    return Ray(origin, direction)
+}
+
+/** How far along [ray] (any length of direction) it meets a sphere of [radius] at the origin. */
+func rayOriginSphere(ray: Ray&, radius: Double): Double {
+    fin a = v3dot(ray.direction, ray.direction)
+    fin b = v3dot(ray.origin, ray.direction)
+    fin c = v3dot(ray.origin, ray.origin) - radius * radius
+    fin disc = b * b - a * c
+    if disc < 0.0 || a <= 0.0 { return -1.0 }
+    fin root = sqrt(disc)
+    fin near = (0.0 - b - root) / a
+    if near >= 0.0 { return near }
+    fin far = (0.0 - b + root) / a
+    return if far >= 0.0 { far } else { -1.0 }
+}
+
+/** The mesh entity the ray from ([x], [y]) meets first, or an invalid entity. */
+func pickMesh(studio: Studio!, ray: Ray&): Entity {
+    var best = Entity::invalid
+    var bestDistance: Double = 1000000000.0
+    var index = 0
+    while index < storageLength<Mesh3d>(ensureStorage<Mesh3d>(studio.scene)) {
+        fin entity = storageEntityAt<Mesh3d>(ensureStorage<Mesh3d>(studio.scene), index)
+        if studio.scene.isAlive(entity) && visibleInWorld(studio.scene, entity) {
+            fin mesh = storageValueAt<Mesh3d>(ensureStorage<Mesh3d>(studio.scene), index).clone()
+            fin local = rayIntoEntity(studio.scene, entity, ray)
+            fin half = mesh.size * 0.5
+            fin t = when mesh.shape {
+                1 -> rayOriginSphere(local, half)
+                3 -> rayBox(local, Vec3(0.0 - half, -0.02, 0.0 - half), Vec3(half, 0.02, half))
+                else -> rayBox(local, Vec3(0.0 - half, 0.0 - half, 0.0 - half), Vec3(half, half, half))
+            }
+            if t >= 0.0 && t < bestDistance {
+                bestDistance = t
+                best = entity
+            }
+        }
+        index = index + 1
+    }
+    return best
+}
+
+/** A camera or light whose marker is under ([x], [y]), or an invalid entity. */
+func pickMarker(studio: Studio!, viewProj: Mat4&, rect: ViewRect&, x: Double, y: Double): Entity {
+    var id = 0
+    while id < studio.scene.entityCount {
+        fin entity = studio.scene.entityAt(id)
+        if studio.scene.isAlive(entity) && (storageHas<Camera3d>(ensureStorage<Camera3d>(studio.scene), entity) ||
+            storageHas<Light3d>(ensureStorage<Light3d>(studio.scene), entity)) {
+            fin at = project(viewProj, rect, worldPosition(studio.scene, entity))
+            if at.visible && absValue(at.x - x) < 13.0 && absValue(at.y - y) < 13.0 { return entity }
+        }
+        id = id + 1
+    }
+    return Entity::invalid
+}
+
+// ── Pointer ─────────────────────────────────────────────────────────────
+
+/** Applies a handle drag to the selected entity's transform. */
+func applyGizmo(studio: Studio!, entity: Entity, rect: ViewRect&, input: FrameInput&) {
+    var transform = Transform(Vec3(studio.gizmoStart.translation.x, studio.gizmoStart.translation.y, studio.gizmoStart.translation.z),
+        Vec3(studio.gizmoStart.rotation.x, studio.gizmoStart.rotation.y, studio.gizmoStart.rotation.z),
+        Vec3(studio.gizmoStart.scale.x, studio.gizmoStart.scale.y, studio.gizmoStart.scale.z))
+    when studio.gizmo.mode {
+        0 -> {
+            fin delta = studio.gizmo.translation(studio.camera, rect, input.x, input.y)
+            transform.translation = v3add(transform.translation, delta)
+        }
+        1 -> {
+            fin angle = studio.gizmo.rotation(studio.camera, rect, input.x, input.y)
+            when studio.gizmo.active {
+                1 -> { transform.rotation.x = transform.rotation.x + angle }
+                2 -> { transform.rotation.y = transform.rotation.y + angle }
+                else -> { transform.rotation.z = transform.rotation.z + angle }
+            }
+        }
+        else -> {
+            fin factor = studio.gizmo.scaling(studio.camera, rect, input.x, input.y)
+            transform.scale = Vec3(transform.scale.x * factor.x, transform.scale.y * factor.y, transform.scale.z * factor.z)
+        }
+    }
+    storageInsert<Transform>(ensureStorage<Transform>(studio.scene), entity, take transform)
+    studio.changed()
+}
+
+/**
+ * The viewport's share of this frame's pointer. Answers whether it used it.
+ *
+ * Right-drag looks around and, while held, W/A/S/D fly and Q/E sink and rise
+ * (Shift is faster); Alt + drag orbits; middle-drag pans. On a trackpad two
+ * fingers orbit (Shift pans) and a pinch zooms; a wheel zooms. In 2D every
+ * drag pans and the fly keys slide the view.
+ */
+func viewportPointer(studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+    studio.camera.orthographic = !studio.mode3d
+    fin selected = studio.selected()
+    when studio.viewDrag {
+        1 -> {
+            // The camera is drawn every frame and no panel shows it, so moving
+            // it recomposes nothing.
+            if input.rightDown {
+                if studio.mode3d { studio.camera.look(input.dx, input.dy) } else { studio.camera.pan(input.dx, input.dy, rect) }
+                studio.camera.fly(input.flyForward, input.flyRight, input.flyUp, input.seconds, input.shift)
+                return true
+            }
+            studio.viewDrag = 0
+        }
+        5 -> {
+            if input.down {
+                studio.camera.orbit(input.dx, input.dy)
+                return true
+            }
+            studio.viewDrag = 0
+        }
+        2 -> {
+            if input.rightDown || input.middleDown || input.down {
+                studio.camera.pan(input.dx, input.dy, rect)
+                return true
+            }
+            studio.viewDrag = 0
+        }
+        3 -> {
+            if input.down {
+                if studio.scene.isAlive(selected) { applyGizmo(studio, selected, rect, input) }
+                return true
+            }
+            studio.gizmo.end()
+            studio.viewDrag = 0
+            if studio.scene.isAlive(selected) {
+                studio.record(selected, studio.gizmoBefore, studio.scene.getParent(selected).id,
+                    when studio.gizmo.mode {
+                        0 -> "move"
+                        1 -> "rotate"
+                        else -> "scale"
+                    })
+            }
+            return true
+        }
+        else -> { }
+    }
+    if !rect.contains(input.x, input.y) { return false }
+    if input.pinch != 0.0 { studio.camera.zoom(input.pinch * 6.0) }
+    if input.scrollX != 0.0 || input.scrollY != 0.0 {
+        when {
+            !input.preciseScroll -> studio.camera.zoom(input.scrollY * 0.35)
+            input.shift || !studio.mode3d -> studio.camera.pan(input.scrollX, input.scrollY, rect)
+            else -> studio.camera.orbit(input.scrollX, input.scrollY)
+        }
+    }
+    fin hasHandles = studio.tool != 0 && studio.scene.isAlive(selected)
+    if hasHandles {
+        studio.gizmo.mode = studio.tool - 1
+        studio.gizmo.origin = worldPosition(studio.scene, selected)
+        fin hover = studio.gizmo.pick(studio.camera, rect, input.x, input.y)
+        if hover != studio.gizmo.hover {
+            studio.gizmo.hover = hover
+        }
+    }
+    if studio.tracing && (input.pressed || input.released) {
+        fin at = project(studio.camera.viewProj(rect.aspect()), rect, studio.gizmo.origin)
+        println("viewport rect ${formatDecimal(rect.x, 0)},${formatDecimal(rect.y, 0)} ${formatDecimal(rect.width, 0)}x${formatDecimal(rect.height, 0)} tool ${studio.tool} selected ${selected.id} handles ${hasHandles} hover ${studio.gizmo.hover} gizmo at ${formatDecimal(at.x, 0)},${formatDecimal(at.y, 0)}")
+    }
+    if input.rightPressed {
+        studio.viewDrag = 1
+        return true
+    }
+    if input.middlePressed {
+        studio.viewDrag = 2
+        return true
+    }
+    if !input.pressed { return false }
+    if input.alt {
+        studio.viewDrag = if studio.mode3d { 5 } else { 2 }
+        return true
+    }
+    fin axis = orientationPick(studio.camera, rect, input.x, input.y)
+    if axis != 0 && studio.mode3d {
+        studio.camera.lookAlong(axis - 1, true)
+        studio.changed()
+        return true
+    }
+    if hasHandles && studio.gizmo.hover != 0 {
+        studio.gizmoBefore = studio.snapshot(selected)
+        studio.gizmoStart = storageGetOrDefault<Transform>(ensureStorage<Transform>(studio.scene), selected, Transform())
+        studio.gizmo.begin(studio.gizmo.hover, studio.camera, rect, input.x, input.y)
+        studio.viewDrag = 3
+        return true
+    }
+    fin viewProj = studio.camera.viewProj(rect.aspect())
+    var hit = pickMarker(studio, viewProj, rect, input.x, input.y)
+    if !studio.scene.isAlive(hit) { hit = pickMesh(studio, studio.camera.ray(rect, input.x, input.y)) }
+    studio.select(hit)
+    if studio.scene.isAlive(hit) { studio.message("Selected ${studio.nameOf(hit)}") }
+    return true
+}
+
+// ── Drawing ─────────────────────────────────────────────────────────────
+
+/** The corners of [entity]'s mesh bounds, in the world. */
+func boundsLines(app: App!, studio: Studio!, entity: Entity, viewProj: Mat4&, rect: ViewRect&, color: Rgba) {
+    if !storageHas<Mesh3d>(ensureStorage<Mesh3d>(studio.scene), entity) { return }
+    fin mesh = storageGet<Mesh3d>(ensureStorage<Mesh3d>(studio.scene), entity).clone()
+    fin m = worldMatrix(studio.scene, entity)
+    fin half = mesh.size * 0.5
+    fin flat = mesh.shape == 3
+    fin low = if flat { 0.0 } else { 0.0 - half }
+    fin high = if flat { 0.0 } else { half }
+    var corners: Array<Vec3> = Array<Vec3>()
+    var index = 0
+    while index < 8 {
+        fin x = if index % 2 == 0 { 0.0 - half } else { half }
+        fin y = if (index / 2) % 2 == 0 { low } else { high }
+        fin z = if index / 4 == 0 { 0.0 - half } else { half }
+        corners.add(Vec3(m.m00 * x + m.m01 * y + m.m02 * z + m.m03, m.m10 * x + m.m11 * y + m.m12 * z + m.m13, m.m20 * x + m.m21 * y + m.m22 * z + m.m23))
+        index = index + 1
+    }
+    fin edges = [0, 1, 2, 3, 4, 5, 6, 7, 0, 2, 1, 3, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7]
+    var edge = 0
+    while edge < edges.size {
+        app.worldLine(viewProj, rect, corners[edges[edge]], corners[edges[edge + 1]], 1.5, color)
+        edge = edge + 2
+    }
+}
+
+/** A marker for each camera and light: a disc with its glyph, and which way it faces. */
+func drawMarkers(app: App!, studio: Studio!, viewProj: Mat4&, rect: ViewRect&) {
+    var id = 0
+    while id < studio.scene.entityCount {
+        fin entity = studio.scene.entityAt(id)
+        fin camera = studio.scene.isAlive(entity) && storageHas<Camera3d>(ensureStorage<Camera3d>(studio.scene), entity)
+        fin light = studio.scene.isAlive(entity) && storageHas<Light3d>(ensureStorage<Light3d>(studio.scene), entity)
+        if camera || light {
+            fin position = worldPosition(studio.scene, entity)
+            fin m = worldMatrix(studio.scene, entity)
+            fin facing = v3unit(Vec3(0.0 - m.m02, 0.0 - m.m12, 0.0 - m.m22))
+            fin tint = if camera { studioTheme.teal } else { studioTheme.yellow }
+            fin selected = storageHas<Selected>(ensureStorage<Selected>(studio.scene), entity)
+            app.worldLine(viewProj, rect, position, v3add(position, v3scale(facing, if camera { 1.2 } else { 1.6 })), if selected { 2.0 } else { 1.5 }, tint.withAlpha(0.85))
+            fin at = project(viewProj, rect, position)
+            if at.visible {
+                app.uiRoundRect(at.x - 11.0, at.y - 11.0, 22.0, 22.0, 11.0, studioTheme.ground.r, studioTheme.ground.g, studioTheme.ground.b, 0.85)
+                app.uiRoundRectStroke(at.x - 11.0, at.y - 11.0, 22.0, 22.0, 11.0, if selected { 2.0 } else { 1.5 }, tint.r, tint.g, tint.b, 1.0)
+                app.drawIcon(studio.icons, if camera { "video" } else { "sun" }, at.x - studioTheme.iconSmall * 0.5, at.y - studioTheme.iconSmall * 0.5, studioTheme.iconSmall, tint)
+            }
+        }
+        id = id + 1
+    }
+}
+
+func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
+    if rect.width < 4.0 || rect.height < 4.0 { return }
+    studio.camera.orthographic = !studio.mode3d
+    fin colors = gizmoColors()
+    fin viewProj = studio.camera.viewProj(rect.aspect())
+    app.setScissor(rect.x, rect.y, rect.width, rect.height)
+    app.drawGrid(studio.camera, rect, 1.0, 40.0, colors)
+    app.beginView(viewProj, rect)
+    app.applySceneLight(studio.scene)
+    app.drawScene(studio.scene, studio.meshes)
+    app.endView()
+    app.setScissor(rect.x, rect.y, rect.width, rect.height)
+    fin selected = studio.selected()
+    if studio.scene.isAlive(selected) { boundsLines(app, studio, selected, viewProj, rect, studioTheme.accent.withAlpha(0.9)) }
+    drawMarkers(app, studio, viewProj, rect)
+    if studio.tool != 0 && studio.scene.isAlive(selected) {
+        studio.gizmo.mode = studio.tool - 1
+        if studio.gizmo.active == 0 { studio.gizmo.origin = worldPosition(studio.scene, selected) }
+        app.drawGizmo(studio.gizmo, studio.camera, rect, colors)
+    }
+    if studio.mode3d { app.drawOrientation(studio.camera, rect, colors, 0) }
+    fin label = if studio.mode3d { "Perspective" } else { "2D · Orthographic" }
+    fin width = app.uiTextWidth(label, 11.0) + 18.0
+    app.uiRoundRect(rect.x + 10.0, rect.y + 10.0, width, 22.0, 11.0, 0.0, 0.0, 0.0, 0.35)
+    app.uiTextColored(label, rect.x + 19.0, rect.y + 10.0 + (22.0 - app.uiTextHeight(11.0)) * 0.5, 11.0, studioTheme.muted.r, studioTheme.muted.g, studioTheme.muted.b)
+    app.clearScissor()
+}

@@ -1,640 +1,347 @@
 import std.io
 import std.format
 import std.traits
+import std.string
+import std.reflection
+import std.math
 import engine.platform
 import engine.objc
+import engine.gpu
 import engine.gpu.draw
 import engine.input
 import engine.io
 import engine.core
 import engine.ecs
+import engine.math
+import engine.scene
+import engine.scene.io
+import engine.render.scene
+import engine.gizmos
 import engine.ui.node
+import engine.ui.icons
 import engine.ui.compose
 import engine.ui.systems
 import engine.ui.paint
+import engine.ui.docking
+import engine.ui.docking.view
 import studio.host
 import studio.editor
-import studio.intelligence
-import studio.scene
-import studio.workspace
+import studio.theme
+import studio.state
+import studio.ui
+import studio.fields
+import studio.script
+import studio.panels
+import studio.viewport
+import studio.code
+import studio.commands
 import studio.problems
 
-// ── Source text geometry ────────────────────────────────────────────────
-//
-// The editor draws in a fixed-pitch font, so a column is a fixed advance and
-// both drawing and hit-testing are arithmetic on columns. A tab advances to
-// the next multiple of four, and a UTF-8 continuation byte advances nothing.
+// The Studio window. Panels are found by reflection, commands are found by
+// reflection, and the layout is ECS state the dock rearranges; this file only
+// wires a frame together: input in, commands run, the tree recomposed when a
+// revision moved, then painted - main window, floating windows, popup - each
+// with its panels' own surfaces drawn over it.
 
-fin sourceFontSize: Double = 13.0
-fin sourceLineHeight: Double = 20.0
-fin sourceTop: Double = 10.0
-fin sourceGutter: Double = 58.0
+// ── Panels and canvases ─────────────────────────────────────────────────
 
-func isContinuation(value: Int): Bool { return value >= 128 && value < 192 }
-func isDigitByte(value: Int): Bool { return value >= 48 && value <= 57 }
-func isWordStart(value: Int): Bool { return (value >= 65 && value <= 90) || (value >= 97 && value <= 122) || value == 95 || value >= 192 }
-func isWordPart(value: Int): Bool { return isWordStart(value) || isDigitByte(value) || isContinuation(value) }
-
-/** The visual column [offset] reaches, starting from [start] at column 0. */
-func columnsBetween(source: Long, start: Int, offset: Int): Int {
-    var column = 0
-    var index = start
-    while index < offset {
-        fin value = azsBufferByte(source, index)
-        if value == 9 { column = column + 4 - column % 4 }
-        else if !isContinuation(value) { column = column + 1 }
-        index = index + 1
-    }
-    return column
+/** Passes the pointer to the `@Canvas` panel [panel]; answers whether it used it. */
+/** 1 while [positive] is held, -1 while [negative] is, 0 for both or neither. */
+func keyAxis(app: App&, positive: Int, negative: Int): Double {
+    var axis: Double = 0.0
+    if app.keyDown(positive) { axis = axis + 1.0 }
+    if app.keyDown(negative) { axis = axis - 1.0 }
+    return axis
 }
 
-func lineStartOf(source: Long, offset: Int): Int {
-    var start = offset
-    while start > 0 && azsBufferByte(source, start - 1) != 10 { start = start - 1 }
-    return start
-}
-
-func lineEndOf(source: Long, offset: Int): Int {
-    var end = offset
-    fin size = azsBufferSize(source)
-    while end < size && azsBufferByte(source, end) != 10 { end = end + 1 }
-    return end
-}
-
-/** The byte offset on the line starting at [start] closest to visual [column]. */
-func offsetAtColumn(source: Long, start: Int, column: Int): Int {
-    fin end = lineEndOf(source, start)
-    var offset = start
-    var current = 0
-    while offset < end {
-        fin value = azsBufferByte(source, offset)
-        var next = offset + 1
-        while next < end && isContinuation(azsBufferByte(source, next)) { next = next + 1 }
-        fin width = if value == 9 { 4 - current % 4 } else { 1 }
-        if current + width > column {
-            if column - current >= (width + 1) / 2 { return next }
-            return offset
+func canvasPointer(panel: String, app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+    inline for P in reflect<*>.withAnnot<Panel> {
+        inline if reflect<P>.hasAnnot<Canvas> {
+            if panel == reflect<P>.declName { return P::pointer(app, studio, rect, input) }
         }
-        current = current + width
-        offset = next
-    }
-    return end
-}
-
-func sourceRow(source: Long, cursor: Int): Int {
-    var row = 0
-    var offset = 0
-    while offset < cursor && offset < azsBufferSize(source) {
-        if azsBufferByte(source, offset) == 10 { row = row + 1 }
-        offset = offset + 1
-    }
-    return row
-}
-
-func lineCount(source: Long): Int { return sourceRow(source, azsBufferSize(source)) + 1 }
-
-/** The offset of zero-based [row]'s byte [column], clamped to that line. */
-func offsetAt(source: Long, row: Int, column: Int): Int {
-    var start = 0
-    var current = 0
-    fin size = azsBufferSize(source)
-    while start < size && current < row {
-        if azsBufferByte(source, start) == 10 { current = current + 1 }
-        start = start + 1
-    }
-    fin end = lineEndOf(source, start)
-    var offset = start + column
-    if offset > end { offset = end }
-    while offset > start && isContinuation(azsBufferByte(source, offset)) { offset = offset - 1 }
-    return offset
-}
-
-func isKeyword(word: String): Bool {
-    return word == "func" || word == "fin" || word == "var" || word == "let" || word == "import" ||
-        word == "module" || word == "pack" || word == "impl" || word == "spec" || word == "enum" ||
-        word == "if" || word == "else" || word == "while" || word == "for" || word == "in" ||
-        word == "loop" || word == "return" || word == "break" || word == "continue" || word == "when" ||
-        word == "react" || word == "ctor" || word == "dtor" || word == "bridge" || word == "using" ||
-        word == "take" || word == "lend" || word == "alloc" || word == "purge" || word == "defer" ||
-        word == "derives" || word == "where" || word == "inline" || word == "async" || word == "await" ||
-        word == "true" || word == "false" || word == "null" || word == "self" || word == "Self" ||
-        word == "assert" || word == "panic" || word == "as" || word == "is"
-}
-
-/** Draws one source line with token colours, from byte [start] to [end]. */
-func drawSourceLine(app: App!, source: Long, start: Int, end: Int, x: Double, y: Double, advance: Double) {
-    var offset = start
-    var column = 0
-    while offset < end {
-        fin value = azsBufferByte(source, offset)
-        var stop = offset + 1
-        // 0 plain, 1 keyword, 2 type, 3 string, 4 number, 5 comment, 6 punctuation, 7 call, -1 space
-        var kind = 6
-        if value == 32 || value == 9 {
-            while stop < end && (azsBufferByte(source, stop) == 32 || azsBufferByte(source, stop) == 9) { stop = stop + 1 }
-            kind = -1
-        } else if value == 47 && stop < end && azsBufferByte(source, stop) == 47 {
-            stop = end
-            kind = 5
-        } else if value == 34 {
-            while stop < end && azsBufferByte(source, stop) != 34 {
-                if azsBufferByte(source, stop) == 92 { stop = stop + 1 }
-                stop = stop + 1
-            }
-            if stop < end { stop = stop + 1 }
-            if stop > end { stop = end }
-            kind = 3
-        } else if isDigitByte(value) {
-            while stop < end && (isWordPart(azsBufferByte(source, stop)) || azsBufferByte(source, stop) == 46) { stop = stop + 1 }
-            kind = 4
-        } else if isWordStart(value) {
-            while stop < end && isWordPart(azsBufferByte(source, stop)) { stop = stop + 1 }
-            kind = 0
-            fin word = azsBufferSlice(source, offset, stop)
-            if word != Long(0) {
-                if isKeyword(azsBufferText(word)) { kind = 1 }
-                else if value >= 65 && value <= 90 { kind = 2 }
-                else if stop < end && azsBufferByte(source, stop) == 40 { kind = 7 }
-                azsBufferClose(word)
-            }
-        } else {
-            while stop < end && isContinuation(azsBufferByte(source, stop)) { stop = stop + 1 }
-        }
-        if kind >= 0 {
-            fin run = azsBufferSlice(source, offset, stop)
-            if run != Long(0) {
-                fin r: Double = if kind == 1 { 0.875 } else if kind == 2 { 0.431 } else if kind == 3 { 0.471 } else if kind == 4 { 1.0 } else if kind == 5 { 0.420 } else if kind == 6 { 0.620 } else if kind == 7 { 0.984 } else { 0.878 }
-                fin g: Double = if kind == 1 { 0.478 } else if kind == 2 { 0.663 } else if kind == 3 { 0.820 } else if kind == 4 { 0.631 } else if kind == 5 { 0.431 } else if kind == 6 { 0.643 } else if kind == 7 { 0.804 } else { 0.878 }
-                fin b: Double = if kind == 1 { 0.949 } else if kind == 2 { 0.957 } else if kind == 3 { 0.522 } else if kind == 4 { 0.329 } else if kind == 5 { 0.478 } else if kind == 6 { 0.698 } else if kind == 7 { 0.502 } else { 0.898 }
-                app.uiTextFont(azsBufferText(run), x + (column as Double) * advance, y, sourceFontSize, r, g, b, uiFontMonospace)
-                azsBufferClose(run)
-            }
-        }
-        column = column + columnsBetween(source, offset, stop)
-        offset = stop
-    }
-}
-
-/** Underlines each problem's span on [row] and marks the gutter. */
-func drawProblems(app: App!, source: Long, problems: Array<Diagnostic>&, stale: Bool, row: Int, start: Int, end: Int, textX: Double, y: Double, advance: Double, gutterX: Double) {
-    var index = 0
-    while index < problems.size {
-        if problems[index].line == row {
-            fin severity = problems[index].severity
-            fin r: Double = if severity == 0 { 0.902 } else if severity == 1 { 1.0 } else { 0.306 }
-            fin g: Double = if severity == 0 { 0.290 } else if severity == 1 { 0.757 } else { 0.576 }
-            fin b: Double = if severity == 0 { 0.227 } else if severity == 1 { 0.027 } else { 0.918 }
-            fin alpha: Double = if stale { 0.35 } else { 0.95 }
-            var from = start + problems[index].startByte
-            var to = if problems[index].endLine == row { start + problems[index].endByte } else { end }
-            if from > end { from = end }
-            if to > end { to = end }
-            if to <= from { to = from + 1 }
-            fin left = textX + (columnsBetween(source, start, from) as Double) * advance
-            var width = (columnsBetween(source, from, to) as Double) * advance
-            if width < advance { width = advance }
-            // A dotted underline: short dashes read as a squiggle at this size.
-            var dash: Double = 0.0
-            while dash < width {
-                app.uiRect(left + dash, y + sourceLineHeight - 3.0, 3.0, 2.0, r, g, b, alpha)
-                dash = dash + 5.0
-            }
-            app.uiRoundRect(gutterX + 6.0, y + sourceLineHeight * 0.5 - 3.0, 6.0, 6.0, 3.0, r, g, b, alpha)
-        }
-        index = index + 1
-    }
-}
-
-func drawSource(app: App!, source: Long, cursor: Int, focused: Bool, rect: Rect&, scroll: Int, caretVisible: Bool, problems: Array<Diagnostic>&, stale: Bool, selectionStart: Int, selectionEnd: Int) {
-    fin advance = app.uiTextWidthFont("0", sourceFontSize, uiFontMonospace)
-    fin textHeight = app.uiTextHeight(sourceFontSize)
-    fin cursorRow = sourceRow(source, cursor)
-    fin size = azsBufferSize(source)
-    fin textX = rect.x + sourceGutter + 10.0
-    // The gutter is a band of its own, separated by a hairline.
-    app.uiRect(rect.x + sourceGutter, rect.y, 1.0, rect.height, 0.173, 0.173, 0.192, 1.0)
-    var start = 0
-    var row = 0
-    var y: Double = rect.y + sourceTop
-    var offset = 0
-    while offset <= size && y < rect.y + rect.height {
-        if offset == size || azsBufferByte(source, offset) == 10 {
-            if row >= scroll {
-                fin current = row == cursorRow
-                if current && focused && selectionStart == selectionEnd {
-                    app.uiRect(rect.x + sourceGutter + 1.0, y, rect.width - sourceGutter - 1.0, sourceLineHeight, 1.0, 1.0, 1.0, 0.035)
-                }
-                // The selected part of this line, plus its line break when the
-                // selection continues past it.
-                if selectionStart < selectionEnd && selectionStart <= offset && selectionEnd >= start {
-                    fin from = if selectionStart > start { selectionStart } else { start }
-                    fin to = if selectionEnd < offset { selectionEnd } else { offset }
-                    fin left = textX + (columnsBetween(source, start, from) as Double) * advance
-                    var width = (columnsBetween(source, from, to) as Double) * advance
-                    if selectionEnd > offset { width = width + advance * 0.6 }
-                    if width > 0.0 { app.uiRect(left, y, width, sourceLineHeight, 0.820, 0.306, 0.918, 0.30) }
-                }
-                fin number = "${row + 1}"
-                fin numberWidth = app.uiTextWidthFont(number, 12.0, uiFontMonospace)
-                fin shade: Double = if current { 0.85 } else { 0.40 }
-                app.uiTextFont(number, rect.x + sourceGutter - 10.0 - numberWidth, y + (sourceLineHeight - textHeight) * 0.5, 12.0, shade, shade, shade, uiFontMonospace)
-                drawSourceLine(app, source, start, offset, textX, y + (sourceLineHeight - textHeight) * 0.5, advance)
-                drawProblems(app, source, problems, stale, row, start, offset, textX, y, advance, rect.x)
-                if focused && current && caretVisible {
-                    fin caretX = textX + (columnsBetween(source, start, cursor) as Double) * advance
-                    app.uiRect(caretX - 1.0, y + 2.0, 2.0, sourceLineHeight - 4.0, 0.820, 0.306, 0.918, 1.0)
-                }
-                y = y + sourceLineHeight
-            }
-            start = offset + 1
-            row = row + 1
-        }
-        offset = offset + 1
-    }
-}
-
-/** The byte offset a click at ([x], [y]) lands on. */
-func sourceOffsetAt(app: App!, source: Long, x: Double, y: Double, rect: Rect&, scroll: Int): Int {
-    fin advance = app.uiTextWidthFont("0", sourceFontSize, uiFontMonospace)
-    var wanted = ((y - rect.y - sourceTop) / sourceLineHeight) as Int
-    if wanted < 0 { wanted = 0 }
-    wanted = wanted + scroll
-    var row = 0
-    var start = 0
-    fin size = azsBufferSize(source)
-    while start < size && row < wanted {
-        if azsBufferByte(source, start) == 10 { row = row + 1 }
-        start = start + 1
-    }
-    var column = ((x - rect.x - sourceGutter - 10.0) / advance + 0.5) as Int
-    if column < 0 { column = 0 }
-    return offsetAtColumn(source, start, column)
-}
-
-// ── Console ─────────────────────────────────────────────────────────────
-
-func containsWord(source: Long, start: Int, end: Int, word: String): Bool {
-    fin probe = azsBufferNew(word)
-    if probe == Long(0) { return false }
-    fin length = azsBufferSize(probe)
-    var found = false
-    var offset = start
-    while !found && offset + length <= end {
-        var matched = 0
-        while matched < length && (azsBufferByte(source, offset + matched) | 32) == azsBufferByte(probe, matched) { matched = matched + 1 }
-        if matched == length { found = true }
-        offset = offset + 1
-    }
-    azsBufferClose(probe)
-    return found
-}
-
-func drawConsole(app: App!, output: Long, rect: Rect&) {
-    fin size = azsBufferSize(output)
-    fin textHeight = app.uiTextHeight(12.0)
-    var start = 0
-    var y: Double = rect.y + 8.0
-    var offset = 0
-    while offset <= size && y < rect.y + rect.height - 4.0 {
-        if offset == size || azsBufferByte(output, offset) == 10 {
-            if offset > start {
-                fin line = azsBufferSlice(output, start, offset)
-                if line != Long(0) {
-                    var r: Double = 0.769
-                    var g: Double = 0.769
-                    var b: Double = 0.769
-                    if containsWord(output, start, offset, "error") { r = 0.902
-                        g = 0.420
-                        b = 0.380 }
-                    else if containsWord(output, start, offset, "warn") { r = 1.0
-                        g = 0.757
-                        b = 0.300 }
-                    app.uiTextFont(azsBufferText(line), rect.x + 12.0, y + (18.0 - textHeight) * 0.5, 12.0, r, g, b, uiFontMonospace)
-                    azsBufferClose(line)
-                }
-            }
-            y = y + 18.0
-            start = offset + 1
-        }
-        offset = offset + 1
-    }
-}
-
-// ── Scene viewport ──────────────────────────────────────────────────────
-
-func entitySide(scene: StudioScene&, id: Int): Double {
-    fin value = storageGet<StudioTransform>(scene.transforms, scene.world.entityAt(id)).clone()
-    if id == 0 { return (value.scale as Double) * 0.56 }
-    return 30.0 * (value.scale as Double) / 100.0
-}
-
-func entityCenterX(scene: StudioScene&, id: Int, rect: Rect&): Double {
-    fin value = storageGet<StudioTransform>(scene.transforms, scene.world.entityAt(id)).clone()
-    var x = rect.x + rect.width * 0.5 + (value.x as Double)
-    if id == 0 && scene.playing { x = x + scene.playX }
-    return x
-}
-
-func entityCenterY(scene: StudioScene&, id: Int, rect: Rect&): Double {
-    fin value = storageGet<StudioTransform>(scene.transforms, scene.world.entityAt(id)).clone()
-    return rect.y + rect.height * 0.5 + (value.y as Double)
-}
-
-func drawPill(app: App!, text: String, x: Double, y: Double, size: Double, r: Double, g: Double, b: Double) {
-    fin width = app.uiTextWidth(text, size)
-    fin height = app.uiTextHeight(size)
-    app.uiRoundRect(x, y, width + 16.0, height + 8.0, (height + 8.0) * 0.5, 0.0, 0.0, 0.0, 0.45)
-    app.uiTextColored(text, x + 8.0, y + 4.0, size, r, g, b)
-}
-
-func sceneCanvas(app: App!, scene: StudioScene&, rect: Rect&) {
-    app.setScissor(rect.x, rect.y, rect.width, rect.height)
-    fin centerX = rect.x + rect.width * 0.5
-    fin centerY = rect.y + rect.height * 0.5
-    // Grid: a fine lattice every 20 units, a stronger one every 100.
-    var step = 0
-    var gridX = centerX
-    while gridX > rect.x { gridX = gridX - 20.0
-        step = step - 1 }
-    while gridX < rect.x + rect.width {
-        fin alpha: Double = if step % 5 == 0 { 0.055 } else { 0.022 }
-        app.uiRect(gridX, rect.y, 1.0, rect.height, 1.0, 1.0, 1.0, alpha)
-        gridX = gridX + 20.0
-        step = step + 1
-    }
-    step = 0
-    var gridY = centerY
-    while gridY > rect.y { gridY = gridY - 20.0
-        step = step - 1 }
-    while gridY < rect.y + rect.height {
-        fin alpha: Double = if step % 5 == 0 { 0.055 } else { 0.022 }
-        app.uiRect(rect.x, gridY, rect.width, 1.0, 1.0, 1.0, 1.0, alpha)
-        gridY = gridY + 20.0
-        step = step + 1
-    }
-    app.uiRect(rect.x, centerY, rect.width, 1.0, 0.902, 0.290, 0.227, 0.45)
-    app.uiRect(centerX, rect.y, 1.0, rect.height, 0.306, 0.788, 0.384, 0.45)
-
-    for id in 0..<3 {
-        fin x = entityCenterX(scene, id, rect)
-        fin y = entityCenterY(scene, id, rect)
-        fin side = entitySide(scene, id)
-        fin half = side * 0.5
-        if id == 0 {
-            app.uiRoundRect(x - half + 3.0, y - half + 5.0, side, side, side * 0.16, 0.0, 0.0, 0.0, 0.35)
-            app.uiRoundRect(x - half, y - half, side, side, side * 0.16, 0.306, 0.576, 0.918, 1.0)
-            app.uiRoundRect(x - half, y - half, side, side * 0.45, side * 0.16, 1.0, 1.0, 1.0, 0.10)
-            app.uiRoundRectStroke(x - half, y - half, side, side, side * 0.16, 1.0, 1.0, 1.0, 1.0, 0.22)
-        } else if id == 1 {
-            fin w = side * 1.3
-            fin h = side * 0.9
-            app.uiRoundRect(x - w * 0.5 + 2.0, y - h * 0.5 + 4.0, w, h, 6.0, 0.0, 0.0, 0.0, 0.35)
-            app.uiRoundRect(x - w * 0.5, y - h * 0.5, w, h, 6.0, 0.306, 0.788, 0.384, 1.0)
-            app.uiRoundRect(x + w * 0.5 - 2.0, y - h * 0.3, h * 0.45, h * 0.6, 3.0, 0.20, 0.55, 0.27, 1.0)
-            app.uiRoundRect(x - h * 0.22, y - h * 0.22, h * 0.44, h * 0.44, h * 0.22, 0.06, 0.12, 0.08, 1.0)
-        } else {
-            app.uiRoundRect(x - side, y - side, side * 2.0, side * 2.0, side, 1.0, 0.757, 0.027, 0.06)
-            app.uiRoundRect(x - side * 0.75, y - side * 0.75, side * 1.5, side * 1.5, side * 0.75, 1.0, 0.757, 0.027, 0.10)
-            app.uiRoundRect(x - half, y - half, side, side, half, 1.0, 0.757, 0.027, 1.0)
-            app.uiRoundRect(x - half * 0.45, y - half * 0.45, half * 0.9, half * 0.9, half * 0.45, 1.0, 0.95, 0.75, 1.0)
-        }
-        if scene.selected == id {
-            fin box = if id == 1 { side * 1.3 } else { side }
-            app.uiRoundRectStroke(x - box * 0.5 - 6.0, y - box * 0.5 - 6.0, box + 12.0, box + 12.0, 8.0, 2.0, 0.820, 0.306, 0.918, 1.0)
-            // Translate gizmo: X to the right in red, Y up in green.
-            app.uiRect(x, y - 1.0, 54.0, 2.0, 0.902, 0.290, 0.227, 1.0)
-            app.uiRoundRect(x + 52.0, y - 5.0, 10.0, 10.0, 2.0, 0.902, 0.290, 0.227, 1.0)
-            app.uiRect(x - 1.0, y - 54.0, 2.0, 54.0, 0.306, 0.788, 0.384, 1.0)
-            app.uiRoundRect(x - 5.0, y - 62.0, 10.0, 10.0, 2.0, 0.306, 0.788, 0.384, 1.0)
-            app.uiRoundRect(x - 4.0, y - 4.0, 8.0, 8.0, 2.0, 1.0, 1.0, 1.0, 1.0)
-        }
-        fin name = scene.world.getName(scene.world.entityAt(id))
-        fin labelWidth = app.uiTextWidth(name, 11.0) + 16.0
-        drawPill(app, name, x - labelWidth * 0.5, y + side * 0.5 + 12.0, 11.0, 0.86, 0.86, 0.88)
-    }
-    if scene.playing {
-        if scene.paused { drawPill(app, "❚❚  Paused", rect.x + 12.0, rect.y + 12.0, 12.0, 1.0, 0.757, 0.30) }
-        else { drawPill(app, "▶  Playing · isolated preview", rect.x + 12.0, rect.y + 12.0, 12.0, 0.45, 0.85, 0.55) }
-    } else {
-        drawPill(app, "Edit · 2D", rect.x + 12.0, rect.y + 12.0, 12.0, 0.80, 0.80, 0.84)
-    }
-    app.uiTextColored("Drag an entity to move it", rect.x + 14.0, rect.y + rect.height - 26.0, 11.0, 0.40, 0.40, 0.42)
-    app.clearScissor()
-}
-
-/** Selects the entity under ([x], [y]) and answers whether one was hit. */
-func selectCanvas(scene: StudioScene!, x: Double, y: Double, rect: Rect&): Bool {
-    var hit = -1
-    for id in 0..<3 {
-        fin half = entitySide(scene, id) * 0.5 + 10.0
-        if x >= entityCenterX(scene, id, rect) - half && x <= entityCenterX(scene, id, rect) + half &&
-            y >= entityCenterY(scene, id, rect) - half && y <= entityCenterY(scene, id, rect) + half { hit = id }
-    }
-    if hit < 0 { return false }
-    scene.select(hit)
-    return true
-}
-
-// ── Editing ─────────────────────────────────────────────────────────────
-
-/** Whether [key] was pressed this frame, by the user or by the input script. */
-func pressedKey(app: App&, injected: Int, key: Int): Bool { return injected == key || app.keyPressed(key) }
-
-/** Applies this frame's editing keys and typed text. Answers whether the source changed. */
-/** Deletes the selection, if any, leaving the cursor where it began. */
-func deleteSelection(editor: Editor!, view: WorkspaceView!): Bool {
-    if !view.hasSelection() { view.anchor = -1
-        return false }
-    fin start = view.selectionStart()
-    if editor.splice(start, view.selectionEnd() - start, "") < 0 { return false }
-    view.cursor = start
-    view.anchor = -1
-    return true
-}
-
-/** ⌘A, ⌘C, ⌘X and ⌘V on the source. Answers whether the source changed. */
-func clipboardKeys(app: App&, editor: Editor!, view: WorkspaceView!, injected: Int): Bool {
-    if pressedKey(app, injected, keyA) {
-        view.anchor = 0
-        view.cursor = azsBufferSize(editor.source)
-        return false
-    }
-    if (pressedKey(app, injected, keyC) || pressedKey(app, injected, keyX)) && view.hasSelection() {
-        fin start = view.selectionStart()
-        fin copied = azsBufferSlice(editor.source, start, view.selectionEnd())
-        if copied != Long(0) {
-            app.setClipboardText(azsBufferText(copied))
-            azsBufferClose(copied)
-        }
-        if pressedKey(app, injected, keyX) { return deleteSelection(editor, view) }
-        return false
-    }
-    if pressedKey(app, injected, keyV) {
-        fin pasted = app.clipboardText()
-        if pasted == "" { return false }
-        deleteSelection(editor, view)
-        fin inserted = editor.splice(view.cursor, 0, pasted)
-        if inserted < 0 { return false }
-        view.cursor = view.cursor + inserted
-        return true
     }
     return false
 }
 
-func editKeys(app: App&, editor: Editor!, view: WorkspaceView!, typed: String, injected: Int, meta: Bool): Bool {
-    if !view.focused || view.tab != 1 { return false }
-    if meta { return clipboardKeys(app, editor, view, injected) }
-    if app.keyDown(keyControl) { return false }
-    var changed = false
-    fin source = editor.source
-    // Movement extends the selection while Shift is held and drops it otherwise.
-    fin extending = app.keyDown(keyShift)
-    fin moving = pressedKey(app, injected, keyArrowLeft) || pressedKey(app, injected, keyArrowRight) ||
-        pressedKey(app, injected, keyArrowUp) || pressedKey(app, injected, keyArrowDown) ||
-        pressedKey(app, injected, keyHome) || pressedKey(app, injected, keyEnd)
-    if moving {
-        if extending && view.anchor < 0 { view.anchor = view.cursor }
-        if !extending { view.anchor = -1 }
-    }
-    if pressedKey(app, injected, keyArrowLeft) && view.cursor > 0 {
-        view.cursor = view.cursor - 1
-        while view.cursor > 0 && isContinuation(azsBufferByte(editor.source, view.cursor)) { view.cursor = view.cursor - 1 }
-    }
-    if pressedKey(app, injected, keyArrowRight) && view.cursor < azsBufferSize(editor.source) {
-        view.cursor = view.cursor + 1
-        while view.cursor < azsBufferSize(editor.source) && isContinuation(azsBufferByte(editor.source, view.cursor)) { view.cursor = view.cursor + 1 }
-    }
-    if pressedKey(app, injected, keyArrowUp) {
-        fin start = lineStartOf(editor.source, view.cursor)
-        if start > 0 {
-            fin column = columnsBetween(editor.source, start, view.cursor)
-            view.cursor = offsetAtColumn(editor.source, lineStartOf(editor.source, start - 1), column)
+/** Has the `@Canvas` panel [panel] draw into [rect]. */
+func canvasDraw(panel: String, app: App!, studio: Studio!, rect: ViewRect&) {
+    inline for P in reflect<*>.withAnnot<Panel> {
+        inline if reflect<P>.hasAnnot<Canvas> {
+            if panel == reflect<P>.declName { P::draw(app, studio, rect) }
         }
     }
-    if pressedKey(app, injected, keyArrowDown) {
-        fin start = lineStartOf(editor.source, view.cursor)
-        fin end = lineEndOf(editor.source, view.cursor)
-        if end < azsBufferSize(editor.source) {
-            fin column = columnsBetween(editor.source, start, view.cursor)
-            view.cursor = offsetAtColumn(editor.source, end + 1, column)
-        }
+}
+
+/** Whether [node] hangs, at any depth, under [root] in [pass]. */
+func isUnder(pass: Composition!, node: Entity, root: Entity): Bool {
+    var current = node
+    var depth = 0
+    while current.isValid && depth < 64 {
+        if current.id == root.id && current.generation == root.generation { return true }
+        current = storageGetOrDefault<Child>(store<Child>(pass), current, Child(Entity::invalid)).parent
+        depth = depth + 1
     }
-    if pressedKey(app, injected, keyHome) { view.cursor = lineStartOf(editor.source, view.cursor) }
-    if pressedKey(app, injected, keyEnd) { view.cursor = lineEndOf(editor.source, view.cursor) }
-    if (pressedKey(app, injected, keyBackspace) || pressedKey(app, injected, keyDelete)) && view.hasSelection() {
-        return deleteSelection(editor, view)
-    }
-    if (typed != "" || pressedKey(app, injected, keyEnter) || pressedKey(app, injected, keyTab)) && view.hasSelection() {
-        if deleteSelection(editor, view) { changed = true }
-    }
-    if !moving && view.anchor == view.cursor { view.anchor = -1 }
-    if pressedKey(app, injected, keyBackspace) && view.cursor > 0 {
-        var start = view.cursor - 1
-        while start > 0 && isContinuation(azsBufferByte(editor.source, start)) { start = start - 1 }
-        if editor.splice(start, view.cursor - start, "") >= 0 { view.cursor = start
-            changed = true }
-    }
-    if pressedKey(app, injected, keyDelete) && view.cursor < azsBufferSize(editor.source) {
-        var end = view.cursor + 1
-        while end < azsBufferSize(editor.source) && isContinuation(azsBufferByte(editor.source, end)) { end = end + 1 }
-        if editor.splice(view.cursor, end - view.cursor, "") >= 0 { changed = true }
-    }
-    if pressedKey(app, injected, keyEnter) {
-        // A new line keeps the current line's indentation.
-        fin start = lineStartOf(editor.source, view.cursor)
-        var indent = start
-        while indent < view.cursor && (azsBufferByte(editor.source, indent) == 32 || azsBufferByte(editor.source, indent) == 9) { indent = indent + 1 }
-        var prefix = "\n"
-        if indent > start {
-            fin lead = azsBufferSlice(editor.source, start, indent)
-            if lead != Long(0) {
-                prefix = "\n${azsBufferText(lead)}"
-                azsBufferClose(lead)
+    return false
+}
+
+/** Draws every panel surface under [root]. */
+func drawCanvases(app: App!, studio: Studio!, pass: Composition!, root: Entity) {
+    var index = 0
+    while index < storageLength<PanelSurface>(store<PanelSurface>(pass)) {
+        fin node = storageEntityAt<PanelSurface>(store<PanelSurface>(pass), index)
+        if node.isValid && isUnder(pass, node, root) {
+            fin surface = storageGetOrDefault<PanelSurface>(store<PanelSurface>(pass), node, PanelSurface())
+            fin area = storageGetOrDefault<Rect>(store<Rect>(pass), node, Rect())
+            if area.width > 2.0 && area.height > 2.0 {
+                canvasDraw(surface.panel, app, studio, ViewRect(area.x, area.y, area.width, area.height))
             }
         }
-        fin inserted = editor.splice(view.cursor, 0, prefix)
-        if inserted >= 0 { view.cursor = view.cursor + inserted
-            changed = true }
-    }
-    if pressedKey(app, injected, keyTab) {
-        fin inserted = editor.splice(view.cursor, 0, "    ")
-        if inserted >= 0 { view.cursor = view.cursor + inserted
-            changed = true }
-    }
-    if typed != "" {
-        fin inserted = editor.typeText(view.cursor, typed)
-        if inserted >= 0 { view.cursor = view.cursor + inserted
-            changed = true }
-    }
-    if source != editor.source { changed = true }
-    return changed
-}
-
-// ── Input script ────────────────────────────────────────────────────────
-//
-// AZORA_STUDIO_SCRIPT drives the window through the same paths as a user, so
-// interactions can be exercised and observed without a person at the
-// keyboard: `action 13; wait 20; click 640 300; type hello; key 13; quit`.
-// `action` fires a control by its action code, `click` hit-tests a point,
-// `type` enters text, `key` presses an engine key code, `wait` skips frames.
-
-pack ScriptStep derives (Copy, Clone) {
-    /** 0 wait, 1 action, 2 click, 3 type, 4 key, 5 quit, 6 key with ⌘ held, 7 screenshot. */
-    var kind: Int = 0
-    var a: Int = 0
-    var b: Int = 0
-    /** For `type`: the text's byte range in the script buffer. */
-    var start: Int = 0
-    var end: Int = 0
-}
-
-func scriptNumber(script: Long, offset: Int, end: Int): Int {
-    var index = offset
-    while index < end && azsBufferByte(script, index) == 32 { index = index + 1 }
-    var negative = false
-    if index < end && azsBufferByte(script, index) == 45 { negative = true
-        index = index + 1 }
-    var value = 0
-    while index < end && azsBufferByte(script, index) >= 48 && azsBufferByte(script, index) <= 57 {
-        value = value * 10 + azsBufferByte(script, index) - 48
         index = index + 1
     }
-    return if negative { -value } else { value }
 }
 
-func scriptSkipWord(script: Long, offset: Int, end: Int): Int {
-    var index = offset
-    while index < end && azsBufferByte(script, index) == 32 { index = index + 1 }
-    while index < end && azsBufferByte(script, index) != 32 { index = index + 1 }
-    return index
-}
+// ── Chrome ──────────────────────────────────────────────────────────────
 
-func parseScript(script: Long): Array<ScriptStep> {
-    var steps: Array<ScriptStep> = Array<ScriptStep>()
-    if script == Long(0) { return steps }
-    fin size = azsBufferSize(script)
-    var start = 0
-    while start < size {
-        var end = start
-        while end < size && azsBufferByte(script, end) != 59 { end = end + 1 }
-        var word = start
-        while word < end && azsBufferByte(script, word) == 32 { word = word + 1 }
-        if word < end {
-            fin first = azsBufferByte(script, word)
-            fin argument = scriptSkipWord(script, word, end)
-            if first == 119 { steps.add(ScriptStep(0, scriptNumber(script, argument, end), 0, 0, 0)) }
-            else if first == 97 { steps.add(ScriptStep(1, scriptNumber(script, argument, end), 0, 0, 0)) }
-            else if first == 99 { steps.add(ScriptStep(2, scriptNumber(script, argument, end), scriptNumber(script, scriptSkipWord(script, argument, end), end), 0, 0)) }
-            else if first == 116 { steps.add(ScriptStep(3, 0, 0, if argument < end { argument + 1 } else { end }, end)) }
-            else if first == 107 { steps.add(ScriptStep(4, scriptNumber(script, argument, end), 0, 0, 0)) }
-            else if first == 113 { steps.add(ScriptStep(5, 0, 0, 0, 0)) }
-            else if first == 109 { steps.add(ScriptStep(6, scriptNumber(script, argument, end), 0, 0, 0)) }
-            else if first == 115 { steps.add(ScriptStep(7, 0, 0, if argument < end { argument + 1 } else { end }, end)) }
+pack TopBar { }
+impl TopBar {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        fin running = studio.playing && !studio.paused
+        return Row(modifier: Modifier::fillMaxWidth().height(42.0).padding(start: 14.0, end: 12.0), spacing: 6.0, verticalAlignment: .Center, key: "topbar") {
+            if studio.logo != Long(0) {
+                ImageView(studio.logo, modifier: Modifier::size(20.0, 20.0), key: "mark")
+            } else {
+                Shape(modifier: Modifier::size(18.0, 18.0).rounded(5.0).fill(studioTheme.brand), key: "mark")
+            }
+            Label("Azora Studio", app, studioTheme.text, size: 13.5, bold: true, key: "name")
+            Icon("chevron-right", studioTheme.faint, size: studioTheme.iconSmall, key: "sep")
+            Label(studio.projectName(), app, studioTheme.muted, size: 13.0, key: "project")
+            if studio.sceneDirty || studio.editor.dirty {
+                Shape(modifier: Modifier::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty")
+            }
+            Spacer(key: "left")
+            Row(modifier: Modifier::height(30.0).raised().rounded(8.0).padding(start: 3.0, end: 3.0), spacing: 2.0, verticalAlignment: .Center, key: "transport") {
+                BarButton("runPlay", app, icon: "play", active: running, tint: studioTheme.green, key: "play")
+                BarButton("runPause", app, icon: "pause", active: studio.paused, tint: studioTheme.yellow, key: "pause")
+                BarButton("runStop", app, icon: "square", tint: if studio.playing { studioTheme.red } else { studioTheme.muted }, key: "stop")
+            }
+            Spacer(key: "right")
+            BarButton("toolBuild", app, icon: "hammer", label: "Build", key: "build")
+            Press(if studio.busy { "toolCancel" } else { "toolRun" }, modifier: Modifier::height(28.0).rounded(7.0).accent().padding(start: 12.0, end: 12.0), spacing: 6.0, key: "run") {
+                Icon(if studio.busy { "square" } else { "play" }, studioTheme.ground, size: studioTheme.iconSmall, key: "glyph")
+                Label(if studio.busy { "Cancel" } else { "Run app" }, app, studioTheme.ground, bold: true, key: "label")
+            }
         }
-        start = end + 1
     }
-    return steps
 }
+
+pack StatusBar { }
+impl StatusBar {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        fin tint = when studio.statusKind {
+            3 -> studioTheme.error
+            1 -> studioTheme.warning
+            2 -> studioTheme.green
+            else -> studioTheme.faint
+        }
+        fin errors = studio.countProblems(0)
+        fin warnings = studio.countProblems(1)
+        return Row(modifier: Modifier::fillMaxWidth().height(26.0).padding(start: 14.0, end: 14.0), spacing: 8.0, verticalAlignment: .Center, key: "statusbar") {
+            Shape(modifier: Modifier::size(7.0, 7.0).rounded(3.5).fill(tint), key: "dot")
+            Label(studio.status, app, studioTheme.muted, size: 11.5, key: "message")
+            Spacer(key: "fill")
+            Press("panelShow", modifier: Modifier::height(20.0).rounded(4.0).ghost().padding(start: 6.0, end: 6.0), text: "ProblemsPanel", spacing: 5.0, key: "problems") {
+                Icon("circle-x", if errors > 0 { studioTheme.error } else { studioTheme.faint }, size: studioTheme.iconSmall, key: "errors-glyph")
+                Label("${errors}", app, studioTheme.muted, size: 11.5, key: "errors")
+                Icon("triangle-alert", if warnings > 0 { studioTheme.warning } else { studioTheme.faint }, size: studioTheme.iconSmall, key: "warnings-glyph")
+                Label("${warnings}", app, studioTheme.muted, size: 11.5, key: "warnings")
+            }
+            Divider(height: 12.0, key: "divider")
+            Label("Azora 0.1 · LLVM native", app, studioTheme.faint, size: 11.5, key: "toolchain")
+        }
+    }
+}
+
+/** A popup's rows: components to add, or entity presets. */
+react func (anchor: Anchor!).popupRows(studio: Studio&, app: App&) {
+    when studio.popup.kind {
+        "addComponent" -> {
+            fin entity = selectedEntity(studio)
+            Text("ADD COMPONENT", modifier: Modifier::fillMaxWidth().height(26.0).padding(start: 10.0).caption(), key: "caption")
+            inline for C in reflect<*>.withAnnot<Inspectable> {
+                inline if reflect<C>.annotMeta<Inspectable>.visible {
+                    if studio.scene.isAlive(entity) && !storageHas<C>(storageOf<C>(studio.scene), entity) {
+                        fin declared = reflect<C>.annotMeta<Inspectable>.title
+                        Press("componentAdd", modifier: Modifier::fillMaxWidth().height(28.0).rounded(5.0).ghost().padding(start: 8.0, end: 8.0),
+                            text: reflect<C>.declName, spacing: 8.0, key: "add-${reflect<C>.declName}") {
+                            Icon(reflect<C>.annotMeta<Inspectable>.icon, studioTheme.accent, size: studioTheme.iconSize, key: "icon")
+                            Label(if stringLength(declared) > 0 { declared } else { reflect<C>.declName }, app, studioTheme.text, key: "title")
+                            Spacer(key: "fill")
+                            Label(reflect<C>.annotMeta<Inspectable>.category, app, studioTheme.faint, size: 11.0, key: "category")
+                        }
+                    }
+                }
+            }
+        }
+        "addEntity" -> {
+            Text("ADD ENTITY", modifier: Modifier::fillMaxWidth().height(26.0).padding(start: 10.0).caption(), key: "caption")
+            var index = 0
+            while index < studio.presets.size {
+                fin preset = studio.presets[index].clone()
+                Press("entityAdd", modifier: Modifier::fillMaxWidth().height(28.0).rounded(5.0).ghost().padding(start: 8.0, end: 8.0),
+                    arg: index, spacing: 8.0, key: "preset-${index}") {
+                    Icon(preset.icon, studioTheme.accent, size: studioTheme.iconSize, key: "icon")
+                    Label(preset.name, app, studioTheme.text, key: "title")
+                }
+                index = index + 1
+            }
+        }
+        else -> { }
+    }
+}
+
+/** How tall a popup of [kind] is. */
+func popupHeight(studio: Studio!, kind: String): Double {
+    var rows = 0
+    when kind {
+        "addComponent" -> {
+            fin entity = studio.selected()
+            inline for C in reflect<*>.withAnnot<Inspectable> {
+                inline if reflect<C>.annotMeta<Inspectable>.visible {
+                    if studio.scene.isAlive(entity) && !storageHas<C>(ensureStorage<C>(studio.scene), entity) { rows = rows + 1 }
+                }
+            }
+        }
+        "addEntity" -> { rows = studio.presets.size }
+        else -> { }
+    }
+    return 26.0 + (rows as Double) * 28.0 + 12.0
+}
+
+/** The whole window: chrome, the main dock, floating docks and any popup. */
+react func describeStudio(pass: Composition!, studio: Studio&, app: App&, style: DockStyle&, main: Entity, floating: Array<Entity>&) {
+    fin stamp = studio.revision + studio.dock.revision
+    composeIfChanged(pass, stamp) {
+        Column(modifier: Modifier::fillMaxSize().ground(), key: "studio") {
+            TopBar(studio, app)
+            Row(modifier: Modifier::fillMaxWidth().weight(1.0).padding(start: style.gap, end: style.gap), key: "body") {
+                DockSpace(main, style, app, key: "dock-main") { panel ->
+                    inline for P in reflect<*>.withAnnot<Panel> {
+                        if panel == reflect<P>.declName { P(studio, app) }
+                    }
+                }
+            }
+            StatusBar(studio, app)
+        }
+        var index = 0
+        while index < floating.size {
+            Column(modifier: Modifier::fillMaxSize().fill(style.strip).rounded(style.radius + 2.0).outline(1.0, style.hairline).padding(all: 3.0), key: "float-${floating[index].id}") {
+                DockSpace(floating[index], style, app, key: "dock-float") { panel ->
+                    inline for P in reflect<*>.withAnnot<Panel> {
+                        if panel == reflect<P>.declName { P(studio, app) }
+                    }
+                }
+            }
+            index = index + 1
+        }
+        if studio.popup.kind != "" {
+            Column(modifier: Modifier::fillMaxSize().fill(studioTheme.raised).rounded(8.0).outline(1.0, studioTheme.hairline).padding(all: 6.0), spacing: 1.0, key: "popup") {
+                popupRows(studio, app)
+            }
+        }
+    }
+}
+
+// ── Keys ────────────────────────────────────────────────────────────────
+
+fin keyLetters = "abcdefghijklmnopqrstuvwxyz"
+
+/** The name a command's `key` / `hotkey` uses for the key pressed this frame, or "". */
+func pressedKeyName(app: App&, injected: Int): String {
+    if injected == keyBackspace || app.keyPressed(keyBackspace) { return "backspace" }
+    var code = 48
+    while code <= 57 {
+        if injected == code || app.keyPressed(code) { return substring("0123456789", code - 48, code - 47) }
+        code = code + 1
+    }
+    code = 65
+    while code <= 90 {
+        if injected == code || app.keyPressed(code) { return substring(keyLetters, code - 65, code - 64) }
+        code = code + 1
+    }
+    return ""
+}
+
+// ── Fields ──────────────────────────────────────────────────────────────
+
+/** Ends typing into a field, keeping what was typed. */
+func commitField(studio: Studio!) {
+    if !studio.focus.typing { return }
+    fin entity = studio.selected()
+    fin focus = studio.focus.clone()
+    studio.focus = FieldFocus()
+    if studio.scene.isAlive(entity) {
+        if focus.numeric {
+            fin number = parseNumber(focus.text, fieldNumber(studio.scene, entity, focus.component, focus.field, focus.axis))
+            setFieldNumber(studio.scene, entity, focus.component, focus.field, focus.axis, number)
+        } else {
+            setFieldText(studio.scene, entity, focus.component, focus.field, focus.text)
+        }
+        studio.record(entity, focus.before, studio.scene.getParent(entity).id, "edit ${focus.field}")
+    }
+    studio.changed()
+}
+
+/** Typing into a focused field: characters, Backspace, Enter, Escape. */
+func typeIntoField(studio: Studio!, app: App&, typed: String, injected: Int) {
+    if injected == keyEscape || app.keyPressed(keyEscape) {
+        studio.focus = FieldFocus()
+        studio.changed()
+        return
+    }
+    if injected == keyEnter || app.keyPressed(keyEnter) || injected == keyTab || app.keyPressed(keyTab) {
+        commitField(studio)
+        return
+    }
+    if (injected == keyBackspace || app.keyPressed(keyBackspace)) && stringLength(studio.focus.text) > 0 {
+        studio.focus.text = substring(studio.focus.text, 0, stringLength(studio.focus.text) - 1)
+        studio.changed()
+    }
+    if typed != "" {
+        studio.focus.text = "${studio.focus.text}${typed}"
+        studio.changed()
+    }
+}
+
+// ── Layout persistence ──────────────────────────────────────────────────
+
+fin layoutFile = ".azora/layout.azon"
+
+func saveLayout(studio: Studio!, world: World!) {
+    azsProjectMakeDir(studio.editor.project, ".azora")
+    fin buffer = azsBufferNew(writeDockLayout(world))
+    if buffer == Long(0) { return }
+    azsProjectWrite(studio.editor.project, layoutFile, buffer)
+    azsBufferClose(buffer)
+}
+
+/** Removes every dock entity, so a layout can be built afresh. */
+func clearLayout(world: World!) {
+    while storageLength<DockNode>(ensureStorage<DockNode>(world)) > 0 {
+        fin entity = storageEntityAt<DockNode>(ensureStorage<DockNode>(world), 0)
+        if world.isAlive(entity) { world.despawn(entity) } else { storageRemove<DockNode>(ensureStorage<DockNode>(world), entity) }
+    }
+}
+
+/** Reads a host file into text; "" when it cannot be read. */
+func readText(project: Long, path: String): String {
+    fin buffer = azsProjectRead(project, path)
+    if buffer == Long(0) { return "" }
+    fin text = "${azsBufferText(buffer)} "
+    azsBufferClose(buffer)
+    return substring(text, 0, stringLength(text) - 1)
+}
+
+// ── The frame ───────────────────────────────────────────────────────────
 
 react func main() {
     if azsAbiVersion() != 1 { println("incompatible Studio host ABI")
@@ -647,310 +354,487 @@ react func main() {
     if source == Long(0) { azsProjectClose(project)
         println(azsError())
         return }
-    var editor = editorOf(project, source)
-    var scene = studioScene()
-    scene.reopen(project)
-    var view = WorkspaceView()
-    view.nameProject(root)
-    view.cursor = 0
-    view.output("Azora Studio — native build.\nSelect an entity to edit its Transform; Build, Inspect and Run app use the selected native compiler.")
+    var studio = Studio(root, editorOf(project, source))
+    studio.nameProject(root)
+
+    // Studio's own data: the theme, entity presets and the default scene.
+    fin resourcesRoot = azsEnvironment("AZORA_STUDIO_RESOURCES")
+    fin resources = if resourcesRoot != "" { azsProjectOpen(resourcesRoot, 0) } else { Long(0) }
+    if resources != Long(0) {
+        loadTheme(readText(resources, "theme.azon"))
+        studio.fileKinds = readFileKinds(readText(resources, "file-types.azon"))
+        fin presets = readPresets(readText(resources, "presets.azon"))
+        var index = 0
+        while index < presets.size {
+            studio.presets.add(presets[index].clone())
+            index = index + 1
+        }
+    }
+
+    // The scene: the project's own, or the default one when it has none of this version.
+    if readScene(studio.scene, readText(project, sceneFile)) < 0 {
+        if resources != Long(0) && readScene(studio.scene, readText(resources, "default-scene.azscene")) >= 0 {
+            studio.sceneDirty = true
+            studio.output("Azora Studio — native build.\nThis project's scene predates scene format 2; it opened with the default scene. Save (⌘S) to keep it.")
+        }
+    } else {
+        studio.output("Azora Studio — native build.\nOpened ${studio.projectName()} · ${sceneFile}")
+    }
+    if resources != Long(0) { azsProjectClose(resources) }
+    var id = 0
+    while id < studio.scene.entityCount {
+        fin entity = studio.scene.entityAt(id)
+        if studio.scene.isAlive(entity) {
+            storageInsert<Expanded>(ensureStorage<Expanded>(studio.scene), entity, Expanded())
+        }
+        id = id + 1
+    }
+    var first = Entity::invalid
+    id = 0
+    while id < studio.scene.entityCount && !studio.scene.isAlive(first) {
+        if studio.scene.isAlive(studio.scene.entityAt(id)) && storageHas<Mesh3d>(ensureStorage<Mesh3d>(studio.scene), studio.scene.entityAt(id)) {
+            first = studio.scene.entityAt(id)
+        }
+        id = id + 1
+    }
+    studio.select(first)
+    studio.refreshAssets()
+    studio.message("Ready")
+
     var world = World()
     var pass = Composition::of(world, "studio")
-    var app = appInit("Azora Studio", 1440, 900)
+    if !readDockLayout(pass.world, readText(project, layoutFile)) {
+        dockDefaultLayout(pass.world)
+    }
+
+    var app = appInit("Azora Studio", 1520, 940)
     if !app.ok { return }
-    app.setClearColor(0.078, 0.078, 0.086)
-    var process = Long(0)
-    var processAction: String = ""
+    app.setClearColor(studioTheme.ground.r, studioTheme.ground.g, studioTheme.ground.b)
+    studio.meshes = app.primitiveMeshes()
+    // The icons every part draws, from the atlas tools/build-icons.sh renders.
+    if resourcesRoot != "" {
+        studio.logo = app.loadImage("${resourcesRoot}/azora-logo.png").texture
+        fin atlasFiles = azsProjectOpen(resourcesRoot, 0)
+        if atlasFiles != Long(0) {
+            if loadIconAtlas(app, pass.world, "${resourcesRoot}/icons.png", readText(atlasFiles, "icons-index.azon")) {
+                studio.icons = storageValueAt<IconAtlas>(ensureStorage<IconAtlas>(pass.world), 0).clone()
+            } else {
+                studio.output("The icon atlas in ${resourcesRoot} could not be read.")
+            }
+            azsProjectClose(atlasFiles)
+        }
+    }
+    fin style = dockStyle()
+
     fin frameLimit = azsEnvironmentInt("AZORA_STUDIO_FRAME_LIMIT")
     fin started = azsMonotonicSeconds()
     var frames = 0
-    var sourceScroll = 0
-    var revealCursor = true
     var layoutVersion = Long(-1)
     var lastWidth: Double = -1.0
     var lastHeight: Double = -1.0
-    var dragging = false
-    var selecting = false
-    var dragStarted = false
-    var dragX: Double = 0.0
-    var dragY: Double = 0.0
-    var lastEdit: Double = 0.0
-    var paintList = PaintList()
+    var mainPaint = PaintList()
+    var floatPaint = PaintList()
+    var popupPaint = PaintList()
     var paintVersion = Long(-1)
-    var shotProcess = Long(0)
-    fin script = azsBufferNew(azsEnvironment("AZORA_STUDIO_SCRIPT"))
-    var steps = parseScript(script)
-    var stepIndex = 0
-    var waitUntil = 0
+    var lastX: Double = 0.0
+    var lastY: Double = 0.0
+    var wasDown = false
+    var wasMiddleDown = false
+    var scrubMoved = false
+    var dragPanel: String = ""
+    var player = ScriptPlayer::open()
+    var floating: Array<Entity> = Array<Entity>()
+    fin tracing = azsEnvironment("AZORA_STUDIO_TRACE") != ""
+    studio.tracing = tracing
+
     while app.frame() {
         frames = frames + 1
-        var action = 0
-        var pointerX = app.mouseX()
-        var pointerY = app.mouseY()
-        var injectedKey = -1
-        var injectedMeta = false
-        var shotPath: String = ""
+        var input = FrameInput()
         var typed = app.textInput()
-        var scriptText = Long(0)
-        if app.mouseClicked(mouseLeft) { action = pass.hit(pointerX, pointerY) }
-        // The script waits while a screenshot is being taken, so the capture
-        // shows the state it was asked for rather than a later one.
-        if stepIndex < steps.size && frames >= waitUntil && shotProcess == Long(0) {
-            fin kind = steps[stepIndex].kind
-            if kind == 0 { waitUntil = frames + steps[stepIndex].a }
-            else if kind == 1 { action = steps[stepIndex].a }
-            else if kind == 2 {
-                pointerX = steps[stepIndex].a as Double
-                pointerY = steps[stepIndex].b as Double
-                action = pass.hit(pointerX, pointerY)
-            }
-            else if kind == 3 {
-                scriptText = azsBufferSlice(script, steps[stepIndex].start, steps[stepIndex].end)
-                if scriptText != Long(0) { typed = azsBufferText(scriptText) }
-            }
-            else if kind == 4 { injectedKey = steps[stepIndex].a }
-            else if kind == 5 { app.quit() }
-            else if kind == 6 { injectedKey = steps[stepIndex].a
-                injectedMeta = true }
-            else if kind == 7 {
-                fin name = azsBufferSlice(script, steps[stepIndex].start, steps[stepIndex].end)
-                if name != Long(0) {
-                    shotPath = "${azsEnvironment("AZORA_STUDIO_SHOTS")}/${azsBufferText(name)}.png"
-                    azsBufferClose(name)
+        // A script drives the window through the same paths as a user.
+        fin cue = player.next(app, frames)
+        if cue.typed != "" { typed = cue.typed }
+        fin injectedKey = cue.key
+        fin injectedMeta = cue.meta
+        fin scriptCommand = cue.command
+
+        if player.pointing {
+            input.x = player.x
+            input.y = player.y
+            input.down = player.down || cue.click
+            input.rightDown = player.rightDown
+            input.scrollY = cue.scroll
+        } else {
+            input.x = app.mouseX()
+            input.y = app.mouseY()
+            // A tap can go down and up between two frames; it still counts as
+            // held for the frame it happened in, so it presses and releases.
+            input.down = app.mouseDown(mouseLeft) || app.mouseClicked(mouseLeft)
+            input.rightDown = app.mouseDown(mouseRight) || app.mouseClicked(mouseRight)
+            input.middleDown = app.mouseDown(mouseMiddle) || app.mouseClicked(mouseMiddle)
+            input.scrollX = app.scrollX()
+            input.scrollY = app.scrollY()
+            input.preciseScroll = app.scrollIsPrecise()
+            input.pinch = app.pinch()
+        }
+        input.middlePressed = input.middleDown && !wasMiddleDown
+        wasMiddleDown = input.middleDown
+        input.seconds = app.deltaTime()
+        input.flyForward = keyAxis(app, keyW, keyS)
+        input.flyRight = keyAxis(app, keyD, keyA)
+        input.flyUp = keyAxis(app, keyE, keyQ)
+        input.pressed = input.down && !wasDown
+        input.released = !input.down && wasDown
+        input.rightPressed = if player.pointing { cue.rightClick } else { app.mouseClicked(mouseRight) }
+        input.dx = if frames == 1 { 0.0 } else { input.x - lastX }
+        input.dy = if frames == 1 { 0.0 } else { input.y - lastY }
+        input.shift = app.keyDown(keyShift)
+        input.alt = app.keyDown(keyAlt)
+        input.command = app.keyDown(keyMeta) || injectedMeta
+        if tracing && (app.mouseClicked(mouseLeft) || input.pressed || input.released) {
+            println("pointer ${formatDecimal(input.x, 1)},${formatDecimal(input.y, 1)} clicked ${app.mouseClicked(mouseLeft)} down ${input.down} pressed ${input.pressed} released ${input.released}")
+        }
+        lastX = input.x
+        lastY = input.y
+        wasDown = input.down && !cue.click
+        studio.pointerX = input.x
+        studio.pointerY = input.y
+
+        if scriptCommand != "" {
+            if !runCommand(studio, scriptCommand, Invocation()) { studio.notify("No command '${scriptCommand}'", 3) }
+        }
+
+        // ── Keys: ⌘ chords and hotkeys run commands.
+        if input.command {
+            fin name = pressedKeyName(app, injectedKey)
+            if name != "" {
+                fin command = commandForKey(name, input.shift)
+                if command != "" && !(studio.sourceFocused && (name == "a" || name == "c" || name == "x" || name == "v")) {
+                    runCommand(studio, command, Invocation())
                 }
             }
-            stepIndex = stepIndex + 1
-        }
-        // Shortcuts: ⌘S save, ⌘Z undo, ⇧⌘Z redo, ⌘B build, ⌘R run.
-        if app.keyDown(keyMeta) || injectedMeta {
-            if pressedKey(app, injectedKey, keyS) { action = 1 }
-            if pressedKey(app, injectedKey, keyZ) { action = if app.keyDown(keyShift) { 3 } else { 2 } }
-            if pressedKey(app, injectedKey, keyB) { action = 5 }
-            if pressedKey(app, injectedKey, keyR) { action = 17 }
-        }
-        if action >= 100 && action <= 102 { scene.select(action - 100) }
-        if action == 30 { view.showDock(0) }
-        if action == 31 { view.showDock(1) }
-        if action >= 300 && action < 300 + view.problems.size {
-            fin problem = view.problems[action - 300].clone()
-            view.tab = 1
-            view.focused = true
-            view.cursor = offsetAt(editor.source, problem.line, problem.startByte)
-            revealCursor = true
-            lastEdit = app.timeNow()
-            view.message("${problem.code}: ${problem.message}")
-        }
-        if action == 12 { view.tab = 0
-            view.focused = false
-            view.message("Scene viewport") }
-        if action == 13 { view.tab = 1
-            revealCursor = true
-            view.focused = true
-            view.message("Editing src/main.az") }
-        if action == 202 {
-            view.focused = true
-            fin clicked = sourceOffsetAt(app, editor.source, pointerX, pointerY, surfaceRect(pass, 202), sourceScroll)
-            if app.keyDown(keyShift) { if view.anchor < 0 { view.anchor = view.cursor } }
-            else { view.anchor = clicked }
-            view.cursor = clicked
-            selecting = app.mouseDown(mouseLeft)
-            lastEdit = app.timeNow()
-        }
-        if selecting {
-            if !app.mouseDown(mouseLeft) || view.tab != 1 { selecting = false }
-            else { view.cursor = sourceOffsetAt(app, editor.source, pointerX, pointerY, surfaceRect(pass, 202), sourceScroll) }
-        }
-        if action == 201 {
-            if selectCanvas(scene, pointerX, pointerY, surfaceRect(pass, 201)) {
-                dragging = app.mouseDown(mouseLeft)
-                dragStarted = false
-                dragX = pointerX
-                dragY = pointerY
+        } else if studio.focus.typing {
+            typeIntoField(studio, app, typed, injectedKey)
+            typed = ""
+        } else if !studio.sourceFocused && studio.viewDrag != 1 {
+            if injectedKey == keyEscape || app.keyPressed(keyEscape) {
+                studio.popup = Popup()
+                studio.changed()
             }
+            fin name = pressedKeyName(app, injectedKey)
+            if name != "" {
+                fin command = commandForHotkey(name)
+                if command != "" { runCommand(studio, command, Invocation()) }
+            }
+        } else if injectedKey == keyEscape || app.keyPressed(keyEscape) {
+            studio.sourceFocused = false
+            studio.changed()
         }
-        if dragging {
-            if !app.mouseDown(mouseLeft) { dragging = false }
-            else {
-                fin dx = (app.mouseX() - dragX) as Int
-                fin dy = (app.mouseY() - dragY) as Int
-                if dx != 0 || dy != 0 {
-                    scene.dragSelected(dx, dy, !dragStarted)
-                    dragStarted = true
-                    dragX = dragX + (dx as Double)
-                    dragY = dragY + (dy as Double)
+
+        // ── Wheel: the Engine's scroll system moves whichever scrollable the
+        // pointer is over; a panel scrolls because it holds [Scroll].
+        if input.scrollY != 0.0 && pass.applyScroll(input.x, input.y, 0.0 - input.scrollY, 0.0) > 0 { studio.changed() }
+
+        // ── Pointer, front to back.
+        var consumed = false
+        if studio.popup.kind != "" && input.pressed {
+            fin hit = popupPaint.topmost<Pressable>(store<Pressable>(pass), input.x, input.y)
+            if hit.isValid {
+                fin press = storageGetOrDefault<Pressable>(store<Pressable>(pass), hit, Pressable())
+                runCommand(studio, press.command, Invocation(press.target, press.arg, 0.0, press.text))
+            } else {
+                studio.popup = Popup()
+                studio.changed()
+            }
+            consumed = true
+        }
+        if !consumed && studio.viewDrag != 0 && dragPanel != "" {
+            var rect = ViewRect()
+            var index = 0
+            while index < storageLength<PanelSurface>(store<PanelSurface>(pass)) {
+                fin node = storageEntityAt<PanelSurface>(store<PanelSurface>(pass), index)
+                if storageGetOrDefault<PanelSurface>(store<PanelSurface>(pass), node, PanelSurface()).panel == dragPanel {
+                    fin area = storageGetOrDefault<Rect>(store<Rect>(pass), node, Rect())
+                    rect = ViewRect(area.x, area.y, area.width, area.height)
                 }
+                index = index + 1
             }
+            canvasPointer(dragPanel, app, studio, rect, input)
+            if studio.viewDrag == 0 { dragPanel = "" }
+            consumed = true
         }
-        if action == 20 { scene.moveSelected(-10, 0) }
-        if action == 21 { scene.moveSelected(10, 0) }
-        if action == 22 { scene.moveSelected(0, -10) }
-        if action == 23 { scene.moveSelected(0, 10) }
-        if action == 24 { scene.scaleSelected(-10) }
-        if action == 25 { scene.scaleSelected(10) }
-        var inspectAfter = false
-        if action == 1 {
-            if editor.save() && scene.save(project) {
-                view.notify("Saved src/main.az and scene.azscene", 2)
-                inspectAfter = true
-            }
-            else { view.notify(azsError(), 3) }
+        if !consumed {
+            consumed = dockPointer(studio.dock, pass, floatPaint, mainPaint, style, input.x, input.y, input.pressed, input.down)
         }
-        // The first frame checks the project once, so problems show on open.
-        if frames == 2 { inspectAfter = true }
-        if action == 2 {
-            if view.tab == 0 { if scene.undoEdit() { view.message("Undid scene edit") } }
-            else if editor.undo() {
-                if view.cursor > azsBufferSize(editor.source) { view.cursor = azsBufferSize(editor.source) }
-                view.message("Undo")
-            }
-        }
-        if action == 3 && view.tab == 1 && editor.redo() {
-            if view.cursor > azsBufferSize(editor.source) { view.cursor = azsBufferSize(editor.source) }
-            view.message("Redo")
-        }
-        if action == 4 {
-            if editor.reopen() {
-                if view.cursor > azsBufferSize(editor.source) { view.cursor = azsBufferSize(editor.source) }
-                if scene.reopen(project) { view.message("Reopened source and scene from disk") }
-                else { view.notify("Source reopened; scene file rejected", 3) }
-            } else { view.notify(azsError(), 3) }
-        }
-        if action == 6 { scene.stop()
-            scene.togglePlay()
-            view.message("Scene preview playing") }
-        if action == 7 && scene.playing { scene.paused = !scene.paused
-            scene.revision = scene.revision + 1
-            view.message(if scene.paused { "Scene preview paused" } else { "Scene preview playing" }) }
-        if action == 8 { scene.stop()
-            view.message("Scene preview stopped") }
-        var toolAction: String = ""
-        if action == 5 { toolAction = "build" }
-        if action == 9 { toolAction = "inspect" }
-        if action == 17 { toolAction = "play" }
-        fin compiler = azsEnvironment("AZORA_NATIVE_COMPILER")
-        if toolAction == "" && inspectAfter && compiler != "" { toolAction = "inspect" }
-        if action == 9 { view.showDock(1) }
-        if toolAction != "" && process == Long(0) && compiler == "" {
-            view.notify("Set AZORA_NATIVE_COMPILER to build, inspect and run", 3)
-        } else if toolAction != "" && process == Long(0) {
-            if editor.save() {
-                process = azsProcessStart(azsEnvironment("AZORA_NATIVE_COMPILER"), root, root, toolAction)
-                if process == Long(0) { view.notify(azsError(), 3) }
-                else {
-                    processAction = toolAction
-                    if toolAction != "inspect" {
-                        view.output("$ azora ${toolAction}\n")
-                        view.showDock(0)
-                    }
-                    view.notify(if toolAction == "inspect" { "Checking src/main.az…" } else if toolAction == "play" { "Building and running the app…" } else { "Building with the native compiler…" }, 1)
+        if tracing && input.pressed {
+            println("after dock: consumed ${consumed} popup '${studio.popup.kind}' viewDrag ${studio.viewDrag} panel '${dragPanel}'")
+            var handle = 0
+            while handle < mainPaint.nodes.size {
+                fin n = mainPaint.nodes[handle]
+                if storageHas<DockSplitHandle>(store<DockSplitHandle>(pass), n.entity) {
+                    println("  split handle ${formatDecimal(n.x, 1)},${formatDecimal(n.y, 1)} ${formatDecimal(n.width, 1)}x${formatDecimal(n.height, 1)}")
                 }
-            } else { view.notify(azsError(), 3) }
+                handle = handle + 1
+            }
         }
-        if action == 10 && process != Long(0) { azsProcessCancel(process)
-            view.notify("Cancelled ${processAction}", 3) }
-        if process != Long(0) {
-            fin result = azsProcessPoll(process)
-            if result != -1 {
-                fin output = azsProcessOutput(process)
-                if processAction == "inspect" && isInspectSnapshot(output) {
-                    view.inspect(output, "src/main.az")
-                    fin count = view.problems.size
-                    if count == 0 { view.notify("No problems", 2) }
-                    else {
-                        view.notify(if count == 1 { "1 problem in src/main.az" } else { "${count} problems in src/main.az" }, if view.errorCount() > 0 { 3 } else { 1 })
-                    }
+        if !consumed && studio.focus.scrubbing {
+            fin entity = studio.selected()
+            if input.down {
+                fin delta = input.x - studio.focus.startX
+                if absValue(delta) > 2.0 { scrubMoved = true }
+                if scrubMoved && studio.scene.isAlive(entity) {
+                    fin steps = (delta / 3.0) as Int
+                    setFieldNumber(studio.scene, entity, studio.focus.component, studio.focus.field, studio.focus.axis,
+                        studio.focus.startValue + (steps as Double) * studio.focus.step)
+                    studio.changed()
+                }
+            } else {
+                studio.focus.scrubbing = false
+                if scrubMoved {
+                    studio.record(entity, studio.focus.before, studio.scene.getParent(entity).id, "edit ${studio.focus.field}")
+                    studio.focus = FieldFocus()
                 } else {
-                    view.output(if output == "" { "$ azora ${processAction}\n(no output)" } else { "$ azora ${processAction}\n${output}" })
-                    if result == 0 { view.notify(if processAction == "play" { "Run finished" } else if processAction == "build" { "Build succeeded" } else { "Check finished" }, 2) }
-                    else {
-                        view.notify(if processAction == "play" { "Run failed (exit ${result})" } else { "${processAction} failed (exit ${result})" }, 3)
-                        view.showDock(0)
-                    }
+                    // A click without a drag types into the field.
+                    studio.focus.typing = true
+                    studio.focus.text = formatDecimal(fieldNumber(studio.scene, entity, studio.focus.component, studio.focus.field, studio.focus.axis), 4)
                 }
-                azsProcessClose(process)
-                process = Long(0)
+                studio.changed()
+            }
+            consumed = true
+        }
+        if !consumed && input.pressed {
+            var hitField = floatPaint.topmost<FieldTarget>(store<FieldTarget>(pass), input.x, input.y)
+            if !hitField.isValid { hitField = mainPaint.topmost<FieldTarget>(store<FieldTarget>(pass), input.x, input.y) }
+            var hitPress = floatPaint.topmost<Pressable>(store<Pressable>(pass), input.x, input.y)
+            if !hitPress.isValid { hitPress = mainPaint.topmost<Pressable>(store<Pressable>(pass), input.x, input.y) }
+            if tracing {
+                fin traced = storageGetOrDefault<Pressable>(store<Pressable>(pass), hitPress, Pressable())
+                println("hit field ${hitField.isValid} press ${hitPress.isValid} '${traced.command}' paint ops ${mainPaint.ops.size} pressables ${storageLength<Pressable>(store<Pressable>(pass))}")
+                var probe = 0
+                while probe < mainPaint.nodes.size {
+                    fin n = mainPaint.nodes[probe]
+                    if input.x >= n.x && input.x < n.x + n.width && input.y >= n.y && input.y < n.y + n.height {
+                        println("  node ${n.entity.id} rect ${formatDecimal(n.x, 0)},${formatDecimal(n.y, 0)} ${formatDecimal(n.width, 0)}x${formatDecimal(n.height, 0)} clip ${formatDecimal(n.clipTop, 0)}..${formatDecimal(n.clipBottom, 0)} press ${storageHas<Pressable>(store<Pressable>(pass), n.entity)}")
+                    }
+                    probe = probe + 1
+                }
+            }
+            if studio.focus.typing {
+                fin binding = storageGetOrDefault<FieldTarget>(store<FieldTarget>(pass), hitField, FieldTarget())
+                if !hitField.isValid || binding.component != studio.focus.component || binding.field != studio.focus.field || binding.axis != studio.focus.axis {
+                    commitField(studio)
+                }
+            }
+            if hitField.isValid && !studio.focus.typing {
+                fin binding = storageGetOrDefault<FieldTarget>(store<FieldTarget>(pass), hitField, FieldTarget())
+                fin entity = studio.selected()
+                studio.sourceFocused = false
+                if binding.numeric {
+                    studio.focus = FieldFocus(binding.component, binding.field, binding.axis, false, true, "", input.x,
+                        fieldNumber(studio.scene, entity, binding.component, binding.field, binding.axis),
+                        fieldStep(binding.component, binding.field), studio.snapshot(entity), true)
+                    scrubMoved = false
+                } else {
+                    fin current = if binding.component == "Name" { studio.nameOf(entity) } else { "" }
+                    studio.focus = FieldFocus(binding.component, binding.field, 0, true, false, current, input.x, 0.0, 0.0, studio.snapshot(entity), false)
+                }
+                studio.changed()
+                consumed = true
+            } else if hitPress.isValid {
+                fin press = storageGetOrDefault<Pressable>(store<Pressable>(pass), hitPress, Pressable())
+                runCommand(studio, press.command, Invocation(press.target, press.arg, 0.0, press.text))
+                consumed = true
             }
         }
-        fin previousCursor = view.cursor
-        if editKeys(app, editor, view, typed, injectedKey, injectedMeta || app.keyDown(keyMeta)) {
-            lastEdit = app.timeNow()
-            if !view.problemsStale && view.problems.size > 0 {
-                view.problemsStale = true
-                view.revision = view.revision + Long(1)
+        if !consumed {
+            var surface = floatPaint.topmost<PanelSurface>(store<PanelSurface>(pass), input.x, input.y)
+            if !surface.isValid { surface = mainPaint.topmost<PanelSurface>(store<PanelSurface>(pass), input.x, input.y) }
+            if surface.isValid {
+                fin panel = storageGetOrDefault<PanelSurface>(store<PanelSurface>(pass), surface, PanelSurface()).panel
+                fin area = storageGetOrDefault<Rect>(store<Rect>(pass), surface, Rect())
+                if input.pressed && panel != "CodePanel" && studio.sourceFocused {
+                    studio.sourceFocused = false
+                    studio.changed()
+                }
+                if canvasPointer(panel, app, studio, ViewRect(area.x, area.y, area.width, area.height), input) {
+                    if studio.viewDrag != 0 { dragPanel = panel }
+                }
             }
         }
-        if scriptText != Long(0) { azsBufferClose(scriptText) }
-        if view.cursor != previousCursor { revealCursor = true
-            lastEdit = app.timeNow() }
-        if view.tab == 1 && app.scrollY() != 0.0 {
-            if app.scrollY() > 0.0 { sourceScroll = sourceScroll - 2 } else { sourceScroll = sourceScroll + 2 }
-            if sourceScroll < 0 { sourceScroll = 0 }
+
+        // ── Text into the source editor.
+        fin previousCursor = studio.cursor
+        if studio.sourceFocused && !studio.focus.typing {
+            if editKeys(app, studio, typed, injectedKey, input.command) {
+                studio.lastEdit = app.timeNow()
+                if !studio.problemsStale && studio.problems.size > 0 { studio.problemsStale = true }
+                studio.changed()
+            }
         }
-        fin cursorLine = sourceRow(editor.source, view.cursor)
-        fin cursorColumn = columnsBetween(editor.source, lineStartOf(editor.source, view.cursor), view.cursor)
-        view.sync(editor.dirty, process != Long(0), cursorLine + 1, cursorColumn + 1, lineCount(editor.source))
-        scene.advance(app.deltaTime())
-        describeWorkspace(pass, scene, view)
-        fin rootNode = pass.findChild(pass.root, "workspace")
+        if studio.cursor != previousCursor {
+            studio.revealCursor = true
+            studio.lastEdit = app.timeNow()
+        }
+        studio.syncSource(sourceRow(studio.editor.source, studio.cursor) + 1,
+            columnsBetween(studio.editor.source, lineStartOf(studio.editor.source, studio.cursor), studio.cursor) + 1,
+            lineCount(studio.editor.source))
+
+        // ── Requests commands left for the window.
+        if studio.resetLayout {
+            studio.resetLayout = false
+            clearLayout(pass.world)
+            dockDefaultLayout(pass.world)
+            studio.dock.changed()
+        }
+        if studio.showPanel != "" {
+            fin tab = dockFindPanel(pass.world, studio.showPanel)
+            if pass.world.isAlive(tab) { dockActivate(pass.world, tab) }
+            else {
+                fin roots = dockRoots(pass.world)
+                if roots.size > 0 {
+                    fin group = dockFirstGroup(pass.world, roots[0])
+                    if pass.world.isAlive(group) { dockAddTab(pass.world, group, studio.showPanel) }
+                }
+            }
+            studio.showPanel = ""
+            studio.dock.changed()
+        }
+        if studio.layoutDirty {
+            studio.layoutDirty = false
+            saveLayout(studio, pass.world)
+        }
+
+        // ── Build, check and run go through the native compiler.
+        if frames == 3 && studio.requestedTool == "" { studio.requestedTool = "inspect" }
+        fin compiler = azsEnvironment("AZORA_NATIVE_COMPILER")
+        if studio.requestedTool != "" && studio.process == Long(0) {
+            fin action = studio.requestedTool
+            studio.requestedTool = ""
+            if compiler == "" {
+                studio.notify("Set AZORA_NATIVE_COMPILER to build, check and run", 3)
+            } else if studio.editor.save() {
+                studio.process = azsProcessStart(compiler, root, root, action)
+                if studio.process == Long(0) { studio.notify(azsError(), 3) }
+                else {
+                    studio.processAction = action
+                    studio.busy = true
+                    if action != "inspect" { studio.output("$ azora ${action}\n") }
+                    studio.notify(when action {
+                        "inspect" -> "Checking src/main.az…"
+                        "play" -> "Building and running the app…"
+                        else -> "Building with the native compiler…"
+                    }, 1)
+                }
+            } else { studio.notify(azsError(), 3) }
+        }
+        if studio.process != Long(0) {
+            fin result = azsProcessPoll(studio.process)
+            if result != -1 {
+                fin output = azsProcessOutput(studio.process)
+                if studio.processAction == "inspect" && isInspectSnapshot(output) {
+                    studio.inspect(output, "src/main.az")
+                    fin count = studio.problems.size
+                    if count == 0 { studio.notify("No problems", 2) }
+                    else { studio.notify(if count == 1 { "1 problem in src/main.az" } else { "${count} problems in src/main.az" }, if studio.countProblems(0) > 0 { 3 } else { 1 }) }
+                } else {
+                    studio.output(if output == "" { "$ azora ${studio.processAction}\n(no output)" } else { "$ azora ${studio.processAction}\n${output}" })
+                    if result == 0 { studio.notify(when studio.processAction {
+                        "play" -> "Run finished"
+                        "build" -> "Build succeeded"
+                        else -> "Check finished"
+                    }, 2) }
+                    else { studio.notify("${studio.processAction} failed (exit ${result})", 3) }
+                }
+                azsProcessClose(studio.process)
+                studio.process = Long(0)
+                studio.busy = false
+                studio.changed()
+            }
+        }
+        if studio.playing && !studio.paused { studio.playTime = studio.playTime + app.deltaTime() }
+
+        // ── Compose, arrange, paint.
+        floating = dockRoots(pass.world)
+        fin main = if floating.size > 0 { floating.removeAt(0) } else { Entity::invalid }
+        var floatRoots: Array<Entity> = Array<Entity>()
+        var index = 0
+        while index < floating.size {
+            if storageGetOrDefault<DockRoot>(store<DockRoot>(pass), floating[index], DockRoot()).floating { floatRoots.add(floating[index]) }
+            index = index + 1
+        }
+        describeStudio(pass, studio, app, style, main, floatRoots)
+        fin rootNode = pass.findChild(pass.root, "studio")
+        fin popupNode = pass.findChild(pass.root, "popup")
         fin width = app.width() as Double
         fin height = app.height() as Double
         if pass.version != layoutVersion || width != lastWidth || height != lastHeight {
             pass.arrange(rootNode, 0.0, 0.0, width, height)
+            index = 0
+            while index < floatRoots.size {
+                fin bounds = storageGetOrDefault<DockRoot>(store<DockRoot>(pass), floatRoots[index], DockRoot())
+                fin node = pass.findChild(pass.root, "float-${floatRoots[index].id}")
+                if node.isValid { pass.arrange(node, bounds.x, bounds.y, bounds.width, bounds.height) }
+                index = index + 1
+            }
+            if popupNode.isValid {
+                var x = studio.popup.x
+                var y = studio.popup.y + 6.0
+                fin h = popupHeight(studio, studio.popup.kind)
+                if x + 280.0 > width { x = width - 288.0 }
+                if y + h > height { y = height - h - 8.0 }
+                pass.arrange(popupNode, x, y, 280.0, h)
+            }
             layoutVersion = pass.version
             lastWidth = width
             lastHeight = height
             paintVersion = Long(-1)
         }
-        // The retained tree is recorded once per layout and replayed each frame.
         if paintVersion != layoutVersion {
-            paintList.clear()
-            recordTree(app, pass, rootNode, 0.0, height, paintList)
+            mainPaint.clear()
+            floatPaint.clear()
+            popupPaint.clear()
+            recordTree(app, pass, rootNode, 0.0, height, mainPaint)
+            index = 0
+            while index < floatRoots.size {
+                fin node = pass.findChild(pass.root, "float-${floatRoots[index].id}")
+                if node.isValid { recordTree(app, pass, node, 0.0, height, floatPaint) }
+                index = index + 1
+            }
+            if popupNode.isValid { recordTree(app, pass, popupNode, 0.0, height, popupPaint) }
             paintVersion = layoutVersion
         }
-        replayPaint(app, paintList)
-        if view.tab == 0 { sceneCanvas(app, scene, surfaceRect(pass, 201)) }
-        else {
-            fin rect = surfaceRect(pass, 202)
-            if revealCursor {
-                var visibleRows = ((rect.height - sourceTop * 2.0) / sourceLineHeight) as Int
-                if visibleRows < 1 { visibleRows = 1 }
-                if cursorLine < sourceScroll { sourceScroll = cursorLine }
-                if cursorLine >= sourceScroll + visibleRows { sourceScroll = cursorLine - visibleRows + 1 }
-                revealCursor = false
-            }
-            // The caret holds steady while typing and blinks once idle.
-            fin idle = app.timeNow() - lastEdit
-            fin caretVisible = idle < 0.6 || ((idle * 1.6) as Int) % 2 == 0
-            app.setScissor(rect.x, rect.y, rect.width, rect.height)
-            drawSource(app, editor.source, view.cursor, view.focused, rect, sourceScroll, caretVisible, view.problems, view.problemsStale, view.selectionStart(), view.selectionEnd())
-            app.clearScissor()
+        replayPaint(app, mainPaint)
+        drawCanvases(app, studio, pass, rootNode)
+        replayPaint(app, floatPaint)
+        index = 0
+        while index < floatRoots.size {
+            fin node = pass.findChild(pass.root, "float-${floatRoots[index].id}")
+            if node.isValid { drawCanvases(app, studio, pass, node) }
+            index = index + 1
         }
-        if view.console != Long(0) {
-            fin rect = surfaceRect(pass, 203)
-            app.setScissor(rect.x, rect.y, rect.width, rect.height)
-            drawConsole(app, view.console, rect)
-            app.clearScissor()
-        }
+        replayPaint(app, popupPaint)
+        dockOverlay(app, studio.dock, pass, style)
         app.present()
+
         // A scripted screenshot captures this window as just presented.
-        if shotPath != "" && shotProcess == Long(0) {
-            fin window = send0(app.win.handle, sel("windowNumber"))
-            shotProcess = azsProcessStart("/usr/sbin/screencapture", root, "-xol${window}", shotPath)
-        }
-        if shotProcess != Long(0) && azsProcessPoll(shotProcess) != -1 {
-            azsProcessClose(shotProcess)
-            shotProcess = Long(0)
-        }
+        player.capture(app, root, cue.shot)
         if frameLimit > 0 && frames >= frameLimit { app.quit() }
     }
-    if shotProcess != Long(0) { azsProcessClose(shotProcess) }
-    if process != Long(0) { azsProcessClose(process) }
-    if script != Long(0) { azsBufferClose(script) }
+    if tracing {
+        var slot = 0
+        while slot < pass.world.storages.size {
+            fin size = storageLength<Any>(pass.world.storages[slot] as Storage<Any>&)
+            println("ui storage ${pass.world.storageNames[slot]} ${size}")
+            slot = slot + 1
+        }
+        println("ui entities ${pass.world.entityCount} alive ${pass.world.aliveCount}")
+    }
+    saveLayout(studio, pass.world)
+    player.close()
+    app.releasePrimitives(studio.meshes)
     pass.dispose()
     app.shutdown()
-    purge view
-    purge scene
-    purge editor
+    purge studio
     println("frames ${frames}")
     if frames > 0 { println("mean frame interval seconds ${(azsMonotonicSeconds() - started) / (frames as Double)}") }
     println("peak resident bytes ${azsPeakMemoryBytes()}")

@@ -22,8 +22,17 @@ rm -rf "$BUILD/staged" "$BUILD/project/src"
 mkdir -p "$BUILD/project/src" "$BUILD/staged"
 cp "$ROOT/src/$ENTRY.az" "$BUILD/project/src/main.az"
 cp "$ROOT/src/host.az" "$ROOT/src/editor.az" "$ROOT/src/intelligence.az" "$ROOT/src/theme.az" "$BUILD/project/src/"
-if [ "$MODE" != launcher ]; then cp "$ROOT/src/scene.az" "$BUILD/project/src/"; fi
-if [ "$MODE" = studio ] || [ "$MODE" = workspace-probe ]; then cp "$ROOT/src/workspace.az" "$ROOT/src/problems.az" "$BUILD/project/src/"; fi
+case "$MODE" in
+    studio)
+        # The editor shell: state, commands, panels, viewport and code surfaces.
+        cp "$ROOT/src/problems.az" "$ROOT/src/state.az" "$ROOT/src/ui.az" "$ROOT/src/fields.az" "$ROOT/src/panels.az" \
+            "$ROOT/src/viewport.az" "$ROOT/src/code.az" "$ROOT/src/commands.az" "$ROOT/src/script.az" "$BUILD/project/src/" ;;
+    launcher)
+        # The launcher shares Studio's parts and its scripted input.
+        cp "$ROOT/src/ui.az" "$ROOT/src/script.az" "$BUILD/project/src/" ;;
+    workspace-probe|model-probe)
+        cp "$ROOT/src/scene.az" "$ROOT/src/workspace.az" "$ROOT/src/problems.az" "$BUILD/project/src/" ;;
+esac
 python3 "$ENGINE/tools/azpm.py" resolve "$BUILD/project" > "$BUILD/resolve.tsv"
 FLAGS=()
 while IFS=$'\t' read -r kind source destination; do
@@ -35,7 +44,7 @@ while IFS=$'\t' read -r kind source destination; do
 done < "$BUILD/resolve.tsv"
 cp "$BUILD/project/src/"*.az "$BUILD/staged/"
 "$COMPILER" compile llvm "$BUILD/staged/main.az" > "$BUILD/studio.ll"
-"$CLANG" -std=c11 -Wall -Wextra -Werror -Wno-override-module \
+"$CLANG" -std=c11 -Wall -Wextra -Werror -Wno-override-module ${AZORA_STUDIO_OPTIMIZE:--O2} \
     ${AZORA_STUDIO_SANITIZER_FLAGS:-} "$BUILD/studio.ll" "$ROOT/host/azora_studio_host.c" \
     -L "$ENGINE/runtime/build" -lazora_runtime -Wl,-rpath,"$ENGINE/runtime/build" \
     ${FLAGS[@]+"${FLAGS[@]}"} -o "$BUILD/azora-$MODE"

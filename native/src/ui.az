@@ -1,0 +1,121 @@
+module studio.ui
+import std.traits
+import engine.core
+import engine.ecs
+import engine.platform
+import engine.gpu.draw
+import engine.ui.node
+import engine.ui.compose
+import studio.theme
+
+// Studio's small parts. Each is an Engine constructor; what one does when it
+// is pressed is a command named on it ([Pressable]), so a part never knows
+// what the command does and a command never knows where it is drawn.
+
+/** What a command is invoked with. */
+pack Invocation derives Clone {
+    var target: Int = -1
+    var arg: Int = 0
+    var number: Double = 0.0
+    var text: String = ""
+}
+
+/** A node that runs [command] when it is pressed. */
+@Component
+pack Pressable derives Clone {
+    var command: String = ""
+    var target: Int = -1
+    var arg: Int = 0
+    var text: String = ""
+}
+
+/** Fills the leftover room along its row or column. */
+pack Spacer { }
+impl Spacer {
+    react ctor (anchor: Anchor!).(key: String = ""): Entity {
+        return Shape(modifier: Modifier::weight(1.0).fill(studioTheme.ground.withAlpha(0.0)), key: key)
+    }
+}
+
+/** A fixed gap. */
+pack Gap { }
+impl Gap {
+    react ctor (anchor: Anchor!).(size: Double, key: String = ""): Entity {
+        return Shape(modifier: Modifier::size(size, size).fill(studioTheme.ground.withAlpha(0.0)), key: key)
+    }
+}
+
+/** A short vertical hairline between groups in a bar. */
+pack Divider { }
+impl Divider {
+    react ctor (anchor: Anchor!).(height: Double = 18.0, key: String = ""): Entity {
+        return Shape(modifier: Modifier::width(1.0).height(height).hairline(), key: key)
+    }
+}
+
+/** Text sized to fit itself, so a row can place what follows it. */
+pack Label { }
+impl Label {
+    react ctor (anchor: Anchor!).(
+        text: String
+        app: App&
+        color: Rgba
+        size: Double = 12.5
+        bold: Bool = false
+        mono: Bool = false
+        key: String = ""
+    ): Entity {
+        fin font = if bold { uiFontSemibold } else if mono { uiFontMonospace } else { uiFontRegular }
+        fin width = app.uiTextWidthFont(text, size, font) + 2.0
+        fin look = Modifier::width(width).fontSize(size).ink(color).textAlign(.Start)
+        fin styled = if bold { look.semibold() } else if mono { look.monospace() } else { look }
+        return Text(text, modifier: styled, key: key)
+    }
+}
+
+/** A row that runs [command] when pressed. */
+pack Press { }
+impl Press {
+    react ctor (anchor: Anchor!).(
+        command: String
+        modifier: Modifier& = .()
+        target: Int = -1
+        arg: Int = 0
+        text: String = ""
+        spacing: Double = 0.0
+        center: Bool = false
+        key: String = ""
+        children: inline react Anchor!.() -> Unit
+    ): Entity {
+        fin id = if key == "" { anchor.pass.positionalKey(anchor.parent, "press") } else { key }
+        fin node = anchor.pass.row(anchor.parent, id, modifier, if center { .Center } else { .Start }, .Center, spacing)
+        storageInsert<Pressable>(store<Pressable>(anchor.pass), node, Pressable(command, target, arg, text))
+        using anchor.inside(node) {
+            children()
+        }
+        return node
+    }
+}
+
+/** A bar button: a glyph and an optional caption, raised when [active]. */
+pack BarButton { }
+impl BarButton {
+    react ctor (anchor: Anchor!).(
+        command: String
+        app: App&
+        icon: String = ""
+        label: String = ""
+        active: Bool = false
+        tint: Rgba = Rgba(0.851, 0.855, 0.855, 1.0)
+        arg: Int = 0
+        key: String = ""
+    ): Entity {
+        fin labelWidth = if label == "" { 0.0 } else { app.uiTextWidth(label, 12.5) + 6.0 }
+        fin width = (if icon == "" { 12.0 } else { studioTheme.iconSize + 10.0 }) + labelWidth + (if label == "" { 0.0 } else { 8.0 })
+        fin base = Modifier::width(width).height(26.0).rounded(6.0).padding(start: if icon == "" { 10.0 } else { 5.0 }, end: 4.0)
+        return Press(command, modifier: if active { base.raised().hoverFill(studioTheme.hover.withAlpha(0.12)) } else { base.ghost() }, arg: arg, spacing: 5.0, key: key) {
+            if icon != "" { Icon(icon, tint, size: studioTheme.iconSize, key: "icon") }
+            if label != "" { Label(label, app, if active { studioTheme.text } else { studioTheme.muted }, key: "label") }
+        }
+    }
+}

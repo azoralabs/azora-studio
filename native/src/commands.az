@@ -1,0 +1,490 @@
+module studio.commands
+import std.reflection
+import std.traits
+import std.serializer
+import std.container.list
+import engine.core
+import engine.ecs
+import engine.math
+import engine.scene
+import engine.scene.io
+import engine.render.scene
+import engine.gizmos
+import engine.ui.docking
+import studio.host
+import studio.editor
+import studio.state
+
+// Every action Studio can take, as a `@Command`. A pressed node names one by
+// declaration name; the menu bar lists those with a `menu`, grouped by `group`
+// and ordered by `order`; ⌘ + `key` (⇧ when `shift`) runs one from the
+// keyboard. Nothing else in Studio knows these exist.
+
+/** Runs the command declared as [name]. Answers whether there is one. */
+func runCommand(studio: Studio!, name: String, call: Invocation&): Bool {
+    inline for C in reflect<*>.withAnnot<Command> {
+        if name == reflect<C>.declName {
+            C(studio, call)
+            return true
+        }
+    }
+    return false
+}
+
+/** The command [key] alone runs while nothing is being typed, or "". */
+func commandForHotkey(key: String): String {
+    inline for C in reflect<*>.withAnnot<Command> {
+        if reflect<C>.annotMeta<Command>.hotkey == key && key != "" {
+            return reflect<C>.declName
+        }
+    }
+    return ""
+}
+
+/** The command ⌘ + [key] (with [shift]) runs, or "". */
+func commandForKey(key: String, shift: Bool): String {
+    inline for C in reflect<*>.withAnnot<Command> {
+        if reflect<C>.annotMeta<Command>.key == key && reflect<C>.annotMeta<Command>.shift == shift && key != "" {
+            return reflect<C>.declName
+        }
+    }
+    return ""
+}
+
+// ── Entity presets (resources/presets.azon) ─────────────────────────────
+
+func presetMember(fields: List<SerialField>&, name: String): Int {
+    var index = 0
+    while index < fields.size {
+        if fields[index].name == name { return index }
+        index = index + 1
+    }
+    return -1
+}
+
+/** The presets in [text]; none when it is not a presets file. */
+func readPresets(text: String): Array<EntityPresetSlot> {
+    var presets: Array<EntityPresetSlot> = Array<EntityPresetSlot>()
+    fin root = decodeSerialValue(text, serializerOptions()) catch SerialValue.Null
+    when root {
+        SerialValue.Object(members) -> {
+            fin listAt = presetMember(members, "presets")
+            if listAt < 0 { return presets }
+            when members[listAt].value {
+                SerialValue.Array(items) -> {
+                    var index = 0
+                    while index < items.size {
+                        when items[index] {
+                            SerialValue.Object(fields) -> {
+                                fin nameAt = presetMember(fields, "name")
+                                fin iconAt = presetMember(fields, "icon")
+                                fin componentsAt = presetMember(fields, "components")
+                                if nameAt >= 0 && componentsAt >= 0 {
+                                    presets.add(EntityPresetSlot(
+                                        serialAsText(fields[nameAt].value) catch "Entity",
+                                        if iconAt >= 0 { serialAsText(fields[iconAt].value) catch "" } else { "" },
+                                        encodeSerialValue(fields[componentsAt].value, serializerOptions()) catch "{}"))
+                                }
+                            }
+                            else -> { }
+                        }
+                        index = index + 1
+                    }
+                }
+                else -> { }
+            }
+        }
+        else -> { }
+    }
+    return presets
+}
+
+// ── File ────────────────────────────────────────────────────────────────
+
+/** Writes the source, the scene and the layout; then the source is checked again. */
+@Command(title: "Save", menu: "File", group: 0, order: 0, key: "s")
+func fileSave(studio: Studio!, call: Invocation&) {
+    if !studio.editor.save() {
+        studio.notify(azsError(), 3)
+        return
+    }
+    fin text = writeScene(studio.scene)
+    fin buffer = azsBufferNew(text)
+    if buffer == Long(0) || azsProjectWrite(studio.editor.project, sceneFile, buffer) == 0 {
+        if buffer != Long(0) { azsBufferClose(buffer) }
+        studio.notify(azsError(), 3)
+        return
+    }
+    azsBufferClose(buffer)
+    studio.sceneDirty = false
+    studio.layoutDirty = true
+    studio.requestedTool = "inspect"
+    studio.notify("Saved src/main.az and ${sceneFile}", 2)
+}
+
+@Command(title: "Revert to Saved", menu: "File", group: 0, order: 1)
+func fileRevert(studio: Studio!, call: Invocation&) {
+    if !studio.editor.reopen() {
+        studio.notify(azsError(), 3)
+        return
+    }
+    if studio.cursor > azsBufferSize(studio.editor.source) { studio.cursor = azsBufferSize(studio.editor.source) }
+    studio.anchor = -1
+    studio.message("Reopened src/main.az from disk")
+}
+
+// ── Edit ────────────────────────────────────────────────────────────────
+
+@Command(title: "Undo", menu: "Edit", group: 0, order: 0, key: "z")
+func editUndo(studio: Studio!, call: Invocation&) {
+    if studio.sourceFocused {
+        if studio.editor.undo() {
+            if studio.cursor > azsBufferSize(studio.editor.source) { studio.cursor = azsBufferSize(studio.editor.source) }
+            studio.message("Undo")
+        }
+        return
+    }
+    if !studio.undo() { studio.message("Nothing to undo") }
+}
+
+@Command(title: "Redo", menu: "Edit", group: 0, order: 1, key: "z", shift: true)
+func editRedo(studio: Studio!, call: Invocation&) {
+    if studio.sourceFocused {
+        if studio.editor.redo() {
+            if studio.cursor > azsBufferSize(studio.editor.source) { studio.cursor = azsBufferSize(studio.editor.source) }
+            studio.message("Redo")
+        }
+        return
+    }
+    if !studio.redo() { studio.message("Nothing to redo") }
+}
+
+@Command(title: "Duplicate", menu: "Edit", group: 1, order: 0, key: "d")
+func editDuplicate(studio: Studio!, call: Invocation&) {
+    fin selected = studio.selected()
+    if !studio.scene.isAlive(selected) { return }
+    fin copy = spawnFromAzon(studio.scene, studio.snapshot(selected), studio.scene.getParent(selected))
+    if storageHas<Name>(ensureStorage<Name>(studio.scene), copy) {
+        fin name = storageGet<Name>(ensureStorage<Name>(studio.scene), copy).value
+        storageInsert<Name>(ensureStorage<Name>(studio.scene), copy, Name("${name} copy"))
+    }
+    studio.record(copy, "", -1, "duplicate")
+    studio.select(copy)
+}
+
+@Command(title: "Delete", menu: "Edit", group: 1, order: 1, key: "backspace", hotkey: "backspace")
+func editDelete(studio: Studio!, call: Invocation&) {
+    fin selected = studio.selected()
+    if !studio.scene.isAlive(selected) { return }
+    fin name = studio.nameOf(selected)
+    fin before = studio.snapshot(selected)
+    fin parent = studio.scene.getParent(selected).id
+    // Children move up to the deleted entity's parent rather than vanishing with it.
+    var id = 0
+    while id < studio.scene.entityCount {
+        if studio.scene.alive[id] && studio.scene.parents[id] == selected.id {
+            fin child = studio.scene.entityAt(id)
+            fin childBefore = studio.snapshot(child)
+            if parent >= 0 { studio.scene.setParent(child, studio.scene.entityAt(parent)) } else { studio.scene.removeParent(child) }
+            studio.record(child, childBefore, selected.id, "reparent")
+        }
+        id = id + 1
+    }
+    studio.scene.despawn(selected)
+    while studio.history.size > studio.historyAt { studio.history.removeLast() }
+    studio.history.add(SceneEdit(selected.id, before, "", parent, -1, "delete"))
+    studio.historyAt = studio.history.size
+    studio.sceneDirty = true
+    studio.select(Entity::invalid)
+    studio.message("Deleted ${name}")
+}
+
+// ── Entity ──────────────────────────────────────────────────────────────
+
+/** Adds preset [call.arg] (resources/presets.azon) under the selection's parent. */
+@Command(title: "Add Entity…", menu: "Entity", group: 0, order: 0, key: "n", shift: true)
+func entityAdd(studio: Studio!, call: Invocation&) {
+    if call.arg < 0 || call.arg >= studio.presets.size {
+        studio.popup = Popup("addEntity", studio.pointerX, studio.pointerY, -1)
+        studio.changed()
+        return
+    }
+    fin preset = studio.presets[call.arg].clone()
+    fin entity = spawnFromAzon(studio.scene, preset.components, Entity::invalid)
+    studio.record(entity, "", -1, "add ${preset.name}")
+    studio.popup = Popup()
+    studio.select(entity)
+    studio.message("Added ${preset.name}")
+}
+
+@Command(title: "Clear Selection", menu: "Entity", group: 1, order: 0)
+func entityDeselect(studio: Studio!, call: Invocation&) {
+    studio.select(Entity::invalid)
+}
+
+@Command
+func popupAddEntity(studio: Studio!, call: Invocation&) {
+    studio.popup = Popup("addEntity", studio.pointerX, studio.pointerY, -1)
+    studio.changed()
+}
+
+// ── View ────────────────────────────────────────────────────────────────
+
+@Command(title: "Select Tool", menu: "View", group: 0, order: 0, key: "1", hotkey: "q")
+func toolSelect(studio: Studio!, call: Invocation&) {
+    studio.tool = 0
+    studio.changed()
+}
+
+@Command(title: "Move Tool", menu: "View", group: 0, order: 1, key: "2", hotkey: "w")
+func toolMove(studio: Studio!, call: Invocation&) {
+    studio.tool = 1
+    studio.changed()
+}
+
+@Command(title: "Rotate Tool", menu: "View", group: 0, order: 2, key: "3", hotkey: "e")
+func toolRotate(studio: Studio!, call: Invocation&) {
+    studio.tool = 2
+    studio.changed()
+}
+
+@Command(title: "Scale Tool", menu: "View", group: 0, order: 3, key: "4", hotkey: "r")
+func toolScale(studio: Studio!, call: Invocation&) {
+    studio.tool = 3
+    studio.changed()
+}
+
+@Command(title: "Toggle 2D / 3D", menu: "View", group: 1, order: 0, key: "t", hotkey: "t")
+func viewToggle2d(studio: Studio!, call: Invocation&) {
+    studio.mode3d = !studio.mode3d
+    studio.camera.orthographic = !studio.mode3d
+    studio.message(if studio.mode3d { "3D view" } else { "2D view" })
+}
+
+@Command(title: "Focus Selection", menu: "View", group: 1, order: 1, key: "f", shift: true, hotkey: "f")
+func viewFocus(studio: Studio!, call: Invocation&) {
+    fin selected = studio.selected()
+    if !studio.scene.isAlive(selected) {
+        studio.camera.focus(Vec3(0.0, 0.5, 0.0), 3.0)
+        studio.changed()
+        return
+    }
+    var radius: Double = 1.0
+    if storageHas<Transform>(ensureStorage<Transform>(studio.scene), selected) {
+        fin scale = storageGet<Transform>(ensureStorage<Transform>(studio.scene), selected).scale
+        radius = clampValue((absValue(scale.x) + absValue(scale.y) + absValue(scale.z)) / 3.0, 0.3, 50.0)
+    }
+    studio.camera.focus(worldPosition(studio.scene, selected), radius)
+    studio.changed()
+}
+
+// ── Run ─────────────────────────────────────────────────────────────────
+
+@Command(title: "Play Scene", menu: "Run", group: 0, order: 0, key: "p")
+func runPlay(studio: Studio!, call: Invocation&) {
+    if studio.playing && studio.paused {
+        studio.paused = false
+    } else {
+        studio.playing = true
+        studio.paused = false
+        studio.playTime = 0.0
+    }
+    studio.message("Scene preview playing")
+}
+
+@Command(title: "Pause Scene", menu: "Run", group: 0, order: 1, key: "p", shift: true)
+func runPause(studio: Studio!, call: Invocation&) {
+    if !studio.playing { return }
+    studio.paused = !studio.paused
+    studio.message(if studio.paused { "Scene preview paused" } else { "Scene preview playing" })
+}
+
+@Command(title: "Stop Scene", menu: "Run", group: 0, order: 2)
+func runStop(studio: Studio!, call: Invocation&) {
+    studio.playing = false
+    studio.paused = false
+    studio.message("Scene preview stopped")
+}
+
+@Command(title: "Build", menu: "Run", group: 1, order: 0, key: "b")
+func toolBuild(studio: Studio!, call: Invocation&) { studio.requestedTool = "build" }
+
+@Command(title: "Run App", menu: "Run", group: 1, order: 1, key: "r")
+func toolRun(studio: Studio!, call: Invocation&) { studio.requestedTool = "play" }
+
+@Command(title: "Check Source", menu: "Run", group: 1, order: 2, key: "i", shift: true)
+func toolInspect(studio: Studio!, call: Invocation&) { studio.requestedTool = "inspect" }
+
+@Command(title: "Cancel Build", menu: "Run", group: 1, order: 3)
+func toolCancel(studio: Studio!, call: Invocation&) {
+    if studio.process != Long(0) {
+        azsProcessCancel(studio.process)
+        studio.notify("Cancelled ${studio.processAction}", 3)
+    }
+}
+
+// ── Window ──────────────────────────────────────────────────────────────
+
+@Command(title: "Reset Layout", menu: "Window", group: 0, order: 0)
+func windowResetLayout(studio: Studio!, call: Invocation&) {
+    studio.resetLayout = true
+    studio.message("Layout reset")
+}
+
+/** Shows panel [call.text]: its tab when it is open, otherwise a new one. */
+@Command
+func panelShow(studio: Studio!, call: Invocation&) {
+    studio.showPanel = call.text
+}
+
+// ── Scene tree ──────────────────────────────────────────────────────────
+
+@Command
+func sceneSelect(studio: Studio!, call: Invocation&) {
+    studio.sourceFocused = false
+    studio.select(studio.scene.entityAt(call.target))
+}
+
+@Command
+func sceneToggleExpand(studio: Studio!, call: Invocation&) {
+    fin entity = studio.scene.entityAt(call.target)
+    if storageHas<Expanded>(ensureStorage<Expanded>(studio.scene), entity) {
+        storageRemove<Expanded>(ensureStorage<Expanded>(studio.scene), entity)
+    } else {
+        storageInsert<Expanded>(ensureStorage<Expanded>(studio.scene), entity, Expanded())
+    }
+    studio.changed()
+}
+
+@Command
+func sceneToggleVisible(studio: Studio!, call: Invocation&) {
+    fin entity = studio.scene.entityAt(call.target)
+    fin before = studio.snapshot(entity)
+    fin visible = !storageHas<Visibility>(ensureStorage<Visibility>(studio.scene), entity) ||
+        storageGet<Visibility>(ensureStorage<Visibility>(studio.scene), entity).visible
+    storageInsert<Visibility>(ensureStorage<Visibility>(studio.scene), entity, Visibility(!visible))
+    studio.record(entity, before, studio.scene.getParent(entity).id, if visible { "hide" } else { "show" })
+}
+
+// ── Components ──────────────────────────────────────────────────────────
+
+@Command
+func popupAddComponent(studio: Studio!, call: Invocation&) {
+    studio.popup = Popup("addComponent", studio.pointerX, studio.pointerY, -1)
+    studio.changed()
+}
+
+@Command
+func popupClose(studio: Studio!, call: Invocation&) {
+    studio.popup = Popup()
+    studio.changed()
+}
+
+@Command
+func componentAdd(studio: Studio!, call: Invocation&) {
+    fin selected = studio.selected()
+    studio.popup = Popup()
+    if !studio.scene.isAlive(selected) { return }
+    fin before = studio.snapshot(selected)
+    addComponent(studio.scene, selected, call.text)
+    studio.record(selected, before, studio.scene.getParent(selected).id, "add ${call.text}")
+    studio.message("Added ${call.text}")
+}
+
+@Command
+func componentRemove(studio: Studio!, call: Invocation&) {
+    fin selected = studio.selected()
+    if !studio.scene.isAlive(selected) { return }
+    fin before = studio.snapshot(selected)
+    removeComponent(studio.scene, selected, call.text)
+    studio.record(selected, before, studio.scene.getParent(selected).id, "remove ${call.text}")
+    studio.message("Removed ${call.text}")
+}
+
+@Command
+func componentToggle(studio: Studio!, call: Invocation&) {
+    var at = -1
+    var index = 0
+    while index < studio.collapsed.size {
+        if studio.collapsed[index] == call.text { at = index }
+        index = index + 1
+    }
+    if at >= 0 { studio.collapsed.removeAt(at) } else { studio.collapsed.add(call.text) }
+    studio.changed()
+}
+
+/** "Component.field" split at the dot. */
+func dotted(text: String, second: Bool): String {
+    var index = 0
+    while index < stringLength(text) {
+        if charAt(text, index) == '.' { return if second { substring(text, index + 1, stringLength(text)) } else { substring(text, 0, index) } }
+        index = index + 1
+    }
+    return if second { "" } else { text }
+}
+
+@Command
+func fieldToggle(studio: Studio!, call: Invocation&) {
+    fin entity = studio.scene.entityAt(call.target)
+    fin before = studio.snapshot(entity)
+    fin component = dotted(call.text, false)
+    fin field = dotted(call.text, true)
+    setFieldFlag(studio.scene, entity, component, field, !fieldFlag(studio.scene, entity, component, field))
+    studio.record(entity, before, studio.scene.getParent(entity).id, "edit ${field}")
+}
+
+/** The next of an `@Choice` field's options; [call.arg] is how many there are. */
+@Command
+func fieldCycle(studio: Studio!, call: Invocation&) {
+    fin entity = studio.scene.entityAt(call.target)
+    fin before = studio.snapshot(entity)
+    fin component = dotted(call.text, false)
+    fin field = dotted(call.text, true)
+    fin current = fieldNumber(studio.scene, entity, component, field, 0) as Int
+    fin next = if call.arg > 0 { (current + 1) % call.arg } else { 0 }
+    setFieldNumber(studio.scene, entity, component, field, 0, next as Double)
+    studio.record(entity, before, studio.scene.getParent(entity).id, "edit ${field}")
+}
+
+// ── Assets and problems ─────────────────────────────────────────────────
+
+@Command
+func assetsOpen(studio: Studio!, call: Invocation&) {
+    studio.assetsPath = call.text
+    studio.refreshAssets()
+}
+
+@Command
+func assetsSelect(studio: Studio!, call: Invocation&) {
+    studio.assetSelected = call.text
+    studio.message(call.text)
+}
+
+@Command
+func problemOpen(studio: Studio!, call: Invocation&) {
+    if call.arg < 0 || call.arg >= studio.problems.size { return }
+    fin problem = studio.problems[call.arg].clone()
+    studio.showPanel = "CodePanel"
+    studio.sourceFocused = true
+    studio.cursor = studioOffsetAt(studio, problem.line, problem.startByte)
+    studio.anchor = -1
+    studio.revealCursor = true
+    studio.message("${problem.code}: ${problem.message}")
+}
+
+/** The offset of zero-based [row]'s byte [column] in the source. */
+func studioOffsetAt(studio: Studio!, row: Int, column: Int): Int {
+    fin source = studio.editor.source
+    var start = 0
+    var current = 0
+    fin size = azsBufferSize(source)
+    while start < size && current < row {
+        if azsBufferByte(source, start) == 10 { current = current + 1 }
+        start = start + 1
+    }
+    var end = start
+    while end < size && azsBufferByte(source, end) != 10 { end = end + 1 }
+    var offset = start + column
+    if offset > end { offset = end }
+    return offset
+}

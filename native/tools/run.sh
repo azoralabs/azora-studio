@@ -24,6 +24,7 @@ fi
 export AZORA_NATIVE_COMPILER
 export AZORA_STDLIB="${AZORA_STDLIB:-$LANG_HOME/std}"
 export AZORA_ENGINE_HOME="${AZORA_ENGINE_HOME:-$(cd "$ROOT/../../azora-engine" && pwd)}"
+export AZORA_STUDIO_RESOURCES="${AZORA_STUDIO_RESOURCES:-$ROOT/resources}"
 export AZORA_STUDIO_PROJECT="${2:-${AZORA_STUDIO_PROJECT:-$ROOT/build/demo-project}}"
 case "$AZORA_STUDIO_PROJECT" in /*) ;; *) echo "The project must be an absolute path" >&2; exit 1 ;; esac
 

@@ -181,6 +181,9 @@ react func main() {
             layoutVersion = pass.version
             lastWidth = width
             lastHeight = height
+            // A new size moves everything without changing the tree, so the
+            // recorded paint is stale even though the version is not.
+            paintVersion = Long(-1)
         }
         if paintVersion != layoutVersion {
             paintList.clear()
