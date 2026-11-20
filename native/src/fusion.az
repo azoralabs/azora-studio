@@ -1,0 +1,519 @@
+module studio.fusion
+
+import std.math
+import std.traits
+import engine.core
+import engine.ecs
+import engine.math
+import engine.platform
+import engine.gpu.draw
+import engine.gizmos
+import engine.scene
+import engine.scene.terrain
+import engine.ui.node
+import engine.ui.compose
+import engine.ui.docking
+import engine.ui.nodes
+import engine.material.fusion
+import engine.material.fusion.compiler
+import engine.material.fusion.metal
+import studio.host
+import studio.os
+import studio.state
+import studio.ui
+import studio.theme
+import studio.fields
+import studio.panels
+
+inline fin graphNodeWidth: Double = 154.0
+
+func graphCamera(studio: Studio&): NodeCamera = NodeCamera(studio.fusionPanX, studio.fusionPanY, studio.fusionZoom)
+
+func graphColor(type: Int): Rgba = if type == 2 then Rgba(0.94, 0.69, 0.29, 1.0) else Rgba(0.30, 0.77, 0.67, 1.0)
+
+func graphRect(node: FusionNode&, camera: NodeCamera&, view: ViewRect&): ViewRect {
+    fin top = camera.screen(view, node.x, node.y)
+    fin height = 42.0 + ((if fusionPinCount(node.kind) == 0 then 1 else fusionPinCount(node.kind)) as Double) * 20.0
+    return ViewRect(top.x, top.y, graphNodeWidth * camera.zoom, height * camera.zoom)
+}
+
+func graphSocket(node: FusionNode&, pin: Int, camera: NodeCamera&, view: ViewRect&): NodePoint {
+    return camera.screen(view, node.x + (if pin < 0 then graphNodeWidth else 0.0), node.y + 42.0 + ((if pin < 0 then 0 else pin) as Double) * 20.0)
+}
+
+func graphViewport(rect: ViewRect&): ViewRect {
+    fin preview = if rect.width > 685.0 then 195.0 else 0.0
+    return ViewRect(rect.x, rect.y, rect.width - preview, rect.height)
+}
+
+func drawFusionPreview(app: App!, studio: Studio!, rect: ViewRect&) {
+    fin width = rect.width - graphViewport(rect).width
+    if width <= 0.0 then return
+    fin x = rect.x + rect.width - width
+    app.uiRect(x, rect.y, width, rect.height, studioTheme.ground.r, studioTheme.ground.g, studioTheme.ground.b, 1.0)
+    app.uiTextColored("Preview", x + 12.0, rect.y + 12.0, 12.0, studioTheme.muted.r, studioTheme.muted.g, studioTheme.muted.b)
+    fin height: Double = if rect.height < 224.0 then rect.height - 40.0 else 184.0
+    if height < 20.0 then return
+    fin index = app.gpu.fusion.index("@preview")
+    if index < 0 || !endsWith(studio.fusionDiagnostic, "Preview ready") then return
+    fin pipe = app.gpu.fusion.items[index].pipeline.handle
+    if pipe == 0 then return
+    fin preview = ViewRect(x + 5.0, rect.y + 32.0, width - 10.0, height)
+    var camera = EditorCamera()
+    camera.target = Vec3(0.0, 0.0, 0.0)
+    camera.distance = 1.5
+    app.setMaterialEye(camera.position())
+    app.setLightDirection(0.8, 0.9, 0.55)
+    app.setAmbientLight(0.29)
+    app.beginView(camera.viewProj(preview.aspect()), preview)
+    app.drawMeshPipeline(studio.meshes.sphere, mat4Identity(), 1.0, 1.0, 1.0, pipe, false)
+    app.endView()
+}
+
+func drawFusionGraph(app: App!, studio: Studio!, bounds: ViewRect&) {
+    fin view = graphViewport(bounds)
+    fin camera = graphCamera(studio)
+    fin style = NodeStyle()
+    app.setScissor(view.x, view.y, view.width, view.height)
+    drawNodeGrid(app, view, camera, style)
+    for node in studio.fusion.nodes {
+        var pin = 0
+        while pin < fusionPinCount(node.kind) {
+            fin source = studio.fusion.indexOfNode(fusionInput(node, pin))
+            if source >= 0 then drawNodeLink(app, graphSocket(studio.fusion.nodes[source], -1, camera, view), graphSocket(node, pin, camera, view), graphColor(if pin == 2 then 2 else 1))
+            pin = pin + 1
+        }
+    }
+    fin pending = studio.fusion.indexOfNode(studio.fusionPin)
+    if pending >= 0 && view.contains(studio.pointerX, studio.pointerY) {
+        fin source = studio.fusion.nodes[pending].clone()
+        drawNodeLink(app, graphSocket(source, -1, camera, view), NodePoint(studio.pointerX, studio.pointerY), graphColor(fusionType(source.kind)))
+    }
+    for node in studio.fusion.nodes {
+        fin rect = graphRect(node, camera, view)
+        if rect.x + rect.width > view.x && rect.x < view.x + view.width &&
+            rect.y + rect.height > view.y && rect.y < view.y + view.height {
+            fin tint = graphColor(fusionType(node.kind))
+            drawNodeCard(app, rect, camera.zoom, fusionNodeTitle(node), tint, studio.fusionSelected == node.id, style)
+            if fusionType(node.kind) > 0 then drawNodeSocket(app, graphSocket(node, -1, camera, view), tint, studio.fusionPin == node.id, camera.zoom)
+            var pin = 0
+            while pin < fusionPinCount(node.kind) {
+                fin at = graphSocket(node, pin, camera, view)
+                drawNodeSocket(app, at, graphColor(if pin == 2 then 2 else 1), fusionInput(node, pin) > 0, camera.zoom)
+                app.uiTextColored(fusionPinLabel(node.kind, pin), at.x + 10.0 * camera.zoom, at.y - 6.0 * camera.zoom, 11.0 * camera.zoom, style.text.r, style.text.g, style.text.b)
+                pin = pin + 1
+            }
+            if node.kind == "slab" || node.kind == "texture" {
+                app.uiRoundRect(rect.x + 10.0 * camera.zoom, rect.y + 34.0 * camera.zoom, 16.0 * camera.zoom, 16.0 * camera.zoom,
+                    3.0 * camera.zoom, node.red, node.green, node.blue, 1.0)
+            } else if node.kind == "scalar" {
+                app.uiTextColored(formatDecimal(node.value, 3), rect.x + 10.0 * camera.zoom, rect.y + 35.0 * camera.zoom,
+                    11.0 * camera.zoom, style.text.r, style.text.g, style.text.b)
+            }
+        }
+    }
+    app.clearScissor()
+    drawFusionPreview(app, studio, bounds)
+}
+
+func fusionEdited(studio: Studio!) {
+    studio.fusionDirty = true
+    studio.fusionCompile = true
+    studio.changed()
+}
+
+func fusionGraphPointer(studio: Studio!, bounds: ViewRect&, input: FrameInput&): Bool {
+    fin view = graphViewport(bounds)
+    if studio.viewDrag == 8 || studio.viewDrag == 9 {
+        if studio.viewDrag == 9 && (input.rightDown || input.middleDown) {
+            studio.fusionPanX = fusionClamp(studio.fusionPanX + input.dx, -30000.0, 30000.0)
+            studio.fusionPanY = fusionClamp(studio.fusionPanY + input.dy, -30000.0, 30000.0)
+        } else if studio.viewDrag == 8 && input.down {
+            fin index = studio.fusion.indexOfNode(studio.fusionSelected)
+            if index >= 0 && (input.dx != 0.0 || input.dy != 0.0) {
+                studio.fusion.nodes[index].x = fusionClamp(studio.fusion.nodes[index].x + input.dx / studio.fusionZoom, -10000.0, 10000.0)
+                studio.fusion.nodes[index].y = fusionClamp(studio.fusion.nodes[index].y + input.dy / studio.fusionZoom, -10000.0, 10000.0)
+                if !studio.fusionDirty {
+                    studio.fusionDirty = true
+                    studio.changed()
+                }
+            }
+        } else {
+            studio.viewDrag = 0
+        }
+        return true
+    }
+    if !view.contains(input.x, input.y) || studio.fusionPath == "" then return false
+    var camera = graphCamera(studio)
+    if input.scrollY != 0.0 || input.pinch != 0.0 {
+        camera.zoomAt(view, input.x, input.y, fusionClamp(input.scrollY * 0.014 + input.pinch * 3.0, -0.24, 0.24))
+        studio.fusionPanX = camera.x
+        studio.fusionPanY = camera.y
+        studio.fusionZoom = camera.zoom
+        return true
+    }
+    if !input.pressed && !input.rightPressed && !input.middlePressed then return false
+    var index = studio.fusion.nodes.size - 1
+    while index >= 0 {
+        fin node = studio.fusion.nodes[index].clone()
+        var pin = 0
+        while pin < fusionPinCount(node.kind) {
+            fin port = graphSocket(node, pin, camera, view)
+            if port.near(input.x, input.y, 10.0) {
+                if input.rightPressed && fusionInput(node, pin) != 0 {
+                    fusionSetInput(studio.fusion.nodes[index], pin, 0)
+                    fusionEdited(studio)
+                    return true
+                }
+                if input.pressed && studio.fusionPin > 0 {
+                    if studio.fusion.connect(studio.fusionPin, node.id, pin) {
+                        studio.fusionPin = 0
+                        fusionEdited(studio)
+                    } else {
+                        studio.notify("The connection would create a cycle or join incompatible pins", 3)
+                    }
+                    return true
+                }
+            }
+            pin = pin + 1
+        }
+        if input.pressed && fusionType(node.kind) > 0 && graphSocket(node, -1, camera, view).near(input.x, input.y, 10.0) {
+            studio.fusionPin = node.id
+            studio.fusionSelected = node.id
+            studio.changed()
+            return true
+        }
+        if input.pressed && graphRect(node, camera, view).contains(input.x, input.y) {
+            studio.fusionSelected = node.id
+            studio.fusionPin = 0
+            studio.viewDrag = 8
+            studio.changed()
+            return true
+        }
+        index = index - 1
+    }
+    if input.rightPressed || input.middlePressed {
+        studio.viewDrag = 9
+    } else {
+        studio.fusionSelected = 0
+        studio.fusionPin = 0
+        studio.changed()
+    }
+    return true
+}
+
+func fusionFieldNumber(node: FusionNode&, field: String): Double = when field {
+    "Red" -> node.red
+    "Green" -> node.green
+    "Blue" -> node.blue
+    "Roughness" -> node.roughness
+    "Metallic" -> node.metallic
+    "Emission" -> node.emission
+    "Scale", "Tile Size" -> node.scale
+    "Offset" -> node.offset
+    "Height Contrast" -> node.contrast
+    "Macro Scale" -> node.macroScale
+    "Rotation" -> node.rotation
+    "Thickness" -> node.thickness
+    "Minimum" -> node.low
+    "Maximum" -> node.high
+    "Variation" -> node.variation
+    else -> node.value
+}
+
+func setFusionField(studio: Studio!, field: String, text: String) {
+    fin index = studio.fusion.indexOfNode(studio.fusionSelected)
+    if index < 0 then return
+    fin value = parseNumber(text, fusionFieldNumber(studio.fusion.nodes[index], field))
+    fin fraction = fusionClamp(value, 0.0, 1.0)
+    when field {
+        "Red" -> { studio.fusion.nodes[index].red = fraction }
+        "Green" -> { studio.fusion.nodes[index].green = fraction }
+        "Blue" -> { studio.fusion.nodes[index].blue = fraction }
+        "Roughness" -> { studio.fusion.nodes[index].roughness = fusionClamp(value, 0.02, 1.0) }
+        "Metallic" -> { studio.fusion.nodes[index].metallic = fraction }
+        "Emission" -> { studio.fusion.nodes[index].emission = fusionClamp(value, 0.0, 16.0) }
+        "Offset" -> { studio.fusion.nodes[index].offset = fusionClamp(value, 0.0, 8.0) }
+        "Height Contrast" -> { studio.fusion.nodes[index].contrast = fraction }
+        "Macro Scale" -> { studio.fusion.nodes[index].macroScale = fusionClamp(value, 0.0, 1000.0) }
+        "Rotation" -> { studio.fusion.nodes[index].rotation = fraction }
+        "Scale", "Tile Size" -> { studio.fusion.nodes[index].scale = fusionClamp(value, 0.01, 100.0) }
+        "Thickness" -> { studio.fusion.nodes[index].thickness = fusionClamp(value, 0.0, 8.0) }
+        "Minimum" -> { studio.fusion.nodes[index].low = fusionClamp(value, -100000.0, 100000.0) }
+        "Maximum" -> { studio.fusion.nodes[index].high = fusionClamp(value, -100000.0, 100000.0) }
+        "Variation" -> { studio.fusion.nodes[index].variation = fusionClamp(value, 0.0, 10000.0) }
+        else -> { studio.fusion.nodes[index].value = fraction }
+    }
+    fusionEdited(studio)
+}
+
+func setFusionTexture(studio: Studio!, path: String) {
+    fin index = studio.fusion.indexOfNode(studio.fusionSelected)
+    if index < 0 || studio.fusion.nodes[index].kind != "texture" then return
+    if path != "" && !fusionTexturePath(path) {
+        studio.notify("Use a project-relative .aztex texture set", 3)
+        return
+    }
+    studio.fusion.nodes[index].textureSet = path
+    fusionEdited(studio)
+}
+
+react func (anchor: Anchor!).fusionField(studio: Studio&, node: FusionNode&, name: String) {
+    FieldLine(name, key: name) {
+        NumberField("FusionNode", name, 0, fusionFieldNumber(node, name), studio.focus, key: "value")
+    }
+}
+
+react func (anchor: Anchor!).fusionFields(studio: Studio&, app: App&) {
+    fin index = studio.fusion.indexOfNode(studio.fusionSelected)
+    ScrollColumn(modifier: ::width(206.0).fillMaxHeight().padding(all: 8.0), spacing: 5.0, key: "properties") {
+        if index >= 0 {
+            fin node = studio.fusion.nodes[index].clone()
+            FieldCaption(fusionNodeLabel(node.kind), key: "name")
+            when node.kind {
+                "slab" -> {
+                    fusionField(studio, node, "Red")
+                    fusionField(studio, node, "Green")
+                    fusionField(studio, node, "Blue")
+                    fusionField(studio, node, "Roughness")
+                    fusionField(studio, node, "Metallic")
+                    fusionField(studio, node, "Emission")
+                }
+                "texture" -> {
+                    FieldCaption("Texture Set (.aztex)", key: "texture-caption")
+                    Row(modifier: ::fillMaxWidth().height(24.0), key: "path") {
+                        TextField("FusionTexture", "texture", node.textureSet, studio.focus, key: "value")
+                    }
+                    fusionField(studio, node, "Tile Size")
+                    fusionField(studio, node, "Offset")
+                    fusionField(studio, node, "Rotation")
+                    fusionField(studio, node, "Height Contrast")
+                    fusionField(studio, node, "Macro Scale")
+                    fusionField(studio, node, "Normal Strength")
+                }
+                "altitude", "slope" -> {
+                    fusionField(studio, node, "Minimum")
+                    fusionField(studio, node, "Maximum")
+                    fusionField(studio, node, "Variation")
+                    if node.kind == "altitude" then fusionField(studio, node, "Slope Weight")
+                }
+                "checker", "noise" -> fusionField(studio, node, "Scale")
+                "layer" -> {
+                    fusionField(studio, node, "Coverage")
+                    fusionField(studio, node, "Thickness")
+                }
+                "mix" -> fusionField(studio, node, "Weight")
+                "scalar" -> fusionField(studio, node, "Value")
+                else -> { }
+            }
+            if node.kind != "output" then BarButton("fusionDeleteNode", app, icon: "trash-2", label: "Delete Node", key: "delete")
+        } else {
+            FieldCaption("Select a node", key: "empty")
+        }
+    }
+}
+
+@Panel(title: "Material Fusion", icon: "palette", area: .Center, order: 2)
+@Canvas
+impl pack MaterialFusionPanel {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        return Column(modifier: ::fillMaxSize(), key: "fusion-editor") {
+            PanelBar {
+                BarButton("fusionCreate", app, icon: "plus", label: "New Material", key: "new")
+                if studio.fusionPath != "" {
+                    BarButton("fusionSave", app, icon: "save", label: "Save", key: "save")
+                    BarButton("fusionPreview", app, icon: "refresh-cw", label: "Compile", key: "compile")
+                    BarButton("fusionAssign", app, icon: "link", label: "Assign to Selection", key: "assign")
+                    Spacer(key: "fill")
+                    Row(modifier: ::weight(1.0).fillMaxHeight().clip(), key: "path-box") {
+                        Text(if studio.fusionDirty then "${studio.fusionPath} *" else studio.fusionPath, modifier: ::fillMaxSize().fontSize(11.0).mutedText().textAlign(.End), key: "path")
+                    }
+                }
+            }
+            if studio.fusionPath != "" {
+                PanelBar(key: "node-list") {
+                    Press("fusionAddNode", text: "slab", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "slab") { Label("+ Slab", app, studioTheme.text, key: "label") }
+                    Press("fusionAddNode", text: "mix", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "mix") { Label("+ Mix", app, studioTheme.text, key: "label") }
+                    Press("fusionAddNode", text: "layer", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "layer") { Label("+ Layer", app, studioTheme.text, key: "label") }
+                    Press("fusionAddNode", text: "scalar", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "scalar") { Label("+ Scalar", app, studioTheme.text, key: "label") }
+                    Press("fusionAddNode", text: "checker", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "checker") { Label("+ Checker", app, studioTheme.text, key: "label") }
+                    Press("fusionAddNode", text: "noise", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "noise") { Label("+ Noise", app, studioTheme.text, key: "label") }
+                    Press("fusionAddNode", text: "texture", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "texture") { Label("+ Bombing", app, studioTheme.text, key: "label") }
+                    Press("fusionAddNode", text: "altitude", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "altitude") { Label("+ Altitude", app, studioTheme.text, key: "label") }
+                    Press("fusionAddNode", text: "slope", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "slope") { Label("+ Slope", app, studioTheme.text, key: "label") }
+
+                }
+                Row(modifier: ::fillMaxWidth().weight(1.0).clip(), key: "body") {
+                    Column(modifier: ::weight(1.0).fillMaxHeight(), key: "document") {
+                        Surface("MaterialFusionPanel", studioTheme.viewport)
+                    }
+                    fusionFields(studio, app)
+                }
+                Text(studio.fusionDiagnostic, modifier: ::fillMaxWidth().height(26.0).padding(start: 9.0).fontSize(11.0).mutedText().textAlign(.Start), key: "diagnostics")
+            } else {
+                Text("Create a material or open an .azfusion asset.", modifier: ::fillMaxWidth().height(52.0).fontSize(12.0).mutedText(), key: "hint")
+            }
+        }
+    }
+
+    func draw(app: App!, studio: Studio!, rect: ViewRect&) { drawFusionGraph(app, studio, rect) }
+
+    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+        return fusionGraphPointer(studio, rect, input)
+    }
+}
+
+func writeFusionAsset(studio: Studio!, path: String, document: FusionGraph&): Bool {
+    fin buffer = azsBufferNew(writeFusionGraph(document))
+    if buffer == 0 then return false
+    fin written = azsProjectWrite(studio.editor.project, path, buffer) == 1
+    azsBufferClose(buffer)
+    return written
+}
+
+func saveFusionAsset(studio: Studio!): Bool {
+    if !studio.fusionDirty || studio.fusionPath == "" then return true
+    if !writeFusionAsset(studio, studio.fusionPath, studio.fusion) {
+        studio.notify("Could not save ${studio.fusionPath}: ${azsError()}", 3)
+        return false
+    }
+    studio.fusionDirty = false
+    studio.fusionReload = studio.fusionPath
+    studio.changed()
+    return true
+}
+
+func openFusionAsset(studio: Studio!, path: String) {
+    if !fusionAssetPath(path) then return
+    if studio.fusionPath != path {
+        if !saveFusionAsset(studio) then return
+        fin file = azsProjectRead(studio.editor.project, path)
+        if file == 0 {
+            studio.notify("Could not open ${path}", 3)
+            return
+        }
+        if azsBufferSize(file) > 262144 {
+            azsBufferClose(file)
+            studio.notify("Material Fusion asset is too large", 3)
+            return
+        }
+        fin content = ownedText(file)
+        azsBufferClose(file)
+        var document = readFusionGraph(content)
+        if document.diagnostic != "" {
+            studio.notify(document.diagnostic, 3)
+            return
+        }
+        studio.fusion = take document
+        studio.fusionPath = path
+        studio.fusionDiagnostic = ""
+        studio.fusionDirty = false
+        studio.fusionSelected = 0
+        studio.fusionPin = 0
+        studio.fusionPanX = 0.0
+        studio.fusionPanY = 0.0
+        studio.fusionZoom = 1.0
+        studio.fusionCompile = true
+    }
+    studio.showPanel = "MaterialFusionPanel"
+    studio.sourceFocused = false
+    studio.changed()
+}
+
+func tickFusion(app: App!, studio: Studio!) {
+    if studio.fusionReload != "" {
+        fin path = studio.fusionReload
+        studio.fusionReload = ""
+        fin result = app.gpu.fusion.reload(app.gpu.device, path)
+        if result.diagnostic != "" then studio.output("${path}\n${result.diagnostic}")
+    }
+    if !studio.fusionCompile then return
+    studio.fusionCompile = false
+    fin preview = app.gpu.fusion.replace(app.gpu.device, "@preview", studio.fusion)
+    studio.fusionDiagnostic = if preview.handle != 0 then "Metal ${preview.metal} · Preview ready" else preview.diagnostic
+    if preview.diagnostic != "" then studio.output("${studio.fusionPath}\n${preview.diagnostic}")
+    studio.changed()
+}
+
+@Command(title: "New Material Fusion", menu: "Assets", group: 0, order: 0)
+func fusionCreate(studio: Studio!, call: Invocation&) {
+    if !saveFusionAsset(studio) then return
+    makeFolders("${studio.root}/Materials")
+    var index = 1
+    var path = "Materials/Material-${index}.azfusion"
+    var existing = azsProjectRead(studio.editor.project, path)
+    while existing != 0 {
+        azsBufferClose(existing)
+        index = index + 1
+        path = "Materials/Material-${index}.azfusion"
+        existing = azsProjectRead(studio.editor.project, path)
+    }
+    if !writeFusionAsset(studio, path, newFusionGraph()) {
+        studio.notify(azsError(), 3)
+        return
+    }
+    studio.refreshAssets()
+    openFusionAsset(studio, path)
+}
+
+@Command
+func fusionSave(studio: Studio!, call: Invocation&) {
+    if studio.fusionPath != "" && saveFusionAsset(studio) then studio.message("Saved ${studio.fusionPath}")
+}
+
+@Command
+func fusionPreview(studio: Studio!, call: Invocation&) {
+    studio.fusionCompile = true
+}
+
+@Command
+func fusionAssign(studio: Studio!, call: Invocation&) {
+    if studio.fusionPath == "" then return
+    fin selected = studio.selected()
+    if !studio.scene.isAlive(selected) || (!storageHas<Mesh3d>(ensureStorage<Mesh3d>(studio.scene), selected) && !storageHas<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene), selected)) {
+        studio.notify("Select a mesh in the Scene Tree", 1)
+        return
+    }
+    fin program = compileFusionGraph(studio.fusion)
+    if program.diagnostic != "" {
+        studio.notify(program.diagnostic, 3)
+        return
+    }
+    if !saveFusionAsset(studio) then return
+    fin before = studio.snapshot(selected)
+    storageInsert<FusionMaterial>(ensureStorage<FusionMaterial>(studio.scene), selected, FusionMaterial(studio.fusionPath))
+    studio.record(selected, before, studio.scene.getParent(selected).id, "assign Material Fusion")
+    studio.fusionReload = studio.fusionPath
+    studio.message("Assigned ${studio.fusionPath}")
+}
+
+@Command
+func fusionAddNode(studio: Studio!, call: Invocation&) {
+    if studio.fusionPath == "" then return
+    fin slot = studio.fusion.nodes.size - 2
+    fin camera = graphCamera(studio)
+    fin x = (40.0 + ((slot % 3) as Double) * 184.0 - camera.x) / camera.zoom
+    fin y = (192.0 + ((slot / 3) as Double) * 115.0 - camera.y) / camera.zoom
+    fin added = studio.fusion.addNode(call.text, x, y)
+    if added > 0 && call.text == "altitude" {
+        fin node = studio.fusion.indexOfNode(added)
+        studio.fusion.nodes[node].low = 10.0
+        studio.fusion.nodes[node].high = 35.0
+        studio.fusion.nodes[node].variation = 8.0
+    }
+    if added <= 0 {
+        studio.notify("The document has reached its node limit", 1)
+        return
+    }
+    studio.fusionSelected = added
+    fusionEdited(studio)
+}
+
+@Command
+func fusionDeleteNode(studio: Studio!, call: Invocation&) {
+    if studio.fusion.removeNode(studio.fusionSelected) {
+        studio.fusionSelected = 0
+        studio.fusionPin = 0
+        fusionEdited(studio)
+    }
+}

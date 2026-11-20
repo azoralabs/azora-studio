@@ -40,51 +40,52 @@ pack WorkspaceView {
     /** Host buffers holding the problems' text, released with them. */
     var problemText: Array<Long> = Array<Long>()
 }
+
 impl WorkspaceView {
     dtor .() {
-        if self.console != Long(0) { azsBufferClose(self.console) }
-        if self.projectLabel != Long(0) { azsBufferClose(self.projectLabel) }
+        if self.console != 0 then azsBufferClose(self.console)
+        if self.projectLabel != 0 then azsBufferClose(self.projectLabel)
         while self.problemText.size > 0 { azsBufferClose(self.problemText.removeLast()) }
     }
     func !.message(value: String) { self.notify(value, 0) }
     func !.notify(value: String, kind: Int) {
         self.status = value
         self.statusKind = kind
-        self.revision = self.revision + Long(1)
+        self.revision = self.revision + 1
     }
     func !.output(value: String) {
         fin next = azsBufferNew(value)
-        if next == Long(0) { return }
-        if self.console != Long(0) { azsBufferClose(self.console) }
+        if next == 0 then return
+        if self.console != 0 then azsBufferClose(self.console)
         self.console = next
-        self.revision = self.revision + Long(1)
+        self.revision = self.revision + 1
     }
     /** Names the project after the last component of [root]. */
     func !.nameProject(root: String) {
         fin path = azsBufferNew(root)
-        if path == Long(0) { return }
+        if path == 0 then return
         var end = azsBufferSize(path)
         while end > 1 && azsBufferByte(path, end - 1) == 47 { end = end - 1 }
         var start = end
         while start > 0 && azsBufferByte(path, start - 1) != 47 { start = start - 1 }
         fin label = azsBufferSlice(path, start, end)
         azsBufferClose(path)
-        if label == Long(0) { return }
-        if self.projectLabel != Long(0) { azsBufferClose(self.projectLabel) }
+        if label == 0 then return
+        if self.projectLabel != 0 then azsBufferClose(self.projectLabel)
         self.projectLabel = label
-        self.revision = self.revision + Long(1)
+        self.revision = self.revision + 1
     }
     func &.projectName(): String {
-        if self.projectLabel == Long(0) { return "project" }
+        if self.projectLabel == 0 then return "project"
         return azsBufferText(self.projectLabel)
     }
     func &.hasSelection(): Bool { return self.anchor >= 0 && self.anchor != self.cursor }
     func &.selectionStart(): Int { return if self.anchor >= 0 && self.anchor < self.cursor { self.anchor } else { self.cursor } }
     func &.selectionEnd(): Int { return if self.anchor > self.cursor { self.anchor } else { self.cursor } }
     func !.showDock(page: Int) {
-        if self.dockTab == page { return }
+        if self.dockTab == page then return
         self.dockTab = page
-        self.revision = self.revision + Long(1)
+        self.revision = self.revision + 1
     }
     /** Replaces the problems with an inspect snapshot's, for [file]. */
     func !.inspect(snapshot: String, file: String) {
@@ -95,89 +96,114 @@ impl WorkspaceView {
         self.problemText = take text
         self.problemsStale = false
         self.inspected = true
-        self.revision = self.revision + Long(1)
+        self.revision = self.revision + 1
     }
     func &.errorCount(): Int {
         var count = 0
         var index = 0
         while index < self.problems.size {
-            if self.problems[index].severity == 0 { count = count + 1 }
+            if self.problems[index].severity == 0 then count = count + 1
             index = index + 1
         }
         return count
     }
     /** Records editor facts the chrome shows, recomposing only when one changed. */
     func !.sync(dirty: Bool, busy: Bool, line: Int, column: Int, lineCount: Int) {
-        if dirty == self.sourceDirty && busy == self.busy && line == self.line && column == self.column && lineCount == self.lineCount { return }
+        if dirty == self.sourceDirty && busy == self.busy && line == self.line && column == self.column && lineCount == self.lineCount then return
         self.sourceDirty = dirty
         self.busy = busy
         self.line = line
         self.column = column
         self.lineCount = lineCount
-        self.revision = self.revision + Long(1)
+        self.revision = self.revision + 1
     }
 }
 
 // ── Small parts ─────────────────────────────────────────────────────────
 
 /** A spacer that takes the leftover room along its row or column. */
-pack Spacer { }
-impl Spacer {
+impl pack Spacer {
     react ctor (anchor: Anchor!).(): Entity {
-        return Shape(modifier: Modifier::weight(1.0).background(0.0, 0.0, 0.0, 0.0))
+        return Shape(
+            modifier: ::weight(1.0).background(0.0, 0.0, 0.0, 0.0)
+        )
     }
 }
 
 /** A short vertical hairline between toolbar groups. */
-pack Divider { }
-impl Divider {
+impl pack Divider {
     react ctor (anchor: Anchor!).(): Entity {
-        return Shape(modifier: Modifier::width(1.0).height(22.0).hairline())
+        return Shape(
+            modifier: ::width(1.0).height(22.0).hairline()
+        )
     }
 }
 
 /** A toolbar control. Style 0 is neutral, 1 the primary action, 2 run. */
-pack ToolButton { }
-impl ToolButton {
+impl pack ToolButton {
     react ctor (anchor: Anchor!).(label: String, action: Int, width: Double = 62.0, style: Int = 0): Entity {
         fin base = Modifier::width(width).height(30.0).rounded(7.0)
-        fin look = if style == 1 { base.accent() } else if style == 2 { base.go() } else { base.raised().hoverable() }
-        return Button(modifier: look, action: action) {
-            Text(label, modifier: Modifier::fontSize(13.0))
+        fin look = when style {
+            1 -> base.accent()
+            2 -> base.go()
+            else -> base.raised().hoverable()
+        }
+        return Button(modifier: look, :action) {
+            Text(label, modifier: ::fontSize(13.0))
         }
     }
 }
 
 /** A square stepper for nudging one property. */
-pack StepButton { }
-impl StepButton {
+impl pack StepButton {
     react ctor (anchor: Anchor!).(label: String, action: Int): Entity {
-        return Button(modifier: Modifier::width(28.0).height(28.0).rounded(6.0).raised().hoverable(), action: action) {
-            Text(label, modifier: Modifier::fontSize(15.0).bodyText())
+        return Button(
+            modifier: ::width(28.0).height(28.0).rounded(6.0).raised().hoverable()
+            action: action
+        ) {
+            Text(label, modifier: ::fontSize(15.0).bodyText())
         }
     }
 }
 
 /** A card's title strip: a caption and an optional detail on the right. */
-pack PanelHeader { }
-impl PanelHeader {
+impl pack PanelHeader {
     react ctor (anchor: Anchor!).(title: String, detail: String = ""): Entity {
-        return Row(modifier: Modifier::fillMaxWidth().height(36.0).padding(start: 14.0, end: 12.0), verticalAlignment: .Center) {
-            Text(title, modifier: Modifier::weight(1.0).caption())
-            Text(detail, modifier: Modifier::width(110.0).fontSize(11.0).faintText().textAlign(.End))
+        return Row(
+            modifier: ::fillMaxWidth().height(36.0).padding(start: 14.0, end: 12.0)
+            verticalAlignment: .Center
+        ) {
+            Text(title, modifier: ::weight(1.0).caption())
+            Text(detail, modifier: ::width(110.0).fontSize(11.0).faintText().textAlign(.End))
         }
     }
 }
 
-/** The kind colour Studio uses for an entity: cube azure, camera green, light amber. */
-func kindRed(kind: Int): Double { if kind == 0 { return 0.306 } else if kind == 1 { return 0.306 } else { return 1.0 } }
-func kindGreen(kind: Int): Double { if kind == 0 { return 0.576 } else if kind == 1 { return 0.788 } else { return 0.757 } }
-func kindBlue(kind: Int): Double { if kind == 0 { return 0.918 } else if kind == 1 { return 0.384 } else { return 0.027 } }
-func kindName(kind: Int): String { if kind == 0 { return "Mesh" } else if kind == 1 { return "Camera" } else { return "Light" } }
+func kindRed(kind: Int): Double = when kind {
+    0, 1 -> 0.306
+    else -> 1.0
+}
+
+func kindGreen(kind: Int): Double = when kind {
+    0 -> 0.576
+    1 -> 0.788
+    else -> 0.757
+}
+
+func kindBlue(kind: Int): Double = when kind {
+    0 -> 0.918
+    1 -> 0.384
+    else -> 0.027
+}
+
+func kindName(kind: Int): String = when kind {
+    0 -> "Mesh"
+    1 -> "Camera"
+    else -> "Light"
+}
 
 /** One row of a list: a coloured glyph, a label, and selection. */
-pack ListItem { }
-impl ListItem {
+impl pack ListItem {
     react ctor (anchor: Anchor!).(
         label: String
         action: Int
@@ -189,22 +215,21 @@ impl ListItem {
         key: String = ""
     ): Entity {
         fin base = Modifier::fillMaxWidth().height(30.0).rounded(6.0).padding(start: 10.0, end: 8.0)
-        fin look = if selected { base.selected() } else { base.ghost() }
-        return Button(modifier: look, action: action, key: key) {
-            Shape(modifier: Modifier::size(10.0, 10.0).rounded(round).background(r, g, b))
-            Text(label, modifier: Modifier::padding(start: 10.0).fontSize(13.0).textAlign(.Start))
+        fin look = if selected then base.selected() else base.ghost()
+        return Button(modifier: look, :action, :key) {
+            Shape(modifier: ::size(10.0, 10.0).rounded(round).background(r, g, b))
+            Text(label, modifier: ::padding(start: 10.0).fontSize(13.0).textAlign(.Start))
         }
     }
 }
 
 // ── Panels ──────────────────────────────────────────────────────────────
 
-pack SceneHierarchy { }
-impl SceneHierarchy {
+impl pack SceneHierarchy {
     react ctor (anchor: Anchor!).(selected: Int): Entity {
-        return Column(modifier: Modifier::fillMaxWidth().height(170.0).card(), key: "hierarchy") {
+        return Column(modifier: ::fillMaxWidth().height(170.0).card(), key: "hierarchy") {
             PanelHeader("HIERARCHY", "3 entities")
-            Column(modifier: Modifier::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0), spacing: 2.0, key: "entities") {
+            Column(modifier: ::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0), spacing: 2.0, key: "entities") {
                 for id in 0..<3 {
                     fin name = if id == 0 { "Cube" } else if id == 1 { "Camera" } else { "Light" }
                     ListItem(name, 100 + id, selected == id, kindRed(id), kindGreen(id), kindBlue(id),
@@ -215,16 +240,15 @@ impl SceneHierarchy {
     }
 }
 
-pack ProjectBrowser { }
-impl ProjectBrowser {
+impl pack ProjectBrowser {
     react ctor (anchor: Anchor!).(tab: Int, project: String): Entity {
-        return Column(modifier: Modifier::fillMaxWidth().weight(1.0).card(), key: "assets") {
+        return Column(modifier: ::fillMaxWidth().weight(1.0).card(), key: "assets") {
             PanelHeader("PROJECT", project)
-            Column(modifier: Modifier::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0), spacing: 2.0, key: "files") {
+            Column(modifier: ::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0), spacing: 2.0, key: "files") {
                 ListItem("src / main.az", 13, tab == 1, 0.820, 0.306, 0.918, round: 2.0, key: "main")
                 ListItem("scene.azscene", 12, tab == 0, 0.306, 0.576, 0.918, round: 2.0, key: "scene")
                 ListItem("azora.azon", 0, false, 0.404, 0.404, 0.404, round: 2.0, key: "manifest")
-                Text("PACKAGES", modifier: Modifier::fillMaxWidth().height(34.0).padding(start: 8.0).caption(), key: "packages")
+                Text("PACKAGES", modifier: ::fillMaxWidth().height(34.0).padding(start: 8.0).caption(), key: "packages")
                 ListItem("engine.ecs", 0, false, 0.306, 0.788, 0.384, round: 5.0, key: "ecs")
                 ListItem("engine.ui", 0, false, 0.306, 0.788, 0.384, round: 5.0, key: "ui")
                 ListItem("std", 0, false, 0.306, 0.788, 0.384, round: 5.0, key: "std")
@@ -234,46 +258,43 @@ impl ProjectBrowser {
 }
 
 /** A tab on the centre dock. */
-pack DockTab { }
-impl DockTab {
+impl pack DockTab {
     react ctor (anchor: Anchor!).(label: String, action: Int, active: Bool, key: String): Entity {
-        fin base = Modifier::width(128.0).height(30.0).rounded(7.0)
-        fin look = if active { base.raised() } else { base.ghost() }
-        return Button(modifier: look, action: action, key: key) {
-            Text(label, modifier: if active { Modifier::fontSize(13.0) } else { Modifier::fontSize(13.0).mutedText() })
+        fin base = ::width(128.0).height(30.0).rounded(7.0)
+        fin look = if active then base.raised() else base.ghost()
+        return Button(modifier: look, :action, :key) {
+            Text(label, modifier: if active then ::fontSize(13.0) else ::fontSize(13.0).mutedText())
         }
     }
 }
 
-pack SceneViewport { }
-impl SceneViewport {
+impl pack SceneViewport {
     react ctor (anchor: Anchor!).(): Entity {
-        fin node = Shape(modifier: Modifier::fillMaxSize().weight(1.0).rounded(8.0).sunken(), group: 201, key: "canvas")
+        fin node = Shape(modifier: ::fillMaxSize().weight(1.0).rounded(8.0).sunken(), group: 201, key: "canvas")
         storageInsert<Action>(store<Action>(anchor.pass), node, Action(201))
         return node
     }
 }
-pack SourceEditor { }
-impl SourceEditor {
+
+impl pack SourceEditor {
     react ctor (anchor: Anchor!).(): Entity {
-        fin node = Shape(modifier: Modifier::fillMaxSize().weight(1.0).rounded(8.0).sunken(), group: 202, key: "source")
+        fin node = Shape(modifier: ::fillMaxSize().weight(1.0).rounded(8.0).sunken(), group: 202, key: "source")
         storageInsert<Action>(store<Action>(anchor.pass), node, Action(202))
         return node
     }
 }
 
-pack CenterDock { }
-impl CenterDock {
+impl pack CenterDock {
     react ctor (anchor: Anchor!).(view: WorkspaceView&, scene: StudioScene&): Entity {
         fin detail = if view.tab == 0 {
             if scene.playing { if scene.paused { "Preview paused" } else { "Preview playing" } } else { "2D scene · ECS world" }
         } else { "Azora · UTF-8 · ${view.lineCount} lines" }
-        return Column(modifier: Modifier::weight(1.0).fillMaxHeight().card().padding(start: 6.0, end: 6.0, bottom: 6.0), key: "center") {
-            Row(modifier: Modifier::fillMaxWidth().height(42.0).padding(start: 2.0, end: 8.0), spacing: 4.0, verticalAlignment: .Center, key: "tabs") {
+        return Column(modifier: ::weight(1.0).fillMaxHeight().card().padding(start: 6.0, end: 6.0, bottom: 6.0), key: "center") {
+            Row(modifier: ::fillMaxWidth().height(42.0).padding(start: 2.0, end: 8.0), spacing: 4.0, verticalAlignment: .Center, key: "tabs") {
                 DockTab("Scene", 12, view.tab == 0, "scene-tab")
                 DockTab(if view.sourceDirty { "main.az  ●" } else { "main.az" }, 13, view.tab == 1, "source-tab")
                 Spacer()
-                Text(detail, modifier: Modifier::width(240.0).fontSize(12.0).faintText().textAlign(.End))
+                Text(detail, modifier: ::width(240.0).fontSize(12.0).faintText().textAlign(.End))
             }
             if view.tab == 0 { SceneViewport() } else { SourceEditor() }
         }
@@ -281,66 +302,62 @@ impl CenterDock {
 }
 
 /** One editable property: a label, its value in a well, and steppers. */
-pack PropertyRow { }
-impl PropertyRow {
+impl pack PropertyRow {
     react ctor (anchor: Anchor!).(label: String, value: String, less: Int, more: Int, key: String): Entity {
-        return Row(modifier: Modifier::fillMaxWidth().height(36.0).padding(start: 14.0, end: 12.0), spacing: 6.0, verticalAlignment: .Center, key: key) {
-            Text(label, modifier: Modifier::width(74.0).fontSize(12.0).mutedText().textAlign(.Start))
-            Text(value, modifier: Modifier::weight(1.0).height(28.0).sunken().rounded(6.0).border(1.0, 0.173, 0.173, 0.192).monospace().fontSize(12.0).textAlign(.End).padding(end: 10.0))
+        return Row(modifier: ::fillMaxWidth().height(36.0).padding(start: 14.0, end: 12.0), spacing: 6.0, verticalAlignment: .Center, :key) {
+            Text(label, modifier: ::width(74.0).fontSize(12.0).mutedText().textAlign(.Start))
+            Text(value, modifier: ::weight(1.0).height(28.0).sunken().rounded(6.0).border(1.0, 0.173, 0.173, 0.192).monospace().fontSize(12.0).textAlign(.End).padding(end: 10.0))
             StepButton("−", less)
             StepButton("+", more)
         }
     }
 }
 
-pack PropertyInspector { }
-impl PropertyInspector {
+impl pack PropertyInspector {
     react ctor (anchor: Anchor!).(scene: StudioScene&): Entity {
         fin value = scene.selectedTransform()
         fin kind = scene.selected
-        return Column(modifier: Modifier::width(292.0).fillMaxHeight().card(), key: "inspector") {
+        return Column(modifier: ::width(292.0).fillMaxHeight().card(), key: "inspector") {
             PanelHeader("INSPECTOR")
-            Row(modifier: Modifier::fillMaxWidth().height(52.0).padding(start: 14.0, end: 12.0), spacing: 12.0, verticalAlignment: .Center, key: "identity") {
-                Shape(modifier: Modifier::size(28.0, 28.0).rounded(if kind == 0 { 7.0 } else { 14.0 }).background(kindRed(kind), kindGreen(kind), kindBlue(kind)))
-                Column(modifier: Modifier::weight(1.0).height(40.0), key: "names") {
-                    Text(scene.selectedName(), modifier: Modifier::fillMaxWidth().height(22.0).fontSize(15.0).semibold().textAlign(.Start))
-                    Text("Entity ${kind}  ·  ${kindName(kind)}", modifier: Modifier::fillMaxWidth().height(18.0).fontSize(11.0).mutedText().textAlign(.Start))
+            Row(modifier: ::fillMaxWidth().height(52.0).padding(start: 14.0, end: 12.0), spacing: 12.0, verticalAlignment: .Center, key: "identity") {
+                Shape(modifier: ::size(28.0, 28.0).rounded(if kind == 0 { 7.0 } else { 14.0 }).background(kindRed(kind), kindGreen(kind), kindBlue(kind)))
+                Column(modifier: ::weight(1.0).height(40.0), key: "names") {
+                    Text(scene.selectedName(), modifier: ::fillMaxWidth().height(22.0).fontSize(15.0).semibold().textAlign(.Start))
+                    Text("Entity ${kind}  ·  ${kindName(kind)}", modifier: ::fillMaxWidth().height(18.0).fontSize(11.0).mutedText().textAlign(.Start))
                 }
             }
-            Shape(modifier: Modifier::fillMaxWidth().height(1.0).hairline())
-            Text("TRANSFORM", modifier: Modifier::fillMaxWidth().height(36.0).padding(start: 14.0).caption(), key: "transform")
+            Shape(modifier: ::fillMaxWidth().height(1.0).hairline())
+            Text("TRANSFORM", modifier: ::fillMaxWidth().height(36.0).padding(start: 14.0).caption(), key: "transform")
             PropertyRow("Position X", "${value.x}", 20, 21, "x")
             PropertyRow("Position Y", "${value.y}", 22, 23, "y")
             PropertyRow("Scale", "${value.scale} %", 24, 25, "scale")
-            Text("SCENE FILE", modifier: Modifier::fillMaxWidth().height(40.0).padding(start: 14.0).caption(), key: "file")
-            Row(modifier: Modifier::fillMaxWidth().height(24.0).padding(start: 14.0, end: 12.0), spacing: 8.0, verticalAlignment: .Center, key: "saved") {
-                Shape(modifier: Modifier::size(8.0, 8.0).rounded(4.0).background(if scene.dirty { 1.0 } else { 0.306 }, if scene.dirty { 0.549 } else { 0.788 }, if scene.dirty { 0.0 } else { 0.384 }))
-                Text(if scene.dirty { "Unsaved changes" } else { "All changes saved" }, modifier: Modifier::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start))
+            Text("SCENE FILE", modifier: ::fillMaxWidth().height(40.0).padding(start: 14.0).caption(), key: "file")
+            Row(modifier: ::fillMaxWidth().height(24.0).padding(start: 14.0, end: 12.0), spacing: 8.0, verticalAlignment: .Center, key: "saved") {
+                Shape(modifier: ::size(8.0, 8.0).rounded(4.0).background(if scene.dirty { 1.0 } else { 0.306 }, if scene.dirty { 0.549 } else { 0.788 }, if scene.dirty { 0.0 } else { 0.384 }))
+                Text(if scene.dirty { "Unsaved changes" } else { "All changes saved" }, modifier: ::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start))
             }
             Spacer()
-            Text("Click an entity to select it · ⌘S saves", modifier: Modifier::fillMaxWidth().height(34.0).padding(start: 14.0).fontSize(11.0).faintText().textAlign(.Start), key: "hint")
+            Text("Click an entity to select it · ⌘S saves", modifier: ::fillMaxWidth().height(34.0).padding(start: 14.0).fontSize(11.0).faintText().textAlign(.Start), key: "hint")
         }
     }
 }
 
 /** One reported problem: severity, position, code and message; clicking it opens the source there. */
-pack ProblemRow { }
-impl ProblemRow {
+impl pack ProblemRow {
     react ctor (anchor: Anchor!).(problem: Diagnostic&, action: Int, stale: Bool, key: String): Entity {
         fin r: Double = if problem.severity == 0 { 0.902 } else if problem.severity == 1 { 1.0 } else { 0.306 }
         fin g: Double = if problem.severity == 0 { 0.290 } else if problem.severity == 1 { 0.757 } else { 0.576 }
         fin b: Double = if problem.severity == 0 { 0.227 } else if problem.severity == 1 { 0.027 } else { 0.918 }
-        return Button(modifier: Modifier::fillMaxWidth().height(26.0).rounded(6.0).padding(start: 10.0, end: 10.0).ghost(), action: action, key: key) {
-            Shape(modifier: Modifier::size(8.0, 8.0).rounded(4.0).background(r, g, b))
-            Text("${problem.line + 1}:${problem.startByte + 1}", modifier: Modifier::width(76.0).padding(start: 10.0).monospace().fontSize(12.0).mutedText().textAlign(.Start))
-            Text(problem.code, modifier: Modifier::width(110.0).monospace().fontSize(11.0).faintText().textAlign(.Start))
-            Text(problem.message, modifier: if stale { Modifier::weight(1.0).fontSize(12.0).mutedText().textAlign(.Start) } else { Modifier::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start) })
+        return Button(modifier: ::fillMaxWidth().height(26.0).rounded(6.0).padding(start: 10.0, end: 10.0).ghost(), :action, :key) {
+            Shape(modifier: ::size(8.0, 8.0).rounded(4.0).background(r, g, b))
+            Text("${problem.line + 1}:${problem.startByte + 1}", modifier: ::width(76.0).padding(start: 10.0).monospace().fontSize(12.0).mutedText().textAlign(.Start))
+            Text(problem.code, modifier: ::width(110.0).monospace().fontSize(11.0).faintText().textAlign(.Start))
+            Text(problem.message, modifier: if stale { ::weight(1.0).fontSize(12.0).mutedText().textAlign(.Start) } else { Modifier::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start) })
         }
     }
 }
 
-pack ConsolePanel { }
-impl ConsolePanel {
+impl pack ConsolePanel {
     react ctor (anchor: Anchor!).(view: WorkspaceView&): Entity {
         fin count = view.problems.size
         fin problemsLabel = if count == 0 { "Problems" } else { "Problems  ${count}" }
@@ -350,28 +367,42 @@ impl ConsolePanel {
             else if view.problemsStale { "Edited since the last check · ⌘S re-checks" }
             else { "Click a problem to open it in the editor" }
         } else { view.status }
-        return Column(modifier: Modifier::fillMaxSize().card().padding(start: 6.0, end: 6.0, bottom: 6.0), key: "console") {
-            Row(modifier: Modifier::fillMaxWidth().height(38.0).padding(start: 8.0, end: 8.0), spacing: 4.0, verticalAlignment: .Center, key: "console-tabs") {
-                Button(modifier: if view.dockTab == 0 { Modifier::width(92.0).height(26.0).rounded(6.0).raised() } else { Modifier::width(92.0).height(26.0).rounded(6.0).ghost() }, action: 30, key: "console-tab") {
-                    Text("Console", modifier: if view.dockTab == 0 { Modifier::fontSize(12.0) } else { Modifier::fontSize(12.0).mutedText() })
+        return Column(modifier: ::fillMaxSize().card().padding(start: 6.0, end: 6.0, bottom: 6.0), key: "console") {
+            Row(modifier: ::fillMaxWidth().height(38.0).padding(start: 8.0, end: 8.0), spacing: 4.0, verticalAlignment: .Center, key: "console-tabs") {
+                Button(modifier: if view.dockTab == 0 { ::width(92.0).height(26.0).rounded(6.0).raised() } else { ::width(92.0).height(26.0).rounded(6.0).ghost() }, action: 30, key: "console-tab") {
+                    Text("Console", modifier: if view.dockTab == 0 { ::fontSize(12.0) } else { ::fontSize(12.0).mutedText() })
                 }
-                Button(modifier: if view.dockTab == 1 { Modifier::width(110.0).height(26.0).rounded(6.0).raised() } else { Modifier::width(110.0).height(26.0).rounded(6.0).ghost() }, action: 31, key: "problems-tab") {
-                    Text(problemsLabel, modifier: if view.errorCount() > 0 { Modifier::fontSize(12.0).textColor(0.95, 0.45, 0.40) } else if view.dockTab == 1 { Modifier::fontSize(12.0) } else { Modifier::fontSize(12.0).mutedText() })
+                Button(
+                    modifier: when {
+                        view.dockTab == 1 -> ::width(110.0).height(26.0).rounded(6.0).raised()
+                        else -> ::width(110.0).height(26.0).rounded(6.0).ghost()
+                    }
+                    action: 31
+                    key: "problems-tab"
+                ) {
+                    Text(
+                        problemsLabel
+                        modifier: when {
+                            view.errorCount() > 0 -> ::fontSize(12.0).textColor(0.95, 0.45, 0.40)
+                            view.dockTab == 1 -> ::fontSize(12.0)
+                            else -> ::fontSize(12.0).mutedText()
+                        }
+                    )
                 }
                 Spacer()
-                Text(summary, modifier: Modifier::width(420.0).fontSize(12.0).faintText().textAlign(.End), key: "status")
+                Text(summary, modifier: ::width(420.0).fontSize(12.0).faintText().textAlign(.End), key: "status")
             }
             if view.dockTab == 0 {
-                Shape(modifier: Modifier::fillMaxSize().weight(1.0).rounded(8.0).sunken(), group: 203, key: "output")
+                Shape(modifier: ::fillMaxSize().weight(1.0).rounded(8.0).sunken(), group: 203, key: "output")
             } else {
-                Column(modifier: Modifier::fillMaxSize().weight(1.0).rounded(8.0).sunken().padding(all: 4.0), spacing: 1.0, key: "problems") {
+                Column(modifier: ::fillMaxSize().weight(1.0).rounded(8.0).sunken().padding(all: 4.0), spacing: 1.0, key: "problems") {
                     var index = 0
                     while index < count && index < 5 {
                         ProblemRow(view.problems[index], 300 + index, view.problemsStale, "problem-${index}")
                         index = index + 1
                     }
                     if count > 5 {
-                        Text("and ${count - 5} more", modifier: Modifier::fillMaxWidth().height(22.0).padding(start: 28.0).fontSize(11.0).faintText().textAlign(.Start), key: "more")
+                        Text("and ${count - 5} more", modifier: ::fillMaxWidth().height(22.0).padding(start: 28.0).fontSize(11.0).faintText().textAlign(.Start), key: "more")
                     }
                 }
             }
@@ -379,19 +410,18 @@ impl ConsolePanel {
     }
 }
 
-pack StatusBar { }
-impl StatusBar {
+impl pack StatusBar {
     react ctor (anchor: Anchor!).(view: WorkspaceView&): Entity {
         fin r: Double = if view.statusKind == 3 { 0.902 } else if view.statusKind == 1 { 1.0 } else { 0.306 }
         fin g: Double = if view.statusKind == 3 { 0.290 } else if view.statusKind == 1 { 0.757 } else { 0.788 }
         fin b: Double = if view.statusKind == 3 { 0.227 } else if view.statusKind == 1 { 0.027 } else { 0.384 }
         fin position = if view.tab == 1 { "Ln ${view.line}, Col ${view.column}" } else { "" }
-        return Row(modifier: Modifier::fillMaxWidth().height(26.0).padding(start: 14.0, end: 14.0).surface(), spacing: 10.0, verticalAlignment: .Center, key: "statusbar") {
-            Shape(modifier: Modifier::size(8.0, 8.0).rounded(4.0).background(r, g, b))
-            Text(view.status, modifier: Modifier::width(520.0).fontSize(12.0).bodyText().textAlign(.Start), key: "message")
+        return Row(modifier: ::fillMaxWidth().height(26.0).padding(start: 14.0, end: 14.0).surface(), spacing: 10.0, verticalAlignment: .Center, key: "statusbar") {
+            Shape(modifier: ::size(8.0, 8.0).rounded(4.0).background(r, g, b))
+            Text(view.status, modifier: ::width(520.0).fontSize(12.0).bodyText().textAlign(.Start), key: "message")
             Spacer()
-            Text(position, modifier: Modifier::width(120.0).fontSize(12.0).mutedText().textAlign(.End), key: "position")
-            Text("Azora 0.1 · LLVM native", modifier: Modifier::width(170.0).fontSize(12.0).faintText().textAlign(.End), key: "toolchain")
+            Text(position, modifier: ::width(120.0).fontSize(12.0).mutedText().textAlign(.End), key: "position")
+            Text("Azora 0.1 · LLVM native", modifier: ::width(170.0).fontSize(12.0).faintText().textAlign(.End), key: "toolchain")
         }
     }
 }
@@ -399,11 +429,11 @@ impl StatusBar {
 react func describeWorkspace(pass: Composition!, scene: StudioScene&, view: WorkspaceView&) {
     fin stamp = view.revision + (scene.revision as Long)
     composeIfChanged(pass, stamp) {
-        Column(modifier: Modifier::fillMaxSize().ground(), key: "workspace") {
-            Row(modifier: Modifier::fillMaxWidth().height(52.0).padding(start: 14.0, end: 14.0).surface(), spacing: 6.0, verticalAlignment: .Center, key: "toolbar") {
-                Shape(modifier: Modifier::size(20.0, 20.0).rounded(6.0).background(0.820, 0.306, 0.918))
-                Text("Azora Studio", modifier: Modifier::width(104.0).padding(start: 4.0).fontSize(14.0).semibold().textAlign(.Start))
-                Text(view.projectName(), modifier: Modifier::width(150.0).fontSize(13.0).mutedText().textAlign(.Start), key: "project")
+        Column(modifier: ::fillMaxSize().ground(), key: "workspace") {
+            Row(modifier: ::fillMaxWidth().height(52.0).padding(start: 14.0, end: 14.0).surface(), spacing: 6.0, verticalAlignment: .Center, key: "toolbar") {
+                Shape(modifier: ::size(20.0, 20.0).rounded(6.0).background(0.820, 0.306, 0.918))
+                Text("Azora Studio", modifier: ::width(104.0).padding(start: 4.0).fontSize(14.0).semibold().textAlign(.Start))
+                Text(view.projectName(), modifier: ::width(150.0).fontSize(13.0).mutedText().textAlign(.Start), key: "project")
                 Spacer()
                 ToolButton("Save", 1)
                 ToolButton("Undo", 2)
@@ -418,33 +448,30 @@ react func describeWorkspace(pass: Composition!, scene: StudioScene&, view: Work
                 ToolButton("Inspect", 9, 72.0)
                 ToolButton(if view.busy { "Cancel" } else { "Run app" }, if view.busy { 10 } else { 17 }, 84.0, 1)
                 Spacer()
-                Shape(modifier: Modifier::width(254.0).height(1.0).background(0.0, 0.0, 0.0, 0.0))
+                Shape(modifier: ::width(254.0).height(1.0).background(0.0, 0.0, 0.0, 0.0))
             }
-            Shape(modifier: Modifier::fillMaxWidth().height(1.0).hairline())
-            Row(modifier: Modifier::fillMaxWidth().weight(1.0).padding(all: 8.0), spacing: 8.0, key: "body") {
-                Column(modifier: Modifier::width(236.0).fillMaxHeight(), spacing: 8.0, key: "browser") {
+            Shape(modifier: ::fillMaxWidth().height(1.0).hairline())
+            Row(modifier: ::fillMaxWidth().weight(1.0).padding(all: 8.0), spacing: 8.0, key: "body") {
+                Column(modifier: ::width(236.0).fillMaxHeight(), spacing: 8.0, key: "browser") {
                     SceneHierarchy(scene.selected)
                     ProjectBrowser(view.tab, view.projectName())
                 }
                 CenterDock(view, scene)
                 PropertyInspector(scene)
             }
-            Row(modifier: Modifier::fillMaxWidth().height(186.0).padding(start: 8.0, end: 8.0, bottom: 8.0), key: "dock-bottom") {
+            Row(modifier: ::fillMaxWidth().height(186.0).padding(start: 8.0, end: 8.0, bottom: 8.0), key: "dock-bottom") {
                 ConsolePanel(view)
             }
-            Shape(modifier: Modifier::fillMaxWidth().height(1.0).hairline())
+            Shape(modifier: ::fillMaxWidth().height(1.0).hairline())
             StatusBar(view)
         }
     }
 }
 
 func surfaceRect(pass: Composition!, group: Int): Rect {
-    var index = 0
-    while index < storageLength<TagI>(store<TagI>(pass)) {
-        fin entity = storageEntityAt<TagI>(store<TagI>(pass), index)
+    return for i in 0..<storageLength<TagI>(store<TagI>(pass)) {
+        fin entity = storageEntityAt<TagI>(store<TagI>(pass), i)
         fin tag = storageGet<TagI>(store<TagI>(pass), entity)
-        if tag.index == group { return storageGet<Rect>(store<Rect>(pass), entity).clone() }
-        index = index + 1
-    }
-    return Rect()
+        if tag.index == group then break storageGet<Rect>(store<Rect>(pass), entity).clone()
+    } else .()
 }

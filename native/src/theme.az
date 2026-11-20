@@ -104,13 +104,13 @@ func hexDigit(code: Int): Int {
 /** `#RRGGBB` or `#RRGGBBAA` as a colour, or [fallback] when it is neither. */
 func hexColor(text: String, fallback: Rgba): Rgba {
     fin length = stringLength(text)
-    if (length != 7 && length != 9) || charAt(text, 0) != '#' { return fallback }
+    if (length != 7 && length != 9) || charAt(text, 0) != '#' then return fallback
     var channels: Array<Double> = Array<Double>()
     var index = 1
     while index < length {
         fin high = hexDigit(charAt(text, index) as Int)
         fin low = hexDigit(charAt(text, index + 1) as Int)
-        if high < 0 || low < 0 { return fallback }
+        if high < 0 || low < 0 then return fallback
         channels.add(((high * 16 + low) as Double) / 255.0)
         index = index + 2
     }
@@ -120,7 +120,7 @@ func hexColor(text: String, fallback: Rgba): Rgba {
 func themeMember(fields: List<SerialField>&, name: String): Int {
     var index = 0
     while index < fields.size {
-        if fields[index].name == name { return index }
+        if fields[index].name == name then return index
         index = index + 1
     }
     return -1

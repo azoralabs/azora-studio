@@ -15,6 +15,12 @@
          "components": {"Name": {"value": "Camera"}, "Transform": {"translation": [0, 2, 6], "rotation": [-15, 0, 0]}, "Camera3d": {}}},
         {"name": "Light", "icon": "sun",
          "components": {"Name": {"value": "Light"}, "Transform": {"translation": [0, 4, 0], "rotation": [-50, -35, 0]}, "Light3d": {}}},
+        {"name": "Gravity", "icon": "axis-3d",
+         "components": {"Name": {"value": "Gravity"}, "Transform": {}, "Gravity": {}}},
+        {"name": "Player Start", "icon": "gamepad-2",
+         "components": {"Name": {"value": "Player Start"}, "Transform": {}, "PlayerStart": {}}},
+        {"name": "Exponential Height Fog", "icon": "eye",
+         "components": {"Name": {"value": "Exponential Height Fog"}, "Transform": {}, "ExponentialHeightFog": {}}},
         {"name": "Sprite", "icon": "image",
          "components": {"Name": {"value": "Sprite"}, "Transform": {}, "Sprite": {"width": 1, "height": 1}}}
     ]

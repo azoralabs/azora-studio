@@ -41,6 +41,7 @@ int64_t azs_project_list(int64_t project, const char *relative);
 int32_t azs_project_make_dir(int64_t project, const char *relative);
 int64_t azs_process_start(const char *program, const char *directory,
                          const char *first, const char *second);
+int64_t azs_engine_process_start(const char *compiler, const char *project, const char *action);
 int32_t azs_process_poll(int64_t process);
 const char *azs_process_output(int64_t process);
 int32_t azs_process_cancel(int64_t process);

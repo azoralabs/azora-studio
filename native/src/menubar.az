@@ -1,0 +1,254 @@
+module studio.menubar
+import std.reflection
+import std.traits
+import engine.objc
+import engine.io
+import engine.ui.docking
+import studio.os
+import studio.state
+import studio.ui
+
+// The menu bar at the top of the screen, as a Mac app has it. Studio does not
+// list its menus anywhere: they are the `@Command`s that name a `menu`, in the
+// order the menus first appear, grouped by `group` with a separator between
+// groups and ordered by `order` within one, each with its ⌘ key. The Window
+// menu also lists every `@Panel`. A chosen item calls [studioMenuChosen],
+// which Studio exports by name and AppKit reaches through a small class this
+// module registers; the frame loop then runs the command, as a click would.
+
+bridge .C {
+    func @foreignName("objc_allocateClassPair")(superclass: Long, name: String, extraBytes: Long): Long
+    func @foreignName("objc_registerClassPair")(created: Long)
+    func @foreignName("class_addMethod")(owner: Long, selector: Long, implementation: Long, types: String): Int
+}
+
+/** The items chosen since the frame loop last looked, by their entry's index. */
+threadlocal var menuChosen: Array<Int> = []
+
+/** AppKit's action for every Studio menu item: `studioMenuChosen:`. The item's tag is its entry. */
+func studioMenuChosen(target: Long, selector: Long, sender: Long) {
+    menuChosen.add(send0(sender, sel("tag")) as Int)
+}
+
+/** `NSEventModifierFlagCommand`, and `…Shift`, `…Option`. */
+fin commandFlag: Long = 1048576
+fin shiftFlag: Long = 131072
+fin optionFlag: Long = 524288
+
+/** Every command the menus show, in menu order: what reflection finds, sorted. */
+func menuEntries(): Array<MenuEntry> {
+    var found: Array<MenuEntry> = []
+    var menus: Array<String> = []
+    inline for C in reflect<*>.withAnnot<Command> {
+        fin menu = reflect<C>.annotMeta<Command>.menu
+        if menu != "" {
+            if !menus.contains(menu) then menus.add(menu)
+            found.add(MenuEntry(menu, reflect<C>.annotMeta<Command>.title, reflect<C>.annotMeta<Command>.group,
+                reflect<C>.annotMeta<Command>.order, reflect<C>.annotMeta<Command>.key, reflect<C>.annotMeta<Command>.shift,
+                reflect<C>.declName, ""))
+        }
+    }
+    // Stable insertion sort: by menu, then group, then order.
+    var sorted: Array<MenuEntry> = []
+    var index = 0
+    while index < found.size {
+        fin entry = found[index].clone()
+        fin rank = positionOf(menus, entry.menu) * 1000000 + entry.group * 1000 + entry.order
+        var at = sorted.size
+        while at > 0 && positionOf(menus, sorted[at - 1].menu) * 1000000 + sorted[at - 1].group * 1000 + sorted[at - 1].order > rank { at = at - 1 }
+        sorted.insert(at, entry)
+        index = index + 1
+    }
+    return sorted
+}
+
+func positionOf(names: Array<String>&, name: String): Int {
+    var at = 0
+    while at < names.size && names[at] != name { at = at + 1 }
+    return at
+}
+
+/** The key AppKit shows for a command's `key`: Backspace is ⌫, anything else itself. */
+func keyEquivalent(key: String): String = when key {
+    "backspace" -> "${'\u0008'}"
+    else -> key
+}
+
+impl Studio {
+    /**
+     * Puts Studio's menus in the menu bar. Called once the application object
+     * exists; after it, chosen items arrive through [takeMenuChoices].
+     */
+    func !.installMenuBar() {
+        fin owner = objcAllocateClassPair(cls("NSObject"), "AzoraStudioMenuTarget", 0)
+        if owner != 0 {
+            classAddMethod(owner, sel("studioMenuChosen:"), librarySymbol(-2, "studioMenuChosen"), "v@:@")
+            objcRegisterClassPair(owner)
+        }
+        fin target = newObject("AzoraStudioMenuTarget")
+        fin nsapp = send0(cls("NSApplication"), sel("sharedApplication"))
+        fin bar = newObject("NSMenu")
+        self.menuEntries = menuEntries()
+        // Quit and the Window menu's panels are appended to the same table; the
+        // menus built from commands end where the commands do.
+        fin commands = self.menuEntries.size
+
+        // The application menu: what every Mac app's first menu holds.
+        fin appMenu = newMenu("Azora Studio")
+        addSystemItem(appMenu, "About Azora Studio", "orderFrontStandardAboutPanel:", "", 0)
+        self.addEntry(appMenu, target, MenuEntry("", "Preferences…", 0, 0, ",", false, "preferencesShow", ""))
+        addSeparator(appMenu)
+        addSystemItem(appMenu, "Hide Azora Studio", "hide:", "h", commandFlag)
+        addSystemItem(appMenu, "Hide Others", "hideOtherApplications:", "h", commandFlag + optionFlag)
+        addSystemItem(appMenu, "Show All", "unhideAllApplications:", "", 0)
+        addSeparator(appMenu)
+        self.addEntry(appMenu, target, MenuEntry("", "Quit Azora Studio", 0, 0, "q", false, "studioQuit", ""))
+        attach(bar, appMenu, "Azora Studio")
+
+        var index = 0
+        while index < commands {
+            fin name = self.menuEntries[index].menu
+            fin menu = newMenu(name)
+            var group = self.menuEntries[index].group
+            while index < commands && self.menuEntries[index].menu == name {
+                if self.menuEntries[index].group != group {
+                    addSeparator(menu)
+                    group = self.menuEntries[index].group
+                }
+                self.addItem(menu, target, index)
+                index = index + 1
+            }
+            if name == "Window" then self.addWindowItems(menu, target)
+            attach(bar, menu, name)
+            if name == "Window" then send1(nsapp, sel("setWindowsMenu:"), menu)
+        }
+        send1(nsapp, sel("setMainMenu:"), bar)
+    }
+
+    /** The Window menu's own part: minimise and zoom, then every panel, to bring one forward. */
+    func !.addWindowItems(menu: Long, target: Long) {
+        addSeparator(menu)
+        addSystemItem(menu, "Minimize", "performMiniaturize:", "m", commandFlag)
+        addSystemItem(menu, "Zoom", "performZoom:", "", 0)
+        addSeparator(menu)
+        inline for P in reflect<*>.withAnnot<Panel> {
+            self.addEntry(menu, target, MenuEntry("Window", dockPanelTitle(reflect<P>.declName), 0, 0, "", false, "panelShow", reflect<P>.declName))
+        }
+    }
+
+    /** Menu item for entry [index] of [menuEntries]. */
+    func !.addItem(menu: Long, target: Long, index: Int) {
+        fin entry = self.menuEntries[index]
+        fin item = send3(send0(cls("NSMenuItem"), sel("alloc")), sel("initWithTitle:action:keyEquivalent:"),
+            nsString(entry.title), sel("studioMenuChosen:"), nsString(keyEquivalent(entry.key)))
+        send1(item, sel("setTarget:"), target)
+        send1(item, sel("setTag:"), index as Long)
+        if entry.key != "" then send1(item, sel("setKeyEquivalentModifierMask:"), if entry.shift then commandFlag + shiftFlag else commandFlag)
+        send1(menu, sel("addItem:"), item)
+        send0(item, sel("release"))
+    }
+
+    /** An item for a command no `@Command` menu lists (Quit, a panel): kept as an entry of its own. */
+    func !.addEntry(menu: Long, target: Long, entry: MenuEntry) {
+        self.menuEntries.add(entry)
+        self.addItem(menu, target, self.menuEntries.size - 1)
+    }
+
+    /**
+     * Runs the commands chosen from the menu bar since the last frame, as the
+     * same commands run from a button or a key.
+     */
+    func !.takeMenuChoices(): Array<MenuEntry> {
+        var chosen: Array<MenuEntry> = []
+        var index = 0
+        while index < menuChosen.size {
+            fin tag = menuChosen[index]
+            if tag >= 0 && tag < self.menuEntries.size then chosen.add(self.menuEntries[tag].clone())
+            index = index + 1
+        }
+        menuChosen.clear()
+        return chosen
+    }
+}
+
+func newMenu(title: String): Long {
+    fin menu = send1(send0(cls("NSMenu"), sel("alloc")), sel("initWithTitle:"), nsString(title))
+    // Studio decides what each item does; AppKit need not ask anyone first.
+    send1(menu, sel("setAutoenablesItems:"), 0)
+    return menu
+}
+
+func addSeparator(menu: Long) {
+    send1(menu, sel("addItem:"), send0(cls("NSMenuItem"), sel("separatorItem")))
+}
+
+/** An item AppKit itself answers (About, Hide, Minimize…), sent along the responder chain. */
+func addSystemItem(menu: Long, title: String, action: String, key: String, flags: Long) {
+    fin item = send3(send0(cls("NSMenuItem"), sel("alloc")), sel("initWithTitle:action:keyEquivalent:"),
+        nsString(title), sel(action), nsString(key))
+    if key != "" then send1(item, sel("setKeyEquivalentModifierMask:"), flags)
+    send1(menu, sel("addItem:"), item)
+    send0(item, sel("release"))
+}
+
+/** Hangs [menu] from the bar under [title]. */
+func attach(bar: Long, menu: Long, title: String) {
+    fin item = send3(send0(cls("NSMenuItem"), sel("alloc")), sel("initWithTitle:action:keyEquivalent:"), nsString(title), 0, nsString(""))
+    send1(item, sel("setSubmenu:"), menu)
+    send1(bar, sel("addItem:"), item)
+    send0(item, sel("release"))
+    send0(menu, sel("release"))
+}
+
+/**
+ * Chooses the menu-bar item titled [title] through AppKit, as a click does -
+ * for scripted sessions. Answers whether there is one.
+ */
+func chooseMenuItem(title: String): Bool {
+    fin bar = send0(send0(cls("NSApplication"), sel("sharedApplication")), sel("mainMenu"))
+    if bar == 0 then return false
+    var top: Long = 0
+    while top < send0(bar, sel("numberOfItems")) {
+        fin menu = send0(send1(bar, sel("itemAtIndex:"), top), sel("submenu"))
+        if menu != 0 {
+            fin at = send1(menu, sel("indexOfItemWithTitle:"), nsString(title))
+            if at >= 0 {
+                send1(menu, sel("performActionForItemAtIndex:"), at)
+                return true
+            }
+        }
+        top = top + 1
+    }
+    return false
+}
+
+/** The menu bar as AppKit holds it, one line per menu: for traces. */
+/** An NSString's text. */
+func menuText(object: Long): String = azCstring(send0(object, sel("UTF8String")), 0)
+
+func menuBarOutline(): String {
+    fin bar = send0(send0(cls("NSApplication"), sel("sharedApplication")), sel("mainMenu"))
+    if bar == 0 then return "(no menu bar)"
+    var text = ""
+    var top: Long = 0
+    while top < send0(bar, sel("numberOfItems")) {
+        fin item = send1(bar, sel("itemAtIndex:"), top)
+        fin menu = send0(item, sel("submenu"))
+        var line = "${menuText(send0(item, sel("title")))}:"
+        var at: Long = 0
+        while menu != 0 && at < send0(menu, sel("numberOfItems")) {
+            fin entry = send1(menu, sel("itemAtIndex:"), at)
+            if send0(entry, sel("isSeparatorItem")) != 0 {
+                line = "${line} |"
+            } else {
+                fin key = menuText(send0(entry, sel("keyEquivalent")))
+                fin shift = (send0(entry, sel("keyEquivalentModifierMask")) & shiftFlag) != 0
+                line = "${line} ${menuText(send0(entry, sel("title")))}${if key == "" then "" else " [${if shift then "⇧" else ""}⌘${key}]"}"
+            }
+            at = at + 1
+        }
+        text = "${text}${line}\n"
+        top = top + 1
+    }
+    return text
+}

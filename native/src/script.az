@@ -48,7 +48,7 @@ func scriptSkipWord(script: Long, offset: Int, end: Int): Int {
 /** The step's word, as text. */
 func scriptWord(script: Long, start: Int, end: Int): String {
     fin word = azsBufferSlice(script, start, end)
-    if word == Long(0) { return "" }
+    if word == 0 then return ""
     fin text = "${azsBufferText(word)} "
     azsBufferClose(word)
     return substring(text, 0, stringLength(text) - 1)
@@ -56,7 +56,7 @@ func scriptWord(script: Long, start: Int, end: Int): String {
 
 func parseScript(script: Long): Array<ScriptStep> {
     var steps: Array<ScriptStep> = Array<ScriptStep>()
-    if script == Long(0) { return steps }
+    if script == 0 then return steps
     fin size = azsBufferSize(script)
     var start = 0
     while start < size {
@@ -85,6 +85,7 @@ func parseScript(script: Long): Array<ScriptStep> {
                 "rpress" -> steps.add(ScriptStep(11, scriptNumber(script, argument, end), scriptNumber(script, second, end), 0, 0))
                 "rrelease" -> steps.add(ScriptStep(12, 0, 0, 0, 0))
                 "scroll" -> steps.add(ScriptStep(13, scriptNumber(script, argument, end), 0, 0, 0))
+                "menu" -> steps.add(ScriptStep(14, 0, 0, textStart, end))
                 else -> { }
             }
         }
@@ -98,6 +99,9 @@ func parseScript(script: Long): Array<ScriptStep> {
 /** What a script asks of one frame. Empty fields ask for nothing. */
 pack ScriptFrame derives Clone {
     var command: String = ""
+    var argument: String = ""
+    /** A menu-bar item to choose, by its title, through AppKit as a click would. */
+    var menu: String = ""
     var typed: String = ""
     var key: Int = -1
     var meta: Bool = false
@@ -114,7 +118,7 @@ pack ScriptFrame derives Clone {
  * the window reads [x], [y], [down] and [rightDown] instead of the mouse.
  */
 pack ScriptPlayer {
-    var script: Long = Long(0)
+    var script: Long = 0
     var steps: Array<ScriptStep> = Array<ScriptStep>()
     var index: Int = 0
     var waitUntil: Int = 0
@@ -124,7 +128,7 @@ pack ScriptPlayer {
     var down: Bool = false
     var rightDown: Bool = false
     /** The screenshot being taken; the script waits for it. */
-    var shooting: Long = Long(0)
+    var shooting: Long = 0
 }
 
 impl ScriptPlayer {
@@ -137,14 +141,19 @@ impl ScriptPlayer {
     /** This frame's step, if one is due. A screenshot in progress holds the script. */
     func !.next(app: App!, frames: Int): ScriptFrame {
         var cue = ScriptFrame()
-        if self.index >= self.steps.size || frames < self.waitUntil || self.shooting != Long(0) {
+        if self.index >= self.steps.size || frames < self.waitUntil || self.shooting != 0 {
             return cue
         }
         fin step = self.steps[self.index]
         self.index = self.index + 1
         when step.kind {
             0 -> { self.waitUntil = frames + step.a }
-            1 -> { cue.command = scriptWord(self.script, step.start, step.end) }
+            1 -> {
+                fin end = scriptSkipWord(self.script, step.start, step.end)
+                cue.command = scriptWord(self.script, step.start, end)
+                if end < step.end then cue.argument = scriptWord(self.script, end + 1, step.end)
+            }
+            14 -> { cue.menu = scriptWord(self.script, step.start, step.end) }
             2 -> {
                 self.point(step)
                 cue.click = true
@@ -187,20 +196,20 @@ impl ScriptPlayer {
      * when [shot] names one, and notices when a capture finishes.
      */
     func !.capture(app: App&, root: String, shot: String) {
-        if shot != "" && self.shooting == Long(0) {
+        if shot != "" && self.shooting == 0 {
             fin window = send0(app.win.handle, sel("windowNumber"))
             self.shooting = azsProcessStart("/usr/sbin/screencapture", root, "-xol${window}", "${azsEnvironment("AZORA_STUDIO_SHOTS")}/${shot}.png")
-            if self.shooting == Long(0) { println("screenshot failed: ${azsError()}") }
+            if self.shooting == 0 { println("screenshot failed: ${azsError()}") }
         }
-        if self.shooting != Long(0) && azsProcessPoll(self.shooting) != -1 {
+        if self.shooting != 0 && azsProcessPoll(self.shooting) != -1 {
             if azsProcessPoll(self.shooting) != 0 { println("screenshot exited ${azsProcessPoll(self.shooting)}: ${azsProcessOutput(self.shooting)}") }
             azsProcessClose(self.shooting)
-            self.shooting = Long(0)
+            self.shooting = 0
         }
     }
 
     func !.close() {
-        if self.shooting != Long(0) { azsProcessClose(self.shooting) }
-        if self.script != Long(0) { azsBufferClose(self.script) }
+        if self.shooting != 0 then azsProcessClose(self.shooting)
+        if self.script != 0 then azsBufferClose(self.script)
     }
 }

@@ -14,7 +14,7 @@ func reportFailure(): Int {
 // this console service waits synchronously for its selected build/play action.
 func runTool(root: String, tool: String, action: String): Int {
     fin process = azsProcessStart(tool, root, root, action)
-    if process == Long(0) { return reportFailure() }
+    if process == 0 then return reportFailure()
     var status = azsProcessPoll(process)
     while status == -1 {
         azsWaitTick()
@@ -32,28 +32,28 @@ func execute(): Int {
     fin action = azsEnvironment("AZORA_STUDIO_ACTION")
     var create = 0
     if action == "template" {
-        if createNativeProject(root, azsEnvironment("AZORA_STUDIO_TEMPLATE")) { return 0 }
+        if createNativeProject(root, azsEnvironment("AZORA_STUDIO_TEMPLATE")) then return 0
         return reportFailure()
     }
-    if action == "create" || action == "probe" { create = 1 }
+    if action == "create" || action == "probe" then create = 1
     fin project = azsProjectOpen(root, create)
-    if project == Long(0) { return reportFailure() }
-    var source = Long(0)
+    if project == 0 then return reportFailure()
+    var source: Long = 0
     if create == 1 {
         source = azsBufferNew("import std.io\nfunc main() { println(\"Azora native project\") }\n")
     } else { source = azsProjectRead(project, "src/main.az") }
-    if source == Long(0) { azsProjectClose(project)
+    if source == 0 { azsProjectClose(project)
         return reportFailure() }
     var editor = editorOf(project, source)
     var status = 0
     if action == "create" {
         fin manifest = azsBufferNew("{\"project\":{\"name\":\"native-project\",\"version\":\"0.1.0\",\"entry\":\"main.az\",\"src\":\"src\",\"targets\":[\"llvm\"]}}\n")
-        if manifest == Long(0) || azsProjectWrite(project, "azora.azon", manifest) == 0 || !editor.save() {
+        if manifest == 0 || azsProjectWrite(project, "azora.azon", manifest) == 0 || !editor.save() {
             status = reportFailure()
         }
-        if manifest != Long(0) { azsBufferClose(manifest) }
+        if manifest != 0 then azsBufferClose(manifest)
     } else if action == "edit" {
-        if !editor.replace(azsEnvironment("AZORA_STUDIO_SOURCE")) || !editor.save() { status = reportFailure() }
+        if !editor.replace(azsEnvironment("AZORA_STUDIO_SOURCE")) || !editor.save() then status = reportFailure()
     } else if action == "structure" {
         status = inspectSource(editor.source)
     } else if action == "inspect" {

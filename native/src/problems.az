@@ -23,14 +23,14 @@ pack Diagnostic derives (Copy, Clone) {
 /** The offset just after `"key":` within [from, to), or -1. */
 func jsonKey(buffer: Long, from: Int, to: Int, key: String): Int {
     fin probe = azsBufferNew("\"${key}\":")
-    if probe == Long(0) { return -1 }
+    if probe == 0 then return -1
     fin length = azsBufferSize(probe)
     var found = -1
     var offset = from
     while found < 0 && offset + length <= to {
         var matched = 0
         while matched < length && azsBufferByte(buffer, offset + matched) == azsBufferByte(probe, matched) { matched = matched + 1 }
-        if matched == length { found = offset + length }
+        if matched == length then found = offset + length
         offset = offset + 1
     }
     azsBufferClose(probe)
@@ -44,9 +44,9 @@ func jsonKey(buffer: Long, from: Int, to: Int, key: String): Int {
  * closes it when the strings are no longer shown.
  */
 func jsonString(buffer: Long, at: Int, to: Int, keep: Array<Long>!): String {
-    if at < 0 || at >= to || azsBufferByte(buffer, at) != 34 { return "" }
+    if at < 0 || at >= to || azsBufferByte(buffer, at) != 34 then return ""
     fin text = azsBufferAllocate(to - at)
-    if text == Long(0) { return "" }
+    if text == 0 then return ""
     var length = 0
     var offset = at + 1
     while offset < to && azsBufferByte(buffer, offset) != 34 {
@@ -70,7 +70,7 @@ func jsonString(buffer: Long, at: Int, to: Int, keep: Array<Long>!): String {
 
 /** The JSON integer at [at], or -1 when there is none. */
 func jsonInt(buffer: Long, at: Int, to: Int): Int {
-    if at < 0 { return -1 }
+    if at < 0 then return -1
     var offset = at
     var value = 0
     var digits = 0
@@ -84,16 +84,16 @@ func jsonInt(buffer: Long, at: Int, to: Int): Int {
 
 /** Whether the string field at [at] ends with [suffix]. */
 func jsonEndsWith(buffer: Long, at: Int, to: Int, suffix: String): Bool {
-    if at < 0 || azsBufferByte(buffer, at) != 34 { return false }
+    if at < 0 || azsBufferByte(buffer, at) != 34 then return false
     var close = at + 1
     while close < to && azsBufferByte(buffer, close) != 34 { close = close + 1 }
     fin probe = azsBufferNew(suffix)
-    if probe == Long(0) { return false }
+    if probe == 0 then return false
     fin length = azsBufferSize(probe)
     var matches = close - (at + 1) >= length
     var index = 0
     while matches && index < length {
-        if azsBufferByte(buffer, close - length + index) != azsBufferByte(probe, index) { matches = false }
+        if azsBufferByte(buffer, close - length + index) != azsBufferByte(probe, index) then matches = false
         index = index + 1
     }
     azsBufferClose(probe)
@@ -107,12 +107,12 @@ func jsonEndsWith(buffer: Long, at: Int, to: Int, suffix: String): Bool {
 func parseDiagnostics(snapshot: String, file: String, keep: Array<Long>!): Array<Diagnostic> {
     var found: Array<Diagnostic> = Array<Diagnostic>()
     fin buffer = azsBufferNew(snapshot)
-    if buffer == Long(0) { return found }
+    if buffer == 0 then return found
     fin size = azsBufferSize(buffer)
     var offset = jsonKey(buffer, 0, size, "diagnostics")
     while offset >= 0 && offset < size {
         while offset < size && azsBufferByte(buffer, offset) != 123 && azsBufferByte(buffer, offset) != 93 { offset = offset + 1 }
-        if offset >= size || azsBufferByte(buffer, offset) == 93 { break }
+        if offset >= size || azsBufferByte(buffer, offset) == 93 then break
         // One diagnostic object: its end is the brace that closes it, outside strings.
         var end = offset + 1
         var depth = 1
@@ -150,7 +150,7 @@ func parseDiagnostics(snapshot: String, file: String, keep: Array<Long>!): Array
 /** Whether a snapshot is the inspect protocol at all, rather than a tool's own failure text. */
 func isInspectSnapshot(output: String): Bool {
     fin buffer = azsBufferNew(output)
-    if buffer == Long(0) { return false }
+    if buffer == 0 then return false
     fin found = jsonKey(buffer, 0, azsBufferSize(buffer), "protocol") >= 0
     azsBufferClose(buffer)
     return found

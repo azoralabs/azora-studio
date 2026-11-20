@@ -454,7 +454,7 @@ static int native_program(const char *program) {
     if (!elf && !macho) return fail("Studio requires a native compiler/tool; script and JAR bootstraps are development-only");
     return access(program, X_OK) == 0 ? 1 : system_fail("native tool is not executable");
 }
-int64_t azs_process_start(const char *program, const char *directory, const char *first, const char *second) {
+static int64_t start_process(const char *program, const char *directory, const char *first, const char *second, const char *third) {
     if (!native_program(program)) return 0;
     int64_t handle = allocate(PROCESS);
     if (!handle) return 0;
@@ -472,9 +472,11 @@ int64_t azs_process_start(const char *program, const char *directory, const char
         close(pipefd[1]);
         for (int i = 0; i < SLOTS; ++i) if (slots[i].fd >= 0) close(slots[i].fd);
         if (directory && *directory && chdir(directory) < 0) _exit(126);
-        char *args[4] = {(char *)program, NULL, NULL, NULL};
-        if (first && *first) args[1] = (char *)first;
-        if (second && *second) args[args[1] ? 2 : 1] = (char *)second;
+        char *args[5] = {(char *)program, NULL, NULL, NULL, NULL};
+        int at = 1;
+        if (first && *first) args[at++] = (char *)first;
+        if (second && *second) args[at++] = (char *)second;
+        if (third && *third) args[at] = (char *)third;
         execv(program, args); _exit(127);
     }
     close(pipefd[1]); setpgid(pid, pid);
@@ -484,6 +486,26 @@ int64_t azs_process_start(const char *program, const char *directory, const char
     }
     process->fd = pipefd[0]; process->pid = pid; return handle;
 }
+int64_t azs_process_start(const char *program, const char *directory, const char *first, const char *second) {
+    return start_process(program, directory, first, second, NULL);
+}
+
+int64_t azs_engine_process_start(const char *compiler, const char *project, const char *action) {
+    if (!native_program(compiler)) return 0;
+    if (!action || (strcmp(action, "inspect") && strcmp(action, "build") && strcmp(action, "run"))) {
+        fail("unsupported Engine project action"); return 0;
+    }
+    const char *engine = getenv("AZORA_ENGINE_HOME");
+    char script[PATH_MAX];
+    if (!engine || *engine != '/' ||
+        snprintf(script, sizeof script, "%s/tools/build.sh", engine) >= (int)sizeof script) {
+        fail("Select an Azora Engine toolchain"); return 0;
+    }
+    if (access(script, R_OK) < 0) { system_fail("open Engine build tool"); return 0; }
+    if (!azs_set_environment("AZORA_COMPILER_BIN", compiler)) return 0;
+    return start_process("/bin/bash", project, script, project, action);
+}
+
 static void drain(Slot *process) {
     char bytes[4096];
     size_t drained = 0;
@@ -551,3 +573,4 @@ void azs_wait_tick(void) {
     const struct timespec tick = {0, 1000000};
     nanosleep(&tick, NULL);
 }
+

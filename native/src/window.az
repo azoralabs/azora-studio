@@ -1,3 +1,4 @@
+import engine.physics.core
 import std.io
 import std.format
 import std.traits
@@ -14,6 +15,7 @@ import engine.core
 import engine.ecs
 import engine.math
 import engine.scene
+import engine.sky
 import engine.scene.io
 import engine.render.scene
 import engine.gizmos
@@ -33,9 +35,12 @@ import studio.fields
 import studio.script
 import studio.panels
 import studio.viewport
+import studio.fusion
 import studio.code
 import studio.commands
 import studio.problems
+import studio.plugins
+import studio.menubar
 
 // The Studio window. Panels are found by reflection, commands are found by
 // reflection, and the layout is ECS state the dock rearranges; this file only
@@ -49,15 +54,15 @@ import studio.problems
 /** 1 while [positive] is held, -1 while [negative] is, 0 for both or neither. */
 func keyAxis(app: App&, positive: KeyCode, negative: KeyCode): Double {
     var axis: Double = 0.0
-    if app.keyDown(positive) { axis = axis + 1.0 }
-    if app.keyDown(negative) { axis = axis - 1.0 }
+    if app.keyDown(positive) then axis += 1.0
+    if app.keyDown(negative) then axis -= 1.0
     return axis
 }
 
-func canvasPointer(panel: String, app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+func canvasPointer(panel: String, app: App!, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
     inline for P in reflect<*>.withAnnot<Panel> {
         inline if reflect<P>.hasAnnot<Canvas> {
-            if panel == reflect<P>.declName { return P::pointer(app, studio, rect, input) }
+            if panel == reflect<P>.declName then return P::pointer(app, studio, rect, input)
         }
     }
     return false
@@ -67,7 +72,7 @@ func canvasPointer(panel: String, app: App&, studio: Studio!, rect: ViewRect&, i
 func canvasDraw(panel: String, app: App!, studio: Studio!, rect: ViewRect&) {
     inline for P in reflect<*>.withAnnot<Panel> {
         inline if reflect<P>.hasAnnot<Canvas> {
-            if panel == reflect<P>.declName { P::draw(app, studio, rect) }
+            if panel == reflect<P>.declName then P::draw(app, studio, rect)
         }
     }
 }
@@ -77,7 +82,7 @@ func isUnder(pass: Composition!, node: Entity, root: Entity): Bool {
     var current = node
     var depth = 0
     while current.isValid && depth < 64 {
-        if current.id == root.id && current.generation == root.generation { return true }
+        if current.id == root.id && current.generation == root.generation then return true
         current = storageGetOrDefault<Child>(store<Child>(pass), current, Child(Entity::invalid)).parent
         depth = depth + 1
     }
@@ -102,31 +107,30 @@ func drawCanvases(app: App!, studio: Studio!, pass: Composition!, root: Entity) 
 
 // ── Chrome ──────────────────────────────────────────────────────────────
 
-pack TopBar { }
-impl TopBar {
+impl pack TopBar {
     react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
         fin running = studio.playing && !studio.paused
-        return Row(modifier: Modifier::fillMaxWidth().height(42.0).padding(start: 14.0, end: 12.0), spacing: 6.0, verticalAlignment: .Center, key: "topbar") {
-            if studio.logo != Long(0) {
-                ImageView(studio.logo, modifier: Modifier::size(20.0, 20.0), key: "mark")
+        return Row(modifier: ::fillMaxWidth().height(42.0).padding(start: 14.0, end: 12.0), spacing: 6.0, verticalAlignment: .Center, key: "topbar") {
+            if studio.logo != 0 {
+                ImageView(studio.logo, modifier: ::size(20.0, 20.0), key: "mark")
             } else {
-                Shape(modifier: Modifier::size(18.0, 18.0).rounded(5.0).fill(studioTheme.brand), key: "mark")
+                Shape(modifier: ::size(18.0, 18.0).rounded(5.0).fill(studioTheme.brand), key: "mark")
             }
             Label("Azora Studio", app, studioTheme.text, size: 13.5, bold: true, key: "name")
             Icon("chevron-right", studioTheme.faint, size: studioTheme.iconSmall, key: "sep")
             Label(studio.projectName(), app, studioTheme.muted, size: 13.0, key: "project")
-            if studio.sceneDirty || studio.editor.dirty {
-                Shape(modifier: Modifier::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty")
+            if studio.sceneDirty || studio.editor.dirty || studio.fusionDirty {
+                Shape(modifier: ::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty")
             }
             Spacer(key: "left")
-            Row(modifier: Modifier::height(30.0).raised().rounded(8.0).padding(start: 3.0, end: 3.0), spacing: 2.0, verticalAlignment: .Center, key: "transport") {
+            Row(modifier: ::height(30.0).raised().rounded(8.0).padding(start: 3.0, end: 3.0), spacing: 2.0, verticalAlignment: .Center, key: "transport") {
                 BarButton("runPlay", app, icon: "play", active: running, tint: studioTheme.green, key: "play")
                 BarButton("runPause", app, icon: "pause", active: studio.paused, tint: studioTheme.yellow, key: "pause")
                 BarButton("runStop", app, icon: "square", tint: if studio.playing { studioTheme.red } else { studioTheme.muted }, key: "stop")
             }
             Spacer(key: "right")
             BarButton("toolBuild", app, icon: "hammer", label: "Build", key: "build")
-            Press(if studio.busy { "toolCancel" } else { "toolRun" }, modifier: Modifier::height(28.0).rounded(7.0).accent().padding(start: 12.0, end: 12.0), spacing: 6.0, key: "run") {
+            Press(if studio.busy { "toolCancel" } else { "toolRun" }, modifier: ::height(28.0).rounded(7.0).accent().padding(start: 12.0, end: 12.0), spacing: 6.0, key: "run") {
                 Icon(if studio.busy { "square" } else { "play" }, studioTheme.ground, size: studioTheme.iconSmall, key: "glyph")
                 Label(if studio.busy { "Cancel" } else { "Run app" }, app, studioTheme.ground, bold: true, key: "label")
             }
@@ -134,8 +138,7 @@ impl TopBar {
     }
 }
 
-pack StatusBar { }
-impl StatusBar {
+impl pack StatusBar {
     react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
         fin tint = when studio.statusKind {
             3 -> studioTheme.error
@@ -145,14 +148,35 @@ impl StatusBar {
         }
         fin errors = studio.countProblems(0)
         fin warnings = studio.countProblems(1)
-        return Row(modifier: Modifier::fillMaxWidth().height(26.0).padding(start: 14.0, end: 14.0), spacing: 8.0, verticalAlignment: .Center, key: "statusbar") {
-            Shape(modifier: Modifier::size(7.0, 7.0).rounded(3.5).fill(tint), key: "dot")
+        return Row(
+            modifier: ::fillMaxWidth().height(26.0).padding(start: 14.0, end: 14.0)
+            spacing: 8.0
+            verticalAlignment: .Center
+            key: "statusbar"
+        ) {
+            Shape(modifier: ::size(7.0, 7.0).rounded(3.5).fill(tint), key: "dot")
             Label(studio.status, app, studioTheme.muted, size: 11.5, key: "message")
             Spacer(key: "fill")
-            Press("panelShow", modifier: Modifier::height(20.0).rounded(4.0).ghost().padding(start: 6.0, end: 6.0), text: "ProblemsPanel", spacing: 5.0, key: "problems") {
-                Icon("circle-x", if errors > 0 { studioTheme.error } else { studioTheme.faint }, size: studioTheme.iconSmall, key: "errors-glyph")
+            Press(
+                "panelShow"
+                modifier: ::height(20.0).rounded(4.0).ghost().padding(start: 6.0, end: 6.0)
+                text: "ProblemsPanel"
+                spacing: 5.0
+                key: "problems"
+            ) {
+                Icon(
+                    "circle-x"
+                    if errors > 0 then studioTheme.error else studioTheme.faint
+                    size: studioTheme.iconSmall
+                    key: "errors-glyph"
+                )
                 Label("${errors}", app, studioTheme.muted, size: 11.5, key: "errors")
-                Icon("triangle-alert", if warnings > 0 { studioTheme.warning } else { studioTheme.faint }, size: studioTheme.iconSmall, key: "warnings-glyph")
+                Icon(
+                    "triangle-alert"
+                    if warnings > 0 then studioTheme.warning else studioTheme.faint
+                    size: studioTheme.iconSmall
+                    key: "warnings-glyph"
+                )
                 Label("${warnings}", app, studioTheme.muted, size: 11.5, key: "warnings")
             }
             Divider(height: 12.0, key: "divider")
@@ -166,12 +190,12 @@ react func (anchor: Anchor!).popupRows(studio: Studio&, app: App&) {
     when studio.popup.kind {
         "addComponent" -> {
             fin entity = selectedEntity(studio)
-            Text("ADD COMPONENT", modifier: Modifier::fillMaxWidth().height(26.0).padding(start: 10.0).caption(), key: "caption")
+            Text("ADD COMPONENT", modifier: ::fillMaxWidth().height(26.0).padding(start: 10.0).caption(), key: "caption")
             inline for C in reflect<*>.withAnnot<Inspectable> {
                 inline if reflect<C>.annotMeta<Inspectable>.visible {
                     if studio.scene.isAlive(entity) && !storageHas<C>(storageOf<C>(studio.scene), entity) {
                         fin declared = reflect<C>.annotMeta<Inspectable>.title
-                        Press("componentAdd", modifier: Modifier::fillMaxWidth().height(28.0).rounded(5.0).ghost().padding(start: 8.0, end: 8.0),
+                        Press("componentAdd", modifier: ::fillMaxWidth().height(28.0).rounded(5.0).ghost().padding(start: 8.0, end: 8.0),
                             text: reflect<C>.declName, spacing: 8.0, key: "add-${reflect<C>.declName}") {
                             Icon(reflect<C>.annotMeta<Inspectable>.icon, studioTheme.accent, size: studioTheme.iconSize, key: "icon")
                             Label(if stringLength(declared) > 0 { declared } else { reflect<C>.declName }, app, studioTheme.text, key: "title")
@@ -181,13 +205,21 @@ react func (anchor: Anchor!).popupRows(studio: Studio&, app: App&) {
                     }
                 }
             }
+            for entry in studio.pluginComponents {
+                if studio.scene.isAlive(entity) && externalComponentText(studio.scene, entity, entry.id) == "" {
+                    Press("componentAdd", modifier: ::fillMaxWidth().height(28.0).rounded(5.0).ghost().padding(start: 8.0), text: entry.id, spacing: 8.0, key: "add-${entry.id}") {
+                        Icon(entry.icon, studioTheme.accent, size: studioTheme.iconSize, key: "icon")
+                        Label(entry.label, app, studioTheme.text, key: "title")
+                    }
+                }
+            }
         }
         "addEntity" -> {
-            Text("ADD ENTITY", modifier: Modifier::fillMaxWidth().height(26.0).padding(start: 10.0).caption(), key: "caption")
+            Text("ADD ENTITY", modifier: ::fillMaxWidth().height(26.0).padding(start: 10.0).caption(), key: "caption")
             var index = 0
             while index < studio.presets.size {
                 fin preset = studio.presets[index].clone()
-                Press("entityAdd", modifier: Modifier::fillMaxWidth().height(28.0).rounded(5.0).ghost().padding(start: 8.0, end: 8.0),
+                Press("entityAdd", modifier: ::fillMaxWidth().height(28.0).rounded(5.0).ghost().padding(start: 8.0, end: 8.0),
                     arg: index, spacing: 8.0, key: "preset-${index}") {
                     Icon(preset.icon, studioTheme.accent, size: studioTheme.iconSize, key: "icon")
                     Label(preset.name, app, studioTheme.text, key: "title")
@@ -207,8 +239,11 @@ func popupHeight(studio: Studio!, kind: String): Double {
             fin entity = studio.selected()
             inline for C in reflect<*>.withAnnot<Inspectable> {
                 inline if reflect<C>.annotMeta<Inspectable>.visible {
-                    if studio.scene.isAlive(entity) && !storageHas<C>(ensureStorage<C>(studio.scene), entity) { rows = rows + 1 }
+                    if studio.scene.isAlive(entity) && !storageHas<C>(ensureStorage<C>(studio.scene), entity) then rows = rows + 1
                 }
+            }
+            for entry in studio.pluginComponents {
+                if studio.scene.isAlive(entity) && externalComponentText(studio.scene, entity, entry.id) == "" then rows += 1
             }
         }
         "addEntity" -> { rows = studio.presets.size }
@@ -217,34 +252,126 @@ func popupHeight(studio: Studio!, kind: String): Double {
     return 26.0 + (rows as Double) * 28.0 + 12.0
 }
 
+inline fin pluginPanelPrefix = "plugin:"
+
+react func (anchor: Anchor!).studioPanel(panel: String, studio: Studio&, app: App&) {
+    if startsWith(panel, pluginPanelPrefix) {
+        fin id = substring(panel, stringLength(pluginPanelPrefix), stringLength(panel))
+        anchor.pluginPanel(studio, app, id)
+    } else {
+        inline for P in reflect<*>.withAnnot<Panel> {
+            if panel == reflect<P>.declName then P(studio, app)
+        }
+    }
+}
+
+/** Reconnects saved plugin tabs to their manifests, and opens newly loaded tabs. */
+func syncPluginPanels(studio: Studio!, world: World!) {
+    if !studio.pluginScanned then return
+    var index = 0
+    while index < storageLength<DockTab>(ensureStorage<DockTab>(world)) {
+        fin tab = storageEntityAt<DockTab>(ensureStorage<DockTab>(world), index)
+        var data = storageValueAt<DockTab>(ensureStorage<DockTab>(world), index).clone()
+        if startsWith(data.panel, pluginPanelPrefix) {
+            fin id = substring(data.panel, stringLength(pluginPanelPrefix), stringLength(data.panel))
+            fin owner = studio.pluginById(id)
+            if owner < 0 {
+                dockClose(world, tab)
+                studio.dock.changed()
+                continue
+            }
+            if data.title != studio.plugins[owner].name {
+                data.title = studio.plugins[owner].name
+                storageInsert<DockTab>(ensureStorage<DockTab>(world), tab, take data)
+                studio.dock.changed()
+            }
+        }
+        index = index + 1
+    }
+    if studio.pluginOpen == "" then return
+    fin id = studio.pluginOpen
+    studio.pluginOpen = ""
+    fin owner = studio.pluginById(id)
+    if owner < 0 || studio.plugins[owner].entryAddress == 0 then return
+    fin panel = "${pluginPanelPrefix}${id}"
+    fin tab = dockFindPanel(world, panel)
+    if world.isAlive(tab) {
+        // Leave saved tabs in their existing group and keep its active panel.
+        if studio.showPanel == panel then dockActivate(world, tab)
+    } else {
+        fin inspector = dockFindPanel(world, "InspectorPanel")
+        fin sceneTree = dockFindPanel(world, "SceneTreePanel")
+        fin beside = if world.isAlive(inspector) then inspector else sceneTree
+        fin group = if world.isAlive(beside) then dockParent(world, beside) else mainDockGroup(world)
+        if world.isAlive(group) then dockAddTab(world, group, panel, title: studio.plugins[owner].name)
+    }
+    if studio.showPanel == panel then studio.showPanel = ""
+    studio.dock.changed()
+}
+
+func mainDockGroup(world: World!): Entity {
+    fin roots = dockRoots(world)
+    if roots.size == 0 then return Entity::invalid
+    fin scene = dockFindPanel(world, "ScenePanel")
+    if world.isAlive(scene) {
+        fin group = dockParent(world, scene)
+        var parent = group
+        while world.isAlive(parent) {
+            if dockSame(parent, roots[0]) then return group
+            parent = dockParent(world, parent)
+        }
+    }
+    var fallback = dockFirstGroup(world, roots[0])
+    if !world.isAlive(fallback) {
+        fallback = dockNewTabs(world)
+        dockAttach(world, fallback, roots[0], 0)
+    }
+    return fallback
+}
+
+pack FloatingPaint {
+    var root: Entity = Entity::invalid
+    var node: Entity = Entity::invalid
+    var firstNode: Int = 0
+    var endNode: Int = 0
+    var firstOp: Int = 0
+    var endOp: Int = 0
+}
+
+func floatBounds(root: DockRoot&, width: Double, height: Double): ViewRect {
+    fin w = clampValue(root.width, minOf(220.0, width), width)
+    fin h = clampValue(root.height, minOf(140.0, height), height)
+    return ViewRect(clampValue(root.x, 0.0, width - w), clampValue(root.y, 0.0, height - h), w, h)
+}
+
+func minOf(a: Double, b: Double): Double = if a < b then a else b
+
 /** The whole window: chrome, the main dock, floating docks and any popup. */
 react func describeStudio(pass: Composition!, studio: Studio&, app: App&, style: DockStyle&, main: Entity, floating: Array<Entity>&) {
     fin stamp = studio.revision + studio.dock.revision
     composeIfChanged(pass, stamp) {
-        Column(modifier: Modifier::fillMaxSize().ground(), key: "studio") {
+        Column(modifier: ::fillMaxSize().ground(), key: "studio") {
             TopBar(studio, app)
-            Row(modifier: Modifier::fillMaxWidth().weight(1.0).padding(start: style.gap, end: style.gap), key: "body") {
-                DockSpace(main, style, app, key: "dock-main") { panel ->
-                    inline for P in reflect<*>.withAnnot<Panel> {
-                        if panel == reflect<P>.declName { P(studio, app) }
-                    }
+            Row(modifier: ::fillMaxWidth().weight(1.0).padding(start: style.gap, end: style.gap), key: "body") {
+                DockSpace(main, style, app, (app.width() as Double) - style.gap * 2.0, key: "dock-main") { panel ->
+                    studioPanel(panel, studio, app)
                 }
             }
             StatusBar(studio, app)
         }
         var index = 0
         while index < floating.size {
-            Column(modifier: Modifier::fillMaxSize().fill(style.strip).rounded(style.radius + 2.0).outline(1.0, style.hairline).padding(all: 3.0), key: "float-${floating[index].id}") {
-                DockSpace(floating[index], style, app, key: "dock-float") { panel ->
-                    inline for P in reflect<*>.withAnnot<Panel> {
-                        if panel == reflect<P>.declName { P(studio, app) }
-                    }
+            fin bounds = storageGet<DockRoot>(store<DockRoot>(pass), floating[index])
+            fin width = floatBounds(bounds, app.width() as Double, app.height() as Double).width
+            Column(modifier: ::fillMaxSize().fill(style.strip).rounded(style.radius + 2.0).outline(1.0, style.hairline).padding(all: 3.0), key: "float-${floating[index].id}") {
+                DockSpace(floating[index], style, app, width - 6.0, key: "dock-float") { panel ->
+                    studioPanel(panel, studio, app)
                 }
             }
             index = index + 1
         }
         if studio.popup.kind != "" {
-            Column(modifier: Modifier::fillMaxSize().fill(studioTheme.raised).rounded(8.0).outline(1.0, studioTheme.hairline).padding(all: 6.0), spacing: 1.0, key: "popup") {
+            Column(modifier: ::fillMaxSize().fill(studioTheme.raised).rounded(8.0).outline(1.0, studioTheme.hairline).padding(all: 6.0), spacing: 1.0, key: "popup") {
                 popupRows(studio, app)
             }
         }
@@ -263,7 +390,7 @@ fin hotkeys: Array<KeyCode> = [
 
 /** The name a command's `key` / `hotkey` uses for the key pressed this frame, or "". */
 func pressedKeyName(app: App&, injected: Int): String {
-    if injected == KeyCode.Backspace.value || app.keyPressed(.Backspace) { return "backspace" }
+    if injected == KeyCode.Backspace.value || app.keyPressed(.Backspace) then return "backspace"
     for key in hotkeys {
         fin code = key.value
         if injected == code || app.keyPressed(key) {
@@ -277,11 +404,26 @@ func pressedKeyName(app: App&, injected: Int): String {
 
 /** Ends typing into a field, keeping what was typed. */
 func commitField(studio: Studio!) {
-    if !studio.focus.typing { return }
+    if !studio.focus.typing then return
     fin entity = studio.selected()
     fin focus = studio.focus.clone()
     studio.focus = FieldFocus()
-    if studio.scene.isAlive(entity) {
+    if startsWith(focus.component, pluginPanelPrefix) {
+        fin id = substring(focus.component, stringLength(pluginPanelPrefix), stringLength(focus.component))
+        fin index = studio.pluginParam(id, focus.field)
+        if index >= 0 && !focus.replace then studio.setPluginNumber(index, parseNumber(focus.text, studio.pluginParams[index].value))
+    } else if focus.component == "FusionNode" {
+        if !focus.replace then setFusionField(studio, focus.field, focus.text)
+    } else if focus.component == "FusionTexture" {
+        if !focus.replace then setFusionTexture(studio, focus.text)
+    } else if focus.component == "PluginComponent" {
+        if !focus.replace && setExternalComponent(studio.scene, studio.selected(), focus.field, focus.text) {
+            fin entity = studio.selected()
+            studio.record(entity, focus.before, studio.scene.getParent(entity).id, "edit ${focus.field}")
+        }
+    } else if focus.component == "SkyTime" {
+        if !focus.replace then setViewportSkyHour(studio, focus.text)
+    } else if studio.scene.isAlive(entity) {
         if focus.numeric {
             fin number = parseNumber(focus.text, fieldNumber(studio.scene, entity, focus.component, focus.field, focus.axis))
             setFieldNumber(studio.scene, entity, focus.component, focus.field, focus.axis, number)
@@ -305,23 +447,25 @@ func typeIntoField(studio: Studio!, app: App&, typed: String, injected: Int) {
         return
     }
     if (injected == KeyCode.Backspace.value || app.keyPressed(.Backspace)) && stringLength(studio.focus.text) > 0 {
-        studio.focus.text = substring(studio.focus.text, 0, stringLength(studio.focus.text) - 1)
+        studio.focus.text = if studio.focus.replace then "" else substring(studio.focus.text, 0, stringLength(studio.focus.text) - 1)
+        studio.focus.replace = false
         studio.changed()
     }
     if typed != "" {
-        studio.focus.text = "${studio.focus.text}${typed}"
+        studio.focus.text = if studio.focus.replace then typed else "${studio.focus.text}${typed}"
+        studio.focus.replace = false
         studio.changed()
     }
 }
 
 // ── Layout persistence ──────────────────────────────────────────────────
 
-fin layoutFile = ".azora/layout.azon"
+inline fin layoutFile: String = ".azora/layout.azon"
 
 func saveLayout(studio: Studio!, world: World!) {
     azsProjectMakeDir(studio.editor.project, ".azora")
     fin buffer = azsBufferNew(writeDockLayout(world))
-    if buffer == Long(0) { return }
+    if buffer == 0 then return
     azsProjectWrite(studio.editor.project, layoutFile, buffer)
     azsBufferClose(buffer)
 }
@@ -337,7 +481,7 @@ func clearLayout(world: World!) {
 /** Reads a host file into text; "" when it cannot be read. */
 func readText(project: Long, path: String): String {
     fin buffer = azsProjectRead(project, path)
-    if buffer == Long(0) { return "" }
+    if buffer == 0 then return ""
     fin text = "${azsBufferText(buffer)} "
     azsBufferClose(buffer)
     return substring(text, 0, stringLength(text) - 1)
@@ -346,43 +490,47 @@ func readText(project: Long, path: String): String {
 // ── The frame ───────────────────────────────────────────────────────────
 
 react func main() {
-    if azsAbiVersion() != 1 { println("incompatible Studio host ABI")
-        return }
+    if azsAbiVersion() != 1 {
+        println("incompatible Studio host ABI")
+        return
+    }
     fin root = azsEnvironment("AZORA_STUDIO_PROJECT")
     fin project = azsProjectOpen(root, 0)
-    if project == Long(0) { println(azsError())
-        return }
-    fin source = azsProjectRead(project, "src/main.az")
-    if source == Long(0) { azsProjectClose(project)
+    if project == 0 {
         println(azsError())
-        return }
-    var studio = Studio(root, editorOf(project, source))
+        return
+    }
+    fin source = azsProjectRead(project, "src/main.az")
+    if source == 0 {
+        azsProjectClose(project)
+        println(azsError())
+        return
+    }
+    var studio: Studio = .(root, editorOf(project, source))
     studio.nameProject(root)
 
     // Studio's own data: the theme, entity presets and the default scene.
     fin resourcesRoot = azsEnvironment("AZORA_STUDIO_RESOURCES")
-    fin resources = if resourcesRoot != "" { azsProjectOpen(resourcesRoot, 0) } else { Long(0) }
-    if resources != Long(0) {
+    fin resources = if resourcesRoot != "" { azsProjectOpen(resourcesRoot, 0) } else { 0 }
+    if resources != 0 {
         loadTheme(readText(resources, "theme.azon"))
         studio.fileKinds = readFileKinds(readText(resources, "file-types.azon"))
         fin presets = readPresets(readText(resources, "presets.azon"))
-        var index = 0
-        while index < presets.size {
-            studio.presets.add(presets[index].clone())
-            index = index + 1
+        for i in 0..<presets.size {
+            studio.presets.add(presets[i].clone())
         }
     }
 
     // The scene: the project's own, or the default one when it has none of this version.
     if readScene(studio.scene, readText(project, sceneFile)) < 0 {
-        if resources != Long(0) && readScene(studio.scene, readText(resources, "default-scene.azscene")) >= 0 {
+        if resources != 0 && readScene(studio.scene, readText(resources, "default-scene.azscene")) >= 0 {
             studio.sceneDirty = true
             studio.output("Azora Studio — native build.\nThis project's scene predates scene format 2; it opened with the default scene. Save (⌘S) to keep it.")
         }
     } else {
         studio.output("Azora Studio — native build.\nOpened ${studio.projectName()} · ${sceneFile}")
     }
-    if resources != Long(0) { azsProjectClose(resources) }
+    if resources != 0 then azsProjectClose(resources)
     var id = 0
     while id < studio.scene.entityCount {
         fin entity = studio.scene.entityAt(id)
@@ -400,24 +548,36 @@ react func main() {
         id = id + 1
     }
     studio.select(first)
+    frameTerrainScene(studio)
+    studio.viewportStarted = azsMonotonicSeconds()
     studio.refreshAssets()
+    // Plugins: installed ones load as soon as the frame loop runs, and new ones
+    // the moment they appear - no restart.
+    fin home = azsEnvironment("HOME")
+    loadRenderPreferences(studio, home)
+    studio.pluginsRoot = if azsEnvironment("AZORA_STUDIO_PLUGINS") != "" then azsEnvironment("AZORA_STUDIO_PLUGINS")
+        else if home != "" then "${home}/Library/Application Support/Azora Studio/Plugins" else ""
     studio.message("Ready")
 
     var world = World()
     var pass = Composition::of(world, "studio")
-    if !readDockLayout(pass.world, readText(project, layoutFile)) {
+    if !readDockLayout(pass.world, readText(project, layoutFile), pluginPanelPrefix, false) {
         dockDefaultLayout(pass.world)
     }
 
     var app = appInit("Azora Studio", 1520, 940)
-    if !app.ok { return }
+    if !app.ok then return
+    studio.installMenuBar()
+    if azsEnvironment("AZORA_STUDIO_TRACE") != "" then print(menuBarOutline())
     app.setClearColor(studioTheme.ground.r, studioTheme.ground.g, studioTheme.ground.b)
     studio.meshes = app.primitiveMeshes()
+    app.setFusionRoot(root)
+    app.prepareFusionMaterials(studio.scene)
     // The icons every part draws, from the atlas tools/build-icons.sh renders.
     if resourcesRoot != "" {
         studio.logo = app.loadImage("${resourcesRoot}/azora-logo.png").texture
         fin atlasFiles = azsProjectOpen(resourcesRoot, 0)
-        if atlasFiles != Long(0) {
+        if atlasFiles != 0 {
             if loadIconAtlas(app, pass.world, "${resourcesRoot}/icons.png", readText(atlasFiles, "icons-index.azon")) {
                 studio.icons = storageValueAt<IconAtlas>(ensureStorage<IconAtlas>(pass.world), 0).clone()
             } else {
@@ -431,13 +591,13 @@ react func main() {
     fin frameLimit = azsEnvironmentInt("AZORA_STUDIO_FRAME_LIMIT")
     fin started = azsMonotonicSeconds()
     var frames = 0
-    var layoutVersion = Long(-1)
+    var layoutVersion: Long = -1
     var lastWidth: Double = -1.0
     var lastHeight: Double = -1.0
     var mainPaint = PaintList()
     var floatPaint = PaintList()
     var popupPaint = PaintList()
-    var paintVersion = Long(-1)
+    var paintVersion: Long = -1
     var lastX: Double = 0.0
     var lastY: Double = 0.0
     var wasDown = false
@@ -446,16 +606,20 @@ react func main() {
     var dragPanel: String = ""
     var player = ScriptPlayer::open()
     var floating: Array<Entity> = Array<Entity>()
+    var floatLayers: Array<FloatingPaint> = []
     fin tracing = azsEnvironment("AZORA_STUDIO_TRACE") != ""
     studio.tracing = tracing
 
     while app.frame() {
         frames = frames + 1
+        fin frameNow = azsMonotonicSeconds()
+        if studio.frameClock > 0.0 then studio.frameStats.tick(frameNow - studio.frameClock)
+        studio.frameClock = frameNow
         var input = FrameInput()
         var typed = app.textInput()
         // A script drives the window through the same paths as a user.
         fin cue = player.next(app, frames)
-        if cue.typed != "" { typed = cue.typed }
+        if cue.typed != "" then typed = cue.typed
         fin injectedKey = cue.key
         fin injectedMeta = cue.meta
         fin scriptCommand = cue.command
@@ -503,7 +667,7 @@ react func main() {
         studio.pointerY = input.y
 
         if scriptCommand != "" {
-            if !runCommand(studio, scriptCommand, Invocation()) { studio.notify("No command '${scriptCommand}'", 3) }
+            if !runCommand(studio, scriptCommand, Invocation(0, 0, 0.0, cue.argument)) { studio.notify("No command '${scriptCommand}'", 3) }
         }
 
         // ── Keys: ⌘ chords and hotkeys run commands.
@@ -526,16 +690,38 @@ react func main() {
             fin name = pressedKeyName(app, injectedKey)
             if name != "" {
                 fin command = commandForHotkey(name)
-                if command != "" { runCommand(studio, command, Invocation()) }
+                if command != "" then runCommand(studio, command, Invocation())
             }
         } else if injectedKey == KeyCode.Escape.value || app.keyPressed(.Escape) {
             studio.sourceFocused = false
             studio.changed()
         }
 
-        // ── Wheel: the Engine's scroll system moves whichever scrollable the
-        // pointer is over; a panel scrolls because it holds [Scroll].
-        if input.scrollY != 0.0 && pass.applyScroll(input.x, input.y, 0.0 - input.scrollY, 0.0) > 0 { studio.changed() }
+        // Only the top floating panel at the pointer participates in hit tests.
+        var front = Entity::invalid
+        floatPaint.pointerFloor = 0
+        floatPaint.pointerLimit = 0
+        var layer = floatLayers.size - 1
+        while layer >= 0 {
+            fin item = floatLayers[layer]
+            fin rect = storageGetOrDefault<Rect>(store<Rect>(pass), item.node, Rect())
+            if ViewRect(rect.x, rect.y, rect.width, rect.height).contains(input.x, input.y) {
+                front = item.root
+                floatPaint.pointerFloor = item.firstNode
+                floatPaint.pointerLimit = item.endNode
+                break
+            }
+            layer = layer - 1
+        }
+        if studio.popup.kind == "" && input.pressed && pass.world.isAlive(front) && dockRaise(pass.world, front) then studio.dock.changed()
+        if studio.popup.kind == "" && input.scrollY != 0.0 && studio.viewDrag == 0 {
+            fin scroll = dockHit<Scroll>(floatPaint, mainPaint, store<Scroll>(pass), input.x, input.y)
+            if scroll.isValid {
+                fin rect = storageGet<Rect>(store<Rect>(pass), scroll)
+                pass.scrollBy(scroll, 0.0 - input.scrollY, rect.height)
+                studio.changed()
+            }
+        }
 
         // ── Pointer, front to back.
         var consumed = false
@@ -562,7 +748,7 @@ react func main() {
                 index = index + 1
             }
             canvasPointer(dragPanel, app, studio, rect, input)
-            if studio.viewDrag == 0 { dragPanel = "" }
+            if studio.viewDrag == 0 then dragPanel = ""
             consumed = true
         }
         if !consumed {
@@ -583,7 +769,7 @@ react func main() {
             fin entity = studio.selected()
             if input.down {
                 fin delta = input.x - studio.focus.startX
-                if absValue(delta) > 2.0 { scrubMoved = true }
+                if absValue(delta) > 2.0 then scrubMoved = true
                 if scrubMoved && studio.scene.isAlive(entity) {
                     fin steps = (delta / 3.0) as Int
                     setFieldNumber(studio.scene, entity, studio.focus.component, studio.focus.field, studio.focus.axis,
@@ -605,10 +791,8 @@ react func main() {
             consumed = true
         }
         if !consumed && input.pressed {
-            var hitField = floatPaint.topmost<FieldTarget>(store<FieldTarget>(pass), input.x, input.y)
-            if !hitField.isValid { hitField = mainPaint.topmost<FieldTarget>(store<FieldTarget>(pass), input.x, input.y) }
-            var hitPress = floatPaint.topmost<Pressable>(store<Pressable>(pass), input.x, input.y)
-            if !hitPress.isValid { hitPress = mainPaint.topmost<Pressable>(store<Pressable>(pass), input.x, input.y) }
+            fin hitField = dockHit<FieldTarget>(floatPaint, mainPaint, store<FieldTarget>(pass), input.x, input.y)
+            fin hitPress = dockHit<Pressable>(floatPaint, mainPaint, store<Pressable>(pass), input.x, input.y)
             if tracing {
                 fin traced = storageGetOrDefault<Pressable>(store<Pressable>(pass), hitPress, Pressable())
                 println("hit field ${hitField.isValid} press ${hitPress.isValid} '${traced.command}' paint ops ${mainPaint.ops.size} pressables ${storageLength<Pressable>(store<Pressable>(pass))}")
@@ -631,13 +815,34 @@ react func main() {
                 fin binding = storageGetOrDefault<FieldTarget>(store<FieldTarget>(pass), hitField, FieldTarget())
                 fin entity = studio.selected()
                 studio.sourceFocused = false
-                if binding.numeric {
+                if startsWith(binding.component, pluginPanelPrefix) {
+                    fin plugin = substring(binding.component, stringLength(pluginPanelPrefix), stringLength(binding.component))
+                    fin index = studio.pluginParam(plugin, binding.field)
+                    if index >= 0 {
+                        studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
+                            formatDecimal(studio.pluginParams[index].value, 4), input.x, 0.0, 0.0, "", true, true)
+                    }
+                } else if binding.component == "SkyTime" {
+                    fin sky = viewSkyEntity(studio)
+                    if studio.scene.isAlive(sky) then studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
+                        formatDecimal(storageGet<SkyEnvironment>(ensureStorage<SkyEnvironment>(studio.scene), sky).hour, 3),
+                        input.x, 0.0, 0.0, "", true, true)
+                } else if binding.component == "FusionTexture" {
+                    fin node = studio.fusion.indexOfNode(studio.fusionSelected)
+                    if node >= 0 then studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
+                        studio.fusion.nodes[node].textureSet, input.x, 0.0, 0.0, "", false, true)
+                } else if binding.component == "FusionNode" {
+                    fin node = studio.fusion.indexOfNode(studio.fusionSelected)
+                    if node >= 0 then studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
+                        formatDecimal(fusionFieldNumber(studio.fusion.nodes[node], binding.field), 6), input.x, 0.0, 0.0, "", true, true)
+                } else if binding.numeric {
                     studio.focus = FieldFocus(binding.component, binding.field, binding.axis, false, true, "", input.x,
                         fieldNumber(studio.scene, entity, binding.component, binding.field, binding.axis),
                         fieldStep(binding.component, binding.field), studio.snapshot(entity), true)
                     scrubMoved = false
                 } else {
-                    fin current = if binding.component == "Name" { studio.nameOf(entity) } else { "" }
+                    fin current = if binding.component == "Name" then studio.nameOf(entity)
+                        else if binding.component == "PluginComponent" then externalComponentText(studio.scene, entity, binding.field) else ""
                     studio.focus = FieldFocus(binding.component, binding.field, 0, true, false, current, input.x, 0.0, 0.0, studio.snapshot(entity), false)
                 }
                 studio.changed()
@@ -649,8 +854,7 @@ react func main() {
             }
         }
         if !consumed {
-            var surface = floatPaint.topmost<PanelSurface>(store<PanelSurface>(pass), input.x, input.y)
-            if !surface.isValid { surface = mainPaint.topmost<PanelSurface>(store<PanelSurface>(pass), input.x, input.y) }
+            fin surface = dockHit<PanelSurface>(floatPaint, mainPaint, store<PanelSurface>(pass), input.x, input.y)
             if surface.isValid {
                 fin panel = storageGetOrDefault<PanelSurface>(store<PanelSurface>(pass), surface, PanelSurface()).panel
                 fin area = storageGetOrDefault<Rect>(store<Rect>(pass), surface, Rect())
@@ -659,7 +863,7 @@ react func main() {
                     studio.changed()
                 }
                 if canvasPointer(panel, app, studio, ViewRect(area.x, area.y, area.width, area.height), input) {
-                    if studio.viewDrag != 0 { dragPanel = panel }
+                    if studio.viewDrag != 0 then dragPanel = panel
                 }
             }
         }
@@ -669,7 +873,7 @@ react func main() {
         if studio.sourceFocused && !studio.focus.typing {
             if editKeys(app, studio, typed, injectedKey, input.command) {
                 studio.lastEdit = app.timeNow()
-                if !studio.problemsStale && studio.problems.size > 0 { studio.problemsStale = true }
+                if !studio.problemsStale && studio.problems.size > 0 then studio.problemsStale = true
                 studio.changed()
             }
         }
@@ -684,19 +888,23 @@ react func main() {
         // ── Requests commands left for the window.
         if studio.resetLayout {
             studio.resetLayout = false
+            studio.dock = DockState()
             clearLayout(pass.world)
             dockDefaultLayout(pass.world)
-            studio.dock.changed()
+            fin inspector = dockFindPanel(pass.world, "InspectorPanel")
+            fin group = dockParent(pass.world, inspector)
+            for plugin in studio.plugins {
+                if plugin.entryAddress != 0 then dockAddTab(pass.world, group, "${pluginPanelPrefix}${plugin.id}", title: plugin.name)
+            }
+            if pass.world.isAlive(inspector) then dockActivate(pass.world, inspector)
+            studio.changed()
         }
-        if studio.showPanel != "" {
+        if studio.showPanel != "" && !startsWith(studio.showPanel, pluginPanelPrefix) {
             fin tab = dockFindPanel(pass.world, studio.showPanel)
             if pass.world.isAlive(tab) { dockActivate(pass.world, tab) }
             else {
-                fin roots = dockRoots(pass.world)
-                if roots.size > 0 {
-                    fin group = dockFirstGroup(pass.world, roots[0])
-                    if pass.world.isAlive(group) { dockAddTab(pass.world, group, studio.showPanel) }
-                }
+                fin group = mainDockGroup(pass.world)
+                if pass.world.isAlive(group) then dockAddTab(pass.world, group, studio.showPanel)
             }
             studio.showPanel = ""
             studio.dock.changed()
@@ -707,16 +915,27 @@ react func main() {
         }
 
         // ── Build, check and run go through the native compiler.
-        if frames == 3 && studio.requestedTool == "" { studio.requestedTool = "inspect" }
+        if frames == 3 && studio.requestedTool == "" then studio.requestedTool = "inspect"
         fin compiler = azsEnvironment("AZORA_NATIVE_COMPILER")
-        if studio.requestedTool != "" && studio.process == Long(0) {
+        if studio.requestedTool != "" && studio.process == 0 {
             fin action = studio.requestedTool
             studio.requestedTool = ""
             if compiler == "" {
                 studio.notify("Set AZORA_NATIVE_COMPILER to build, check and run", 3)
             } else if studio.editor.save() {
-                studio.process = azsProcessStart(compiler, root, root, action)
-                if studio.process == Long(0) { studio.notify(azsError(), 3) }
+                fin manifest = readText(project, "azora.azon")
+                if hasProjectPackages(manifest) {
+                    // The game Studio runs renders as Preferences say, not only the viewport.
+                    if action == "play" {
+                        azsSetEnvironment("AZORA_RENDER_LIGHTING", if studio.indirectLighting then "photon" else "standard")
+                        azsSetEnvironment("AZORA_RENDER_SHADOWS", if studio.virtualShadows then "virtual" else "computed")
+                        azsSetEnvironment("AZORA_RENDER_UPSCALING", if studio.upscaling then "temporal" else "native")
+                    }
+                    studio.process = azsEngineProcessStart(compiler, root, if action == "play" then "run" else action)
+                } else {
+                    studio.process = azsProcessStart(compiler, root, root, action)
+                }
+                if studio.process == 0 { studio.notify(azsError(), 3) }
                 else {
                     studio.processAction = action
                     studio.busy = true
@@ -729,7 +948,7 @@ react func main() {
                 }
             } else { studio.notify(azsError(), 3) }
         }
-        if studio.process != Long(0) {
+        if studio.process != 0 {
             fin result = azsProcessPoll(studio.process)
             if result != -1 {
                 fin output = azsProcessOutput(studio.process)
@@ -748,12 +967,27 @@ react func main() {
                     else { studio.notify("${studio.processAction} failed (exit ${result})", 3) }
                 }
                 azsProcessClose(studio.process)
-                studio.process = Long(0)
+                studio.process = 0
                 studio.busy = false
                 studio.changed()
             }
         }
-        if studio.playing && !studio.paused { studio.playTime = studio.playTime + app.deltaTime() }
+        if studio.playing && !studio.paused then studio.playTime = studio.playTime + app.deltaTime()
+        studio.tickPlugins(app)
+        tickFusion(app, studio)
+        syncPluginPanels(studio, pass.world)
+        if cue.menu != "" && !chooseMenuItem(cue.menu) then println("script: no menu item '${cue.menu}'")
+        // The menu bar's choices run as the same commands a button or a key runs.
+        fin chosen = studio.takeMenuChoices()
+        var pick = 0
+        while pick < chosen.size {
+            var call: Invocation = .()
+            call.text = chosen[pick].text
+            runCommand(studio, chosen[pick].command, call)
+            studio.changed()
+            pick = pick + 1
+        }
+        if studio.quitting then app.quit()
 
         // ── Compose, arrange, paint.
         floating = dockRoots(pass.world)
@@ -761,58 +995,63 @@ react func main() {
         var floatRoots: Array<Entity> = Array<Entity>()
         var index = 0
         while index < floating.size {
-            if storageGetOrDefault<DockRoot>(store<DockRoot>(pass), floating[index], DockRoot()).floating { floatRoots.add(floating[index]) }
+            if storageGetOrDefault<DockRoot>(store<DockRoot>(pass), floating[index], DockRoot()).floating then floatRoots.add(floating[index])
             index = index + 1
         }
+        fin width = app.width() as Double
+        fin height = app.height() as Double
+        if width != lastWidth || height != lastHeight then studio.changed()
         describeStudio(pass, studio, app, style, main, floatRoots)
         fin rootNode = pass.findChild(pass.root, "studio")
         fin popupNode = pass.findChild(pass.root, "popup")
-        fin width = app.width() as Double
-        fin height = app.height() as Double
         if pass.version != layoutVersion || width != lastWidth || height != lastHeight {
             pass.arrange(rootNode, 0.0, 0.0, width, height)
             index = 0
             while index < floatRoots.size {
                 fin bounds = storageGetOrDefault<DockRoot>(store<DockRoot>(pass), floatRoots[index], DockRoot())
                 fin node = pass.findChild(pass.root, "float-${floatRoots[index].id}")
-                if node.isValid { pass.arrange(node, bounds.x, bounds.y, bounds.width, bounds.height) }
+                fin rect = floatBounds(bounds, width, height)
+                if node.isValid then pass.arrange(node, rect.x, rect.y, rect.width, rect.height)
                 index = index + 1
             }
             if popupNode.isValid {
                 var x = studio.popup.x
                 var y = studio.popup.y + 6.0
                 fin h = popupHeight(studio, studio.popup.kind)
-                if x + 280.0 > width { x = width - 288.0 }
-                if y + h > height { y = height - h - 8.0 }
+                if x + 280.0 > width then x = width - 288.0
+                if y + h > height then y = height - h - 8.0
                 pass.arrange(popupNode, x, y, 280.0, h)
             }
             layoutVersion = pass.version
             lastWidth = width
             lastHeight = height
-            paintVersion = Long(-1)
+            paintVersion = -1
         }
         if paintVersion != layoutVersion {
             mainPaint.clear()
             floatPaint.clear()
+            floatLayers.clear()
             popupPaint.clear()
             recordTree(app, pass, rootNode, 0.0, height, mainPaint)
             index = 0
             while index < floatRoots.size {
                 fin node = pass.findChild(pass.root, "float-${floatRoots[index].id}")
-                if node.isValid { recordTree(app, pass, node, 0.0, height, floatPaint) }
+                if node.isValid {
+                    fin firstNode = floatPaint.nodes.size
+                    fin firstOp = floatPaint.ops.size
+                    recordTree(app, pass, node, 0.0, height, floatPaint)
+                    floatLayers.add(FloatingPaint(floatRoots[index], node, firstNode, floatPaint.nodes.size, firstOp, floatPaint.ops.size))
+                }
                 index = index + 1
             }
-            if popupNode.isValid { recordTree(app, pass, popupNode, 0.0, height, popupPaint) }
+            if popupNode.isValid then recordTree(app, pass, popupNode, 0.0, height, popupPaint)
             paintVersion = layoutVersion
         }
         replayPaint(app, mainPaint)
         drawCanvases(app, studio, pass, rootNode)
-        replayPaint(app, floatPaint)
-        index = 0
-        while index < floatRoots.size {
-            fin node = pass.findChild(pass.root, "float-${floatRoots[index].id}")
-            if node.isValid { drawCanvases(app, studio, pass, node) }
-            index = index + 1
+        for layer in floatLayers {
+            replayPaint(app, floatPaint, layer.firstOp, layer.endOp)
+            drawCanvases(app, studio, pass, layer.node)
         }
         replayPaint(app, popupPaint)
         dockOverlay(app, studio.dock, pass, style)
@@ -820,7 +1059,7 @@ react func main() {
 
         // A scripted screenshot captures this window as just presented.
         player.capture(app, root, cue.shot)
-        if frameLimit > 0 && frames >= frameLimit { app.quit() }
+        if frameLimit > 0 && frames >= frameLimit then app.quit()
     }
     if tracing {
         var slot = 0
@@ -833,6 +1072,12 @@ react func main() {
     }
     saveLayout(studio, pass.world)
     player.close()
+    studio.pluginProcess.cancel()
+    var plugin = 0
+    while plugin < studio.plugins.size {
+        studio.unloadPlugin(app, plugin)
+        plugin = plugin + 1
+    }
     app.releasePrimitives(studio.meshes)
     pass.dispose()
     app.shutdown()

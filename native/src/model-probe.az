@@ -5,7 +5,7 @@ import studio.scene
 
 func main() {
     fin project = azsProjectOpen(azsEnvironment("AZORA_STUDIO_PROJECT"), 1)
-    if project == Long(0) { println(azsError())
+    if project == 0 { println(azsError())
         azsExit(1) }
     println("scene create")
     var scene = studioScene()

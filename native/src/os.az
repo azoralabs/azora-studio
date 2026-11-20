@@ -1,0 +1,192 @@
+module studio.os
+import engine.io
+
+// The operating system's own interfaces, called straight from Azora: dynamic
+// libraries for plugins, tools spawned without a shell for plugin builds, and
+// the newest change under a folder. Nothing here goes through the C host.
+
+bridge .C {
+    func @foreignName("dlopen")(path: String, mode: Int): Long
+    func @foreignName("dlsym")(library: Long, name: String): Long
+    func @foreignName("dlclose")(library: Long): Int
+    func @foreignName("dlerror")(): Long
+    func @foreignName("posix_spawn")(pid: Long, path: String, actions: Long, attributes: Long, argv: Long, environment: Long): Int
+    func @foreignName("posix_spawn_file_actions_init")(actions: Long): Int
+    func @foreignName("posix_spawn_file_actions_destroy")(actions: Long): Int
+    func @foreignName("posix_spawn_file_actions_addopen")(actions: Long, fd: Int, path: String, flags: Int, mode: Int): Int
+    func @foreignName("posix_spawn_file_actions_adddup2")(actions: Long, fd: Int, target: Int): Int
+    func @foreignName("posix_spawn_file_actions_addchdir_np")(actions: Long, path: String): Int
+    func @foreignName("waitpid")(pid: Int, status: Long, options: Int): Int
+    func @foreignName("kill")(pid: Int, signal: Int): Int
+    func @foreignName("stat")(path: String, info: Long): Int
+    func @foreignName("opendir")(path: String): Long
+    func @foreignName("readdir")(directory: Long): Long
+    func @foreignName("closedir")(directory: Long): Int
+    func @foreignName("mkdir")(path: String, mode: Int): Int
+    func @foreignName("mkdtemp")(pattern: Long): Long
+    func @foreignName("removefile")(path: String, state: Long, flags: Int): Int
+    func @foreignName("_NSGetEnviron")(): Long
+}
+
+/** `dlopen` flags: resolve every symbol now, keep them to this library. */
+fin loadNowLocal: Int = 6
+
+// ── Libraries ───────────────────────────────────────────────────────────
+
+/** The library at the absolute [path], or 0; [libraryError] says why. */
+func openLibrary(path: String): Long = dlopen(path, loadNowLocal)
+
+/** Why the last library call failed. */
+func libraryError(): String {
+    fin text = dlerror()
+    return if text == 0 then "the library did not load" else azCstring(text, 0)
+}
+
+/** The address [library] exports as [symbol], or 0. */
+func librarySymbol(library: Long, symbol: String): Long = dlsym(library, symbol)
+
+func closeLibrary(library: Long) {
+    if library != 0 then dlclose(library)
+}
+
+// ── Spawned tools ───────────────────────────────────────────────────────
+
+/** A tool started without a shell; what it prints goes to [log]. */
+pack Spawned derives Clone {
+    var pid: Int = 0
+    var log: String = ""
+    /** -1 while it runs, then its exit status (128 + signal when killed). */
+    var status: Int = -1
+}
+
+/**
+ * Starts [program] (an absolute path) in [directory] with [args], its output
+ * and errors written to the file [log]. A pid of 0 means it did not start.
+ */
+func spawn(program: String, directory: String, args: Array<String>&, log: String): Spawned {
+    var started: Spawned = .()
+    started.log = log
+    fin argv = azAlloc(((args.size + 2) as Long) * 8)
+    azPoke64(argv, 0, program as Long)
+    var index = 0
+    while index < args.size {
+        azPoke64(argv, ((index + 1) as Long) * 8, args[index] as Long)
+        index = index + 1
+    }
+    azPoke64(argv, ((args.size + 1) as Long) * 8, 0)
+    fin actions = azAlloc(16)
+    posixSpawnFileActionsInit(actions)
+    // O_WRONLY | O_CREAT | O_TRUNC, rw-r--r--.
+    posixSpawnFileActionsAddopen(actions, 1, log, 1537, 420)
+    posixSpawnFileActionsAdddup2(actions, 1, 2)
+    if directory != "" then posixSpawnFileActionsAddchdirNp(actions, directory)
+    fin pid = azAlloc(8)
+    fin environment = azPeek64(_NSGetEnviron(), 0)
+    if posixSpawn(pid, program, actions, 0, argv, environment) == 0 then started.pid = azPeek32(pid, 0)
+    posixSpawnFileActionsDestroy(actions)
+    azFree(actions)
+    azFree(pid)
+    azFree(argv)
+    return started
+}
+
+impl Spawned {
+    /** Collects the exit status once the tool has finished; -1 while it runs. */
+    func !.poll(): Int {
+        if self.pid == 0 || self.status >= 0 then return self.status
+        fin raw = azAlloc(8)
+        // WNOHANG: answer at once.
+        fin waited = waitpid(self.pid, raw, 1)
+        fin code = azPeek32(raw, 0)
+        azFree(raw)
+        if waited == self.pid {
+            self.status = if code % 128 == 0 then (code / 256) % 256 else 128 + code % 128
+        }
+        return self.status
+    }
+
+    func !.cancel() {
+        if self.pid == 0 || self.status >= 0 then return
+        kill(self.pid, 9)
+        fin raw = azAlloc(8)
+        waitpid(self.pid, raw, 0)
+        azFree(raw)
+        self.status = 137
+    }
+}
+
+// ── Folders ─────────────────────────────────────────────────────────────
+
+/** `dirent.d_type` for a directory, and where `d_name` starts (Darwin). */
+fin directoryEntry: Int = 4
+
+/** The folders directly inside [path], hidden ones left out. */
+func listFolders(path: String): Array<String> {
+    var folders: Array<String> = []
+    fin directory = opendir(path)
+    if directory == 0 then return folders
+    var entry = readdir(directory)
+    while entry != 0 {
+        fin name = azCstring(entry, 21)
+        if azPeek8(entry, 20) == directoryEntry && !startsWith(name, ".") then folders.add(name)
+        entry = readdir(directory)
+    }
+    closedir(directory)
+    return folders
+}
+
+/** Creates [path] and every missing parent. */
+func makeFolders(path: String) {
+    var at = 1
+    while at <= stringLength(path) {
+        if at == stringLength(path) || charAt(path, at) == '/' then mkdir(substring(path, 0, at), 493)
+        at = at + 1
+    }
+}
+
+/**
+ * The newest modification time under [path] in seconds, hidden entries and
+ * `build` output left out; 0 when nothing is there.
+ */
+func treeStamp(path: String): Double {
+    fin info = azAlloc(144)
+    var newest: Double = 0.0
+    // `struct stat` on Darwin: st_mode is the 16 bits at byte 4, st_mtimespec
+    // is at byte 48. Only files count: a folder's own time moves whenever an
+    // entry is added to it - a build folder included.
+    fin file = stat(path, info) == 0 && (azPeek32(info, 4) % 65536) / 4096 != 4
+    if file then newest = (azPeek64(info, 48) as Double) + (azPeek64(info, 56) as Double) * 0.000000001
+    azFree(info)
+    fin directory = opendir(path)
+    if directory == 0 then return newest
+    var entry = readdir(directory)
+    while entry != 0 {
+        fin name = azCstring(entry, 21)
+        if !startsWith(name, ".") && name != "build" {
+            fin stamp = treeStamp("${path}/${name}")
+            if stamp > newest then newest = stamp
+        }
+        entry = readdir(directory)
+    }
+    closedir(directory)
+    return newest
+}
+
+/** Makes a unique, hidden staging directory on the destination volume. */
+func temporaryFolder(root: String, purpose: String): String {
+    fin pattern = "${root}/.${purpose}-XXXXXX"
+    fin size = (stringLength(pattern) as Long) + 1
+    fin bytes = azAlloc(size)
+    if bytes == 0 then return ""
+    azCopy(bytes, pattern as Long, size)
+    fin made = mkdtemp(bytes)
+    var path = ""
+    if made != 0 {
+        fin copy = "${azCstring(made, 0)} "
+        path = substring(copy, 0, stringLength(copy) - 1)
+    }
+    azFree(bytes)
+    return path
+}
+
+func removeTemporaryFolder(path: String) { removefile(path, 0, 1) }

@@ -26,7 +26,8 @@ case "$MODE" in
     studio)
         # The editor shell: state, commands, panels, viewport and code surfaces.
         cp "$ROOT/src/problems.az" "$ROOT/src/state.az" "$ROOT/src/ui.az" "$ROOT/src/fields.az" "$ROOT/src/panels.az" \
-            "$ROOT/src/viewport.az" "$ROOT/src/code.az" "$ROOT/src/commands.az" "$ROOT/src/script.az" "$BUILD/project/src/" ;;
+            "$ROOT/src/viewport.az" "$ROOT/src/code.az" "$ROOT/src/commands.az" "$ROOT/src/script.az" \
+            "$ROOT/src/os.az" "$ROOT/src/fusion.az" "$ROOT/src/plugins.az" "$ROOT/src/menubar.az" "$BUILD/project/src/" ;;
     launcher)
         # The launcher shares Studio's parts and its scripted input.
         cp "$ROOT/src/ui.az" "$ROOT/src/script.az" "$BUILD/project/src/" ;;
@@ -43,7 +44,11 @@ while IFS=$'\t' read -r kind source destination; do
     esac
 done < "$BUILD/resolve.tsv"
 cp "$BUILD/project/src/"*.az "$BUILD/staged/"
-"$COMPILER" compile llvm "$BUILD/staged/main.az" > "$BUILD/studio.ll"
+# Studio exports the services its plugins call (studio.plugins); a plugin
+# library resolves them against this executable when it is loaded.
+EXPORTS=()
+[ "$MODE" = studio ] && EXPORTS=(--export=studioPluginReply,studioPluginMesh,studioPluginObjectMesh,studioPluginObjectMeshLod,studioPluginReadFile,studioPluginWriteFile,studioMenuChosen)
+"$COMPILER" compile llvm ${EXPORTS[@]+"${EXPORTS[@]}"} "$BUILD/staged/main.az" > "$BUILD/studio.ll"
 "$CLANG" -std=c11 -Wall -Wextra -Werror -Wno-override-module ${AZORA_STUDIO_OPTIMIZE:--O2} \
     ${AZORA_STUDIO_SANITIZER_FLAGS:-} "$BUILD/studio.ll" "$ROOT/host/azora_studio_host.c" \
     -L "$ENGINE/runtime/build" -lazora_runtime -Wl,-rpath,"$ENGINE/runtime/build" \

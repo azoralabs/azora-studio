@@ -30,32 +30,28 @@ pack Pressable derives Clone {
 }
 
 /** Fills the leftover room along its row or column. */
-pack Spacer { }
-impl Spacer {
-    react ctor (anchor: Anchor!).(key: String = ""): Entity {
-        return Shape(modifier: Modifier::weight(1.0).fill(studioTheme.ground.withAlpha(0.0)), key: key)
+impl pack Spacer {
+    react ctor (_: Anchor!).(key: String = ""): Entity {
+        return Shape(modifier: ::weight(1.0).fill(studioTheme.ground.withAlpha(0.0)), :key)
     }
 }
 
 /** A fixed gap. */
-pack Gap { }
-impl Gap {
+impl pack Gap {
     react ctor (anchor: Anchor!).(size: Double, key: String = ""): Entity {
-        return Shape(modifier: Modifier::size(size, size).fill(studioTheme.ground.withAlpha(0.0)), key: key)
+        return Shape(modifier: ::size(size, size).fill(studioTheme.ground.withAlpha(0.0)), :key)
     }
 }
 
 /** A short vertical hairline between groups in a bar. */
-pack Divider { }
-impl Divider {
+impl pack Divider {
     react ctor (anchor: Anchor!).(height: Double = 18.0, key: String = ""): Entity {
-        return Shape(modifier: Modifier::width(1.0).height(height).hairline(), key: key)
+        return Shape(modifier: ::width(1.0).height(height).hairline(), :key)
     }
 }
 
 /** Text sized to fit itself, so a row can place what follows it. */
-pack Label { }
-impl Label {
+impl pack Label {
     react ctor (anchor: Anchor!).(
         text: String
         app: App&
@@ -65,17 +61,24 @@ impl Label {
         mono: Bool = false
         key: String = ""
     ): Entity {
-        fin font = if bold { uiFontSemibold } else if mono { uiFontMonospace } else { uiFontRegular }
+        fin font = when {
+            bold -> uiFontSemibold
+            mono -> uiFontMonospace
+            else -> uiFontRegular
+        }
         fin width = app.uiTextWidthFont(text, size, font) + 2.0
         fin look = Modifier::width(width).fontSize(size).ink(color).textAlign(.Start)
-        fin styled = if bold { look.semibold() } else if mono { look.monospace() } else { look }
-        return Text(text, modifier: styled, key: key)
+        fin styled = when {
+            bold -> look.semibold()
+            mono -> look.monospace()
+            else -> look
+        }
+        return Text(text, modifier: styled, :key)
     }
 }
 
 /** A row that runs [command] when pressed. */
-pack Press { }
-impl Press {
+impl pack Press {
     react ctor (anchor: Anchor!).(
         command: String
         modifier: Modifier& = .()
@@ -87,19 +90,16 @@ impl Press {
         key: String = ""
         children: inline react Anchor!.() -> Unit
     ): Entity {
-        fin id = if key == "" { anchor.pass.positionalKey(anchor.parent, "press") } else { key }
-        fin node = anchor.pass.row(anchor.parent, id, modifier, if center { .Center } else { .Start }, .Center, spacing)
+        fin id: String = if key == "" then anchor.pass.positionalKey(anchor.parent, "press") else key
+        fin node = anchor.pass.row(anchor.parent, id, modifier, if center then .Center else .Start, .Center, spacing)
         storageInsert<Pressable>(store<Pressable>(anchor.pass), node, Pressable(command, target, arg, text))
-        using anchor.inside(node) {
-            children()
-        }
+        using anchor.inside(node) then children()
         return node
     }
 }
 
 /** A bar button: a glyph and an optional caption, raised when [active]. */
-pack BarButton { }
-impl BarButton {
+impl pack BarButton {
     react ctor (anchor: Anchor!).(
         command: String
         app: App&
@@ -110,12 +110,22 @@ impl BarButton {
         arg: Int = 0
         key: String = ""
     ): Entity {
-        fin labelWidth = if label == "" { 0.0 } else { app.uiTextWidth(label, 12.5) + 6.0 }
-        fin width = (if icon == "" { 12.0 } else { studioTheme.iconSize + 10.0 }) + labelWidth + (if label == "" { 0.0 } else { 8.0 })
-        fin base = Modifier::width(width).height(26.0).rounded(6.0).padding(start: if icon == "" { 10.0 } else { 5.0 }, end: 4.0)
-        return Press(command, modifier: if active { base.raised().hoverFill(studioTheme.hover.withAlpha(0.12)) } else { base.ghost() }, arg: arg, spacing: 5.0, key: key) {
-            if icon != "" { Icon(icon, tint, size: studioTheme.iconSize, key: "icon") }
-            if label != "" { Label(label, app, if active { studioTheme.text } else { studioTheme.muted }, key: "label") }
+        fin labelWidth: Double = if label == "" then 0.0 else app.uiTextWidth(label, 12.5) + 6.0
+        fin width = (if icon == "" then 12.0 else studioTheme.iconSize + 10.0) +
+            labelWidth + (if label == "" then 0.0 else 8.0)
+        fin base = Modifier::width(width)
+            .height(26.0)
+            .rounded(6.0)
+            .padding(start: if icon == "" then 10.0 else 5.0, end: 4.0)
+        return Press(
+            command
+            modifier: if active then base.raised().hoverFill(studioTheme.hover.withAlpha(0.12)) else base.ghost()
+            spacing: 5.0
+            :arg
+            :key
+        ) {
+            if icon != "" then Icon(icon, tint, size: studioTheme.iconSize, key: "icon")
+            if label != "" then Label(label, app, if active then studioTheme.text else studioTheme.muted, key: "label")
         }
     }
 }

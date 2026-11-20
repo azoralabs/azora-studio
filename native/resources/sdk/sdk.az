@@ -1,0 +1,57 @@
+module studio.sdk
+
+// The Azora Studio plugin SDK, plugin ABIs 1 and 2. Studio stages this file beside a
+// plugin's sources when it builds the plugin, so `import studio.sdk` is all a
+// plugin needs.
+//
+// Studio calls the plugin's entry - the function its plugin.azon names as
+// `entry`, written `func entry(request: String): Int` - with one AZON request.
+// Each has an `op`: "load" (with `project`), "unload", "save", "create" (with
+// `kind` and `settings`), "delete" (with `object`), "pick" (with an object id
+// and local `origin` and `direction`), and "tool" (with `tool`, `phase` - hover,
+// begin, drag, end - a world-space `origin` and `direction`, the frame's
+// `seconds` and the plugin's `settings`). The plugin answers through the
+// services below; they live in Studio, which resolves them when it loads the
+// plugin. A reply is AZON members: `message`, `error`, `objects` (the full
+// list, each `{ id name kind }`), optional `selected` (an object id), and
+// `hit` (`{ x y z nx ny nz radius }`). A tool can use `object`, `localOrigin`
+// and `localDirection` to operate on the selected object's local mesh.
+// `object` is zero for tools without a target and -1 if the target is hidden.
+// Set `local` to true for a tool hit in local space. For picking, return
+// `hit.distance` as the parameter along the supplied ray (keep its length).
+
+// Object kinds can declare a "component" title. Studio then exposes the
+// plugin's editing tools and non-Create settings on that object in Components.
+
+bridge .C {
+    /** Appends AZON [text] to the answer of the request being served. */
+    func @foreignName("studioPluginReply")(text: String)
+    /**
+     * Room for a triangle-list mesh of [vertices] vertices that replaces this
+     * plugin's mesh [key]: six float32 each, position then normal. Write it
+     * with [meshVertex] before the entry returns; zero vertices removes it.
+     */
+    func @foreignName("studioPluginMesh")(key: Int, vertices: Int): Long
+    /** Mesh [key] in the scene object [object]'s local space. */
+    func @foreignName("studioPluginObjectMesh")(object: Int, key: Int, vertices: Int): Long
+    /** Level zero replaces the group. Levels 1–3 are consecutive coarser variants.
+     *  The centre, radius and maximum deviation are in object space. */
+    func @foreignName("studioPluginObjectMeshLod")(object: Int, key: Int, level: Int, vertices: Int,
+        x: Double, y: Double, z: Double, radius: Double, maxDeviation: Double): Long
+    /** The project file at [relative], "" when there is none. */
+    func @foreignName("studioPluginReadFile")(relative: String): String
+    /** Writes [text] to the project file at [relative]. 1 on success. */
+    func @foreignName("studioPluginWriteFile")(relative: String, text: String): Int
+    func @foreignName("az_poke_f32")(p: Long, off: Long, v: Double)
+}
+
+/** Writes vertex [index] of a mesh [studioPluginMesh] gave room for. */
+func meshVertex(bytes: Long, index: Int, x: Double, y: Double, z: Double, nx: Double, ny: Double, nz: Double) {
+    fin at = (index as Long) * 24
+    azPokeF32(bytes, at, x)
+    azPokeF32(bytes, at + 4, y)
+    azPokeF32(bytes, at + 8, z)
+    azPokeF32(bytes, at + 12, nx)
+    azPokeF32(bytes, at + 16, ny)
+    azPokeF32(bytes, at + 20, nz)
+}

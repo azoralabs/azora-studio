@@ -2,27 +2,29 @@ module studio.editor
 import studio.host
 
 func createNativeProject(root: String, template: String = ""): Bool {
-    var source = Long(0)
+    var source: Long = 0
     if template == "" {
         source = azsBufferNew("import std.io\nfunc main() { println(\"Azora native project\") }\n")
     } else {
         fin sourceProject = azsProjectOpen(template, 0)
-        if sourceProject == Long(0) { return false }
+        if sourceProject == 0 then return false
         source = azsProjectRead(sourceProject, "src/main.az")
         azsProjectClose(sourceProject)
     }
-    if source == Long(0) { return false }
+    if source == 0 then return false
     fin project = azsProjectOpen(root, 1)
-    if project == Long(0) { azsBufferClose(source)
-        return false }
+    if project == 0 {
+        azsBufferClose(source)
+        return false
+    }
     fin manifest = azsBufferNew("{\"project\":{\"name\":\"native-project\",\"version\":\"0.1.0\",\"entry\":\"main.az\",\"src\":\"src\",\"targets\":[\"llvm\"]}}\n")
-    var saved = false
-    if manifest != Long(0) {
+    var saved: Bool = false
+    if manifest != 0 {
         saved = azsProjectWrite(project, "azora.azon", manifest) != 0 &&
             azsProjectWrite(project, "src/main.az", source) != 0
     }
     azsBufferClose(source)
-    if manifest != Long(0) { azsBufferClose(manifest) }
+    if manifest != 0 then azsBufferClose(manifest)
     azsProjectClose(project)
     return saved
 }
@@ -42,14 +44,14 @@ pack Editor {
 }
 
 /** How many edits undo can walk back. */
-fin editorHistoryLimit = 256
+inline fin editorHistoryLimit: Int = 256
 
 func editorOf(project: Long, source: Long): Editor {
-    return Editor(project, source, Array<Long>(), Array<Long>(), false)
+    return Editor(project, source, [], [], false)
 }
 
-func closeBuffers(buffers: Array<Long>!) {
-    while buffers.size > 0 { azsBufferClose(buffers.removeLast()) }
+func closeBuffers(buffers: Array<Long>!): Unit {
+    while buffers.size > 0 then azsBufferClose(buffers.removeLast())
 }
 
 impl Editor {
@@ -57,14 +59,14 @@ impl Editor {
     func !.commit(next: Long) {
         self.typingEnd = -1
         self.history.add(self.source)
-        if self.history.size > editorHistoryLimit { azsBufferClose(self.history.removeAt(0)) }
+        if self.history.size > editorHistoryLimit then azsBufferClose(self.history.removeAt(0))
         closeBuffers(self.future)
         self.source = next
         self.dirty = true
     }
     func !.editByte(offset: Int, remove: Int, value: Int): Bool {
         fin next = azsBufferSpliceByte(self.source, offset, remove, value)
-        if next == Long(0) { return false }
+        if next == 0 then return false
         self.commit(next)
         return true
     }
@@ -76,20 +78,22 @@ impl Editor {
     func !.typeText(offset: Int, text: String): Int {
         if offset != self.typingEnd || self.history.size == 0 || text == " " {
             fin length = self.splice(offset, 0, text)
-            if length >= 0 { self.typingEnd = offset + length }
+            if length >= 0 then self.typingEnd = offset + length
             return length
         }
         fin size = azsBufferSize(self.source)
-        if offset > size { return -1 }
+        if offset > size then return -1
         fin before = azsBufferSlice(self.source, 0, offset)
-        if before == Long(0) { return -1 }
+        if before == 0 then return -1
         fin after = azsBufferSlice(self.source, offset, size)
-        if after == Long(0) { azsBufferClose(before)
-            return -1 }
+        if after == 0 {
+            azsBufferClose(before)
+            return -1
+        }
         fin next = azsBufferNew("${azsBufferText(before)}${text}${azsBufferText(after)}")
         azsBufferClose(before)
         azsBufferClose(after)
-        if next == Long(0) { return -1 }
+        if next == 0 then return -1
         fin length = azsBufferSize(next) - size
         // The run's starting state is already the newest undo entry.
         azsBufferClose(self.source)
@@ -103,35 +107,40 @@ impl Editor {
     /** Replaces [remove] bytes at [offset] with [text]; one undo step. Answers the inserted byte length, or -1. */
     func !.splice(offset: Int, remove: Int, text: String): Int {
         fin size = azsBufferSize(self.source)
-        if offset < 0 || remove < 0 || offset + remove > size { return -1 }
+        if offset < 0 || remove < 0 || offset + remove > size then return -1
         fin before = azsBufferSlice(self.source, 0, offset)
-        if before == Long(0) { return -1 }
+        if before == 0 then return -1
         fin after = azsBufferSlice(self.source, offset + remove, size)
-        if after == Long(0) { azsBufferClose(before)
-            return -1 }
+        if after == 0 {
+            azsBufferClose(before)
+            return -1
+        }
         fin inserted = azsBufferNew(text)
-        if inserted == Long(0) { azsBufferClose(before)
+        if inserted == 0 {
+            azsBufferClose(before)
             azsBufferClose(after)
-            return -1 }
+            return -1
+        }
         fin length = azsBufferSize(inserted)
         azsBufferClose(inserted)
         fin next = azsBufferNew("${azsBufferText(before)}${text}${azsBufferText(after)}")
         azsBufferClose(before)
         azsBufferClose(after)
-        if next == Long(0) { return -1 }
+        if next == 0 then return -1
         self.commit(next)
         return length
     }
+
     func !.replace(text: String): Bool {
         fin next = azsBufferNew(text)
-        if next == Long(0) { return false }
+        if next == 0 then return false
         self.commit(next)
         return true
     }
 
     func !.undo(): Bool {
         self.typingEnd = -1
-        if self.history.size == 0 { return false }
+        if self.history.size == 0 then return false
         self.future.add(self.source)
         self.source = self.history.removeLast()
         self.dirty = true
@@ -140,7 +149,7 @@ impl Editor {
 
     func !.redo(): Bool {
         self.typingEnd = -1
-        if self.future.size == 0 { return false }
+        if self.future.size == 0 then return false
         self.history.add(self.source)
         self.source = self.future.removeLast()
         self.dirty = true
@@ -148,7 +157,7 @@ impl Editor {
     }
 
     func !.save(): Bool {
-        if azsProjectWrite(self.project, "src/main.az", self.source) == 0 { return false }
+        if azsProjectWrite(self.project, "src/main.az", self.source) == 0 then return false
         self.dirty = false
         return true
     }
@@ -156,7 +165,7 @@ impl Editor {
     // Reload is transactional: failure leaves source and history intact.
     func !.reopen(): Bool {
         fin next = azsProjectRead(self.project, "src/main.az")
-        if next == Long(0) { return false }
+        if next == 0 then return false
         azsBufferClose(self.source)
         closeBuffers(self.history)
         closeBuffers(self.future)
@@ -166,9 +175,9 @@ impl Editor {
     }
 
     dtor .() {
-        if self.source != Long(0) { azsBufferClose(self.source) }
+        if self.source != 0 then azsBufferClose(self.source)
         closeBuffers(self.history)
         closeBuffers(self.future)
-        if self.project != Long(0) { azsProjectClose(self.project) }
+        if self.project != 0 then azsProjectClose(self.project)
     }
 }

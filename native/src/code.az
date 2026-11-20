@@ -28,15 +28,26 @@ import studio.problems
 // both drawing and hit-testing are arithmetic on columns. A tab advances to
 // the next multiple of four, and a UTF-8 continuation byte advances nothing.
 
-fin sourceFontSize: Double = 13.0
-fin sourceLineHeight: Double = 20.0
-fin sourceTop: Double = 10.0
-fin sourceGutter: Double = 58.0
+inline fin sourceFontSize: Double = 13.0
+inline fin sourceLineHeight: Double = 20.0
+inline fin sourceTop: Double = 10.0
+inline fin sourceGutter: Double = 58.0
 
-func isContinuation(value: Int): Bool { return value >= 128 && value < 192 }
-func isDigitByte(value: Int): Bool { return value >= 48 && value <= 57 }
-func isWordStart(value: Int): Bool { return (value >= 65 && value <= 90) || (value >= 97 && value <= 122) || value == 95 || value >= 192 }
-func isWordPart(value: Int): Bool { return isWordStart(value) || isDigitByte(value) || isContinuation(value) }
+func isContinuation(value: Int): Bool {
+    return value >= 128 && value < 192
+}
+
+func isDigitByte(value: Int): Bool {
+    return value >= 48 && value <= 57
+}
+
+func isWordStart(value: Int): Bool {
+    return (value >= 65 && value <= 90) || (value >= 97 && value <= 122) || value == 95 || value >= 192
+}
+
+func isWordPart(value: Int): Bool {
+    return isWordStart(value) || isDigitByte(value) || isContinuation(value)
+}
 
 /** The visual column [offset] reaches, starting from [start] at column 0. */
 func columnsBetween(source: Long, start: Int, offset: Int): Int {
@@ -75,7 +86,7 @@ func offsetAtColumn(source: Long, start: Int, column: Int): Int {
         while next < end && isContinuation(azsBufferByte(source, next)) { next = next + 1 }
         fin width = if value == 9 { 4 - current % 4 } else { 1 }
         if current + width > column {
-            if column - current >= (width + 1) / 2 { return next }
+            if column - current >= (width + 1) / 2 then return next
             return offset
         }
         current = current + width
@@ -88,7 +99,7 @@ func sourceRow(source: Long, cursor: Int): Int {
     var row = 0
     var offset = 0
     while offset < cursor && offset < azsBufferSize(source) {
-        if azsBufferByte(source, offset) == 10 { row = row + 1 }
+        if azsBufferByte(source, offset) == 10 then row = row + 1
         offset = offset + 1
     }
     return row
@@ -102,12 +113,12 @@ func offsetAt(source: Long, row: Int, column: Int): Int {
     var current = 0
     fin size = azsBufferSize(source)
     while start < size && current < row {
-        if azsBufferByte(source, start) == 10 { current = current + 1 }
+        if azsBufferByte(source, start) == 10 then current = current + 1
         start = start + 1
     }
     fin end = lineEndOf(source, start)
     var offset = start + column
-    if offset > end { offset = end }
+    if offset > end then offset = end
     while offset > start && isContinuation(azsBufferByte(source, offset)) { offset = offset - 1 }
     return offset
 }
@@ -141,11 +152,11 @@ func drawSourceLine(app: App!, source: Long, start: Int, end: Int, x: Double, y:
             kind = 5
         } else if value == 34 {
             while stop < end && azsBufferByte(source, stop) != 34 {
-                if azsBufferByte(source, stop) == 92 { stop = stop + 1 }
+                if azsBufferByte(source, stop) == 92 then stop = stop + 1
                 stop = stop + 1
             }
-            if stop < end { stop = stop + 1 }
-            if stop > end { stop = end }
+            if stop < end then stop = stop + 1
+            if stop > end then stop = end
             kind = 3
         } else if isDigitByte(value) {
             while stop < end && (isWordPart(azsBufferByte(source, stop)) || azsBufferByte(source, stop) == 46) { stop = stop + 1 }
@@ -154,7 +165,7 @@ func drawSourceLine(app: App!, source: Long, start: Int, end: Int, x: Double, y:
             while stop < end && isWordPart(azsBufferByte(source, stop)) { stop = stop + 1 }
             kind = 0
             fin word = azsBufferSlice(source, offset, stop)
-            if word != Long(0) {
+            if word != 0 {
                 if isKeyword(azsBufferText(word)) { kind = 1 }
                 else if value >= 65 && value <= 90 { kind = 2 }
                 else if stop < end && azsBufferByte(source, stop) == 40 { kind = 7 }
@@ -165,7 +176,7 @@ func drawSourceLine(app: App!, source: Long, start: Int, end: Int, x: Double, y:
         }
         if kind >= 0 {
             fin run = azsBufferSlice(source, offset, stop)
-            if run != Long(0) {
+            if run != 0 {
                 fin color = tokenColor(kind)
                 app.uiTextFont(azsBufferText(run), x + (column as Double) * advance, y, sourceFontSize, color.r, color.g, color.b, uiFontMonospace)
                 azsBufferClose(run)
@@ -193,12 +204,12 @@ func drawProblems(app: App!, source: Long, problems: Array<Diagnostic>&, stale: 
             fin alpha: Double = if stale { 0.35 } else { 0.95 }
             var from = start + problems[index].startByte
             var to = if problems[index].endLine == row { start + problems[index].endByte } else { end }
-            if from > end { from = end }
-            if to > end { to = end }
-            if to <= from { to = from + 1 }
+            if from > end then from = end
+            if to > end then to = end
+            if to <= from then to = from + 1
             fin left = textX + (columnsBetween(source, start, from) as Double) * advance
             var width = (columnsBetween(source, from, to) as Double) * advance
-            if width < advance { width = advance }
+            if width < advance then width = advance
             // A dotted underline: short dashes read as a squiggle at this size.
             var dash: Double = 0.0
             while dash < width {
@@ -238,8 +249,8 @@ func drawSource(app: App!, source: Long, cursor: Int, focused: Bool, rect: Rect&
                     fin to = if selectionEnd < offset { selectionEnd } else { offset }
                     fin left = textX + (columnsBetween(source, start, from) as Double) * advance
                     var width = (columnsBetween(source, from, to) as Double) * advance
-                    if selectionEnd > offset { width = width + advance * 0.6 }
-                    if width > 0.0 { app.uiRect(left, y, width, sourceLineHeight, studioTheme.codeSelection.r, studioTheme.codeSelection.g, studioTheme.codeSelection.b, studioTheme.codeSelection.a) }
+                    if selectionEnd > offset then width = width + advance * 0.6
+                    if width > 0.0 then app.uiRect(left, y, width, sourceLineHeight, studioTheme.codeSelection.r, studioTheme.codeSelection.g, studioTheme.codeSelection.b, studioTheme.codeSelection.a)
                 }
                 fin number = "${row + 1}"
                 fin numberWidth = app.uiTextWidthFont(number, 12.0, uiFontMonospace)
@@ -264,17 +275,17 @@ func drawSource(app: App!, source: Long, cursor: Int, focused: Bool, rect: Rect&
 func sourceOffsetAt(app: App&, source: Long, x: Double, y: Double, rect: Rect&, scroll: Int): Int {
     fin advance = app.uiTextWidthFont("0", sourceFontSize, uiFontMonospace)
     var wanted = ((y - rect.y - sourceTop) / sourceLineHeight) as Int
-    if wanted < 0 { wanted = 0 }
+    if wanted < 0 then wanted = 0
     wanted = wanted + scroll
     var row = 0
     var start = 0
     fin size = azsBufferSize(source)
     while start < size && row < wanted {
-        if azsBufferByte(source, start) == 10 { row = row + 1 }
+        if azsBufferByte(source, start) == 10 then row = row + 1
         start = start + 1
     }
     var column = ((x - rect.x - sourceGutter - 10.0) / advance + 0.5) as Int
-    if column < 0 { column = 0 }
+    if column < 0 then column = 0
     return offsetAtColumn(source, start, column)
 }
 
@@ -282,14 +293,14 @@ func sourceOffsetAt(app: App&, source: Long, x: Double, y: Double, rect: Rect&, 
 
 func containsWord(source: Long, start: Int, end: Int, word: String): Bool {
     fin probe = azsBufferNew(word)
-    if probe == Long(0) { return false }
+    if probe == 0 then return false
     fin length = azsBufferSize(probe)
     var found = false
     var offset = start
     while !found && offset + length <= end {
         var matched = 0
         while matched < length && (azsBufferByte(source, offset + matched) | 32) == azsBufferByte(probe, matched) { matched = matched + 1 }
-        if matched == length { found = true }
+        if matched == length then found = true
         offset = offset + 1
     }
     azsBufferClose(probe)
@@ -306,7 +317,7 @@ func drawConsole(app: App!, output: Long, rect: Rect&) {
         if offset == size || azsBufferByte(output, offset) == 10 {
             if offset > start {
                 fin line = azsBufferSlice(output, start, offset)
-                if line != Long(0) {
+                if line != 0 {
                     fin tint = when {
                         containsWord(output, start, offset, "error") -> studioTheme.error
                         containsWord(output, start, offset, "warn") -> studioTheme.warning
@@ -348,7 +359,7 @@ func deleteSelection(view: Studio!): Bool {
     if !view.hasSelection() { view.anchor = -1
         return false }
     fin start = view.selectionStart()
-    if view.editor.splice(start, view.selectionEnd() - start, "") < 0 { return false }
+    if view.editor.splice(start, view.selectionEnd() - start, "") < 0 then return false
     view.cursor = start
     view.anchor = -1
     return true
@@ -364,19 +375,19 @@ func clipboardKeys(app: App&, view: Studio!, injected: Int): Bool {
     if (pressedKey(app, injected, .C) || pressedKey(app, injected, .X)) && view.hasSelection() {
         fin start = view.selectionStart()
         fin copied = azsBufferSlice(view.editor.source, start, view.selectionEnd())
-        if copied != Long(0) {
+        if copied != 0 {
             app.setClipboardText(azsBufferText(copied))
             azsBufferClose(copied)
         }
-        if pressedKey(app, injected, .X) { return deleteSelection(view) }
+        if pressedKey(app, injected, .X) then return deleteSelection(view)
         return false
     }
     if pressedKey(app, injected, .V) {
         fin pasted = app.clipboardText()
-        if pasted == "" { return false }
+        if pasted == "" then return false
         deleteSelection(view)
         fin inserted = view.editor.splice(view.cursor, 0, pasted)
-        if inserted < 0 { return false }
+        if inserted < 0 then return false
         view.cursor = view.cursor + inserted
         return true
     }
@@ -384,9 +395,9 @@ func clipboardKeys(app: App&, view: Studio!, injected: Int): Bool {
 }
 
 func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool): Bool {
-    if !view.sourceFocused { return false }
-    if meta { return clipboardKeys(app, view, injected) }
-    if app.keyDown(.Control) { return false }
+    if !view.sourceFocused then return false
+    if meta then return clipboardKeys(app, view, injected)
+    if app.keyDown(.Control) then return false
     var changed = false
     fin source = view.editor.source
     // Movement extends the selection while Shift is held and drops it otherwise.
@@ -395,8 +406,8 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
         pressedKey(app, injected, .Up) || pressedKey(app, injected, .Down) ||
         pressedKey(app, injected, .Home) || pressedKey(app, injected, .End)
     if moving {
-        if extending && view.anchor < 0 { view.anchor = view.cursor }
-        if !extending { view.anchor = -1 }
+        if extending && view.anchor < 0 then view.anchor = view.cursor
+        if !extending then view.anchor = -1
     }
     if pressedKey(app, injected, .Left) && view.cursor > 0 {
         view.cursor = view.cursor - 1
@@ -421,15 +432,15 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
             view.cursor = offsetAtColumn(view.editor.source, end + 1, column)
         }
     }
-    if pressedKey(app, injected, .Home) { view.cursor = lineStartOf(view.editor.source, view.cursor) }
-    if pressedKey(app, injected, .End) { view.cursor = lineEndOf(view.editor.source, view.cursor) }
+    if pressedKey(app, injected, .Home) then view.cursor = lineStartOf(view.editor.source, view.cursor)
+    if pressedKey(app, injected, .End) then view.cursor = lineEndOf(view.editor.source, view.cursor)
     if (pressedKey(app, injected, .Backspace) || pressedKey(app, injected, .Delete)) && view.hasSelection() {
         return deleteSelection(view)
     }
     if (typed != "" || pressedKey(app, injected, .Enter) || pressedKey(app, injected, .Tab)) && view.hasSelection() {
-        if deleteSelection(view) { changed = true }
+        if deleteSelection(view) then changed = true
     }
-    if !moving && view.anchor == view.cursor { view.anchor = -1 }
+    if !moving && view.anchor == view.cursor then view.anchor = -1
     if pressedKey(app, injected, .Backspace) && view.cursor > 0 {
         var start = view.cursor - 1
         while start > 0 && isContinuation(azsBufferByte(view.editor.source, start)) { start = start - 1 }
@@ -439,7 +450,7 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
     if pressedKey(app, injected, .Delete) && view.cursor < azsBufferSize(view.editor.source) {
         var end = view.cursor + 1
         while end < azsBufferSize(view.editor.source) && isContinuation(azsBufferByte(view.editor.source, end)) { end = end + 1 }
-        if view.editor.splice(view.cursor, end - view.cursor, "") >= 0 { changed = true }
+        if view.editor.splice(view.cursor, end - view.cursor, "") >= 0 then changed = true
     }
     if pressedKey(app, injected, .Enter) {
         // A new line keeps the current line's indentation.
@@ -449,7 +460,7 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
         var prefix = "\n"
         if indent > start {
             fin lead = azsBufferSlice(view.editor.source, start, indent)
-            if lead != Long(0) {
+            if lead != 0 {
                 prefix = "\n${azsBufferText(lead)}"
                 azsBufferClose(lead)
             }
@@ -468,7 +479,7 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
         if inserted >= 0 { view.cursor = view.cursor + inserted
             changed = true }
     }
-    if source != view.editor.source { changed = true }
+    if source != view.editor.source then changed = true
     return changed
 }
 
@@ -483,7 +494,7 @@ impl CodePanel {
         return Column(modifier: Modifier::fillMaxSize(), key: "code") {
             PanelBar {
                 Label("src / main.az", app, studioTheme.muted, key: "path")
-                if studio.editor.dirty { Shape(modifier: Modifier::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty") }
+                if studio.editor.dirty then Shape(modifier: Modifier::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty")
                 Spacer(key: "fill")
                 Label("Ln ${studio.line}, Col ${studio.column}", app, studioTheme.faint, key: "position")
                 Label("Azora · UTF-8", app, studioTheme.faint, key: "encoding")
@@ -497,9 +508,9 @@ impl CodePanel {
         if studio.revealCursor {
             fin cursorLine = sourceRow(studio.editor.source, studio.cursor)
             var visibleRows = ((area.height - sourceTop * 2.0) / sourceLineHeight) as Int
-            if visibleRows < 1 { visibleRows = 1 }
-            if cursorLine < studio.sourceScroll { studio.sourceScroll = cursorLine }
-            if cursorLine >= studio.sourceScroll + visibleRows { studio.sourceScroll = cursorLine - visibleRows + 1 }
+            if visibleRows < 1 then visibleRows = 1
+            if cursorLine < studio.sourceScroll then studio.sourceScroll = cursorLine
+            if cursorLine >= studio.sourceScroll + visibleRows then studio.sourceScroll = cursorLine - visibleRows + 1
             studio.revealCursor = false
         }
         // The caret holds steady while typing and blinks once idle.
@@ -522,12 +533,12 @@ impl CodePanel {
             studio.lastEdit = app.timeNow()
             return true
         }
-        if !rect.contains(input.x, input.y) { return false }
+        if !rect.contains(input.x, input.y) then return false
         if input.scrollY != 0.0 {
             if input.scrollY > 0.0 { studio.sourceScroll = studio.sourceScroll - 2 } else { studio.sourceScroll = studio.sourceScroll + 2 }
-            if studio.sourceScroll < 0 { studio.sourceScroll = 0 }
+            if studio.sourceScroll < 0 then studio.sourceScroll = 0
         }
-        if !input.pressed { return false }
+        if !input.pressed then return false
         studio.sourceFocused = true
         studio.focus = FieldFocus()
         fin clicked = sourceOffsetAt(app, studio.editor.source, input.x, input.y, area, studio.sourceScroll)
@@ -564,7 +575,7 @@ impl ConsolePanel {
     }
 
     func draw(app: App!, studio: Studio!, rect: ViewRect&) {
-        if studio.console == Long(0) { return }
+        if studio.console == 0 then return
         fin area = Rect(rect.x, rect.y, rect.width, rect.height)
         app.setScissor(rect.x, rect.y, rect.width, rect.height)
         drawConsole(app, studio.console, area)

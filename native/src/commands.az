@@ -14,11 +14,26 @@ import engine.ui.docking
 import studio.host
 import studio.editor
 import studio.state
+import studio.fusion
+import engine.material.fusion
+import engine.lighting.photon
+import engine.scene.terrain
+import engine.render.scene
+import studio.plugins
+import studio.os
 
 // Every action Studio can take, as a `@Command`. A pressed node names one by
 // declaration name; the menu bar lists those with a `menu`, grouped by `group`
 // and ordered by `order`; ⌘ + `key` (⇧ when `shift`) runs one from the
 // keyboard. Nothing else in Studio knows these exist.
+
+func hasProjectPackages(manifest: String): Bool {
+    fin root = decodeSerialValue(manifest, serializerOptions()) catch SerialValue.Null
+    return when root {
+        SerialValue.Object(fields) -> memberAt(fields, "dependencies") >= 0
+        else -> indexOf(manifest, "dependencies:") >= 0
+    }
+}
 
 /** Runs the command declared as [name]. Answers whether there is one. */
 func runCommand(studio: Studio!, name: String, call: Invocation&): Bool {
@@ -56,7 +71,7 @@ func commandForKey(key: String, shift: Bool): String {
 func presetMember(fields: List<SerialField>&, name: String): Int {
     var index = 0
     while index < fields.size {
-        if fields[index].name == name { return index }
+        if fields[index].name == name then return index
         index = index + 1
     }
     return -1
@@ -69,7 +84,7 @@ func readPresets(text: String): Array<EntityPresetSlot> {
     when root {
         SerialValue.Object(members) -> {
             fin listAt = presetMember(members, "presets")
-            if listAt < 0 { return presets }
+            if listAt < 0 then return presets
             when members[listAt].value {
                 SerialValue.Array(items) -> {
                     var index = 0
@@ -101,34 +116,40 @@ func readPresets(text: String): Array<EntityPresetSlot> {
 
 // ── File ────────────────────────────────────────────────────────────────
 
+func saveSceneDocument(studio: Studio!): Bool {
+    if !saveFusionAsset(studio) then return false
+    fin buffer = azsBufferNew(writeScene(studio.scene))
+    fin written = if buffer == 0 then 0 else azsProjectWrite(studio.editor.project, sceneFile, buffer)
+    if buffer != 0 then azsBufferClose(buffer)
+    if written == 0 {
+        studio.notify(azsError(), 3)
+        return false
+    }
+    studio.sceneDirty = false
+    studio.pluginSave = true
+    return true
+}
+
 /** Writes the source, the scene and the layout; then the source is checked again. */
 @Command(title: "Save", menu: "File", group: 0, order: 0, key: "s")
-func fileSave(studio: Studio!, call: Invocation&) {
+func fileSave(studio: Studio!, call: Invocation&): Unit {
     if !studio.editor.save() {
         studio.notify(azsError(), 3)
         return
     }
-    fin text = writeScene(studio.scene)
-    fin buffer = azsBufferNew(text)
-    if buffer == Long(0) || azsProjectWrite(studio.editor.project, sceneFile, buffer) == 0 {
-        if buffer != Long(0) { azsBufferClose(buffer) }
-        studio.notify(azsError(), 3)
-        return
-    }
-    azsBufferClose(buffer)
-    studio.sceneDirty = false
+    if !saveSceneDocument(studio) then return
     studio.layoutDirty = true
     studio.requestedTool = "inspect"
     studio.notify("Saved src/main.az and ${sceneFile}", 2)
 }
 
 @Command(title: "Revert to Saved", menu: "File", group: 0, order: 1)
-func fileRevert(studio: Studio!, call: Invocation&) {
+func fileRevert(studio: Studio!, call: Invocation&): Unit {
     if !studio.editor.reopen() {
         studio.notify(azsError(), 3)
         return
     }
-    if studio.cursor > azsBufferSize(studio.editor.source) { studio.cursor = azsBufferSize(studio.editor.source) }
+    if studio.cursor > azsBufferSize(studio.editor.source) then studio.cursor = azsBufferSize(studio.editor.source)
     studio.anchor = -1
     studio.message("Reopened src/main.az from disk")
 }
@@ -136,33 +157,37 @@ func fileRevert(studio: Studio!, call: Invocation&) {
 // ── Edit ────────────────────────────────────────────────────────────────
 
 @Command(title: "Undo", menu: "Edit", group: 0, order: 0, key: "z")
-func editUndo(studio: Studio!, call: Invocation&) {
+func editUndo(studio: Studio!, call: Invocation&): Unit {
     if studio.sourceFocused {
         if studio.editor.undo() {
-            if studio.cursor > azsBufferSize(studio.editor.source) { studio.cursor = azsBufferSize(studio.editor.source) }
+            if studio.cursor > azsBufferSize(studio.editor.source) then studio.cursor = azsBufferSize(studio.editor.source)
             studio.message("Undo")
         }
         return
     }
-    if !studio.undo() { studio.message("Nothing to undo") }
+    if !studio.undo() then studio.message("Nothing to undo")
 }
 
 @Command(title: "Redo", menu: "Edit", group: 0, order: 1, key: "z", shift: true)
-func editRedo(studio: Studio!, call: Invocation&) {
+func editRedo(studio: Studio!, call: Invocation&): Unit {
     if studio.sourceFocused {
         if studio.editor.redo() {
-            if studio.cursor > azsBufferSize(studio.editor.source) { studio.cursor = azsBufferSize(studio.editor.source) }
+            if studio.cursor > azsBufferSize(studio.editor.source) then studio.cursor = azsBufferSize(studio.editor.source)
             studio.message("Redo")
         }
         return
     }
-    if !studio.redo() { studio.message("Nothing to redo") }
+    if !studio.redo() then studio.message("Nothing to redo")
 }
 
 @Command(title: "Duplicate", menu: "Edit", group: 1, order: 0, key: "d")
-func editDuplicate(studio: Studio!, call: Invocation&) {
+func editDuplicate(studio: Studio!, call: Invocation&): Unit {
     fin selected = studio.selected()
-    if !studio.scene.isAlive(selected) { return }
+    if !studio.scene.isAlive(selected) then return
+    if storageHas<PluginObject>(ensureStorage<PluginObject>(studio.scene), selected) {
+        studio.message("Create another object from its plugin tab")
+        return
+    }
     fin copy = spawnFromAzon(studio.scene, studio.snapshot(selected), studio.scene.getParent(selected))
     if storageHas<Name>(ensureStorage<Name>(studio.scene), copy) {
         fin name = storageGet<Name>(ensureStorage<Name>(studio.scene), copy).value
@@ -173,9 +198,13 @@ func editDuplicate(studio: Studio!, call: Invocation&) {
 }
 
 @Command(title: "Delete", menu: "Edit", group: 1, order: 1, key: "backspace", hotkey: "backspace")
-func editDelete(studio: Studio!, call: Invocation&) {
+func editDelete(studio: Studio!, call: Invocation&): Unit {
     fin selected = studio.selected()
-    if !studio.scene.isAlive(selected) { return }
+    if !studio.scene.isAlive(selected) then return
+    if storageHas<PluginObject>(ensureStorage<PluginObject>(studio.scene), selected) {
+        pluginDelete(studio, Invocation(selected.id, 0, 0.0, ""))
+        return
+    }
     fin name = studio.nameOf(selected)
     fin before = studio.snapshot(selected)
     fin parent = studio.scene.getParent(selected).id
@@ -191,7 +220,7 @@ func editDelete(studio: Studio!, call: Invocation&) {
         id = id + 1
     }
     studio.scene.despawn(selected)
-    while studio.history.size > studio.historyAt { studio.history.removeLast() }
+    while studio.history.size > studio.historyAt then studio.history.removeLast()
     studio.history.add(SceneEdit(selected.id, before, "", parent, -1, "delete"))
     studio.historyAt = studio.history.size
     studio.sceneDirty = true
@@ -218,12 +247,12 @@ func entityAdd(studio: Studio!, call: Invocation&) {
 }
 
 @Command(title: "Clear Selection", menu: "Entity", group: 1, order: 0)
-func entityDeselect(studio: Studio!, call: Invocation&) {
+func entityDeselect(studio: Studio!, call: Invocation&): Unit {
     studio.select(Entity::invalid)
 }
 
 @Command
-func popupAddEntity(studio: Studio!, call: Invocation&) {
+func popupAddEntity(studio: Studio!, call: Invocation&): Unit {
     studio.popup = Popup("addEntity", studio.pointerX, studio.pointerY, -1)
     studio.changed()
 }
@@ -231,41 +260,74 @@ func popupAddEntity(studio: Studio!, call: Invocation&) {
 // ── View ────────────────────────────────────────────────────────────────
 
 @Command(title: "Select Tool", menu: "View", group: 0, order: 0, key: "1", hotkey: "q")
-func toolSelect(studio: Studio!, call: Invocation&) {
+func toolSelect(studio: Studio!, call: Invocation&): Unit {
+    studio.pluginTool = ""
+    studio.pluginToolOwner = ""
+    studio.pluginHit = .()
     studio.tool = 0
     studio.changed()
 }
 
 @Command(title: "Move Tool", menu: "View", group: 0, order: 1, key: "2", hotkey: "w")
-func toolMove(studio: Studio!, call: Invocation&) {
+func toolMove(studio: Studio!, call: Invocation&): Unit {
+    studio.pluginTool = ""
+    studio.pluginToolOwner = ""
+    studio.pluginHit = .()
     studio.tool = 1
     studio.changed()
 }
 
 @Command(title: "Rotate Tool", menu: "View", group: 0, order: 2, key: "3", hotkey: "e")
-func toolRotate(studio: Studio!, call: Invocation&) {
+func toolRotate(studio: Studio!, call: Invocation&): Unit {
+    studio.pluginTool = ""
+    studio.pluginToolOwner = ""
+    studio.pluginHit = .()
     studio.tool = 2
     studio.changed()
 }
 
 @Command(title: "Scale Tool", menu: "View", group: 0, order: 3, key: "4", hotkey: "r")
-func toolScale(studio: Studio!, call: Invocation&) {
+func toolScale(studio: Studio!, call: Invocation&): Unit {
+    studio.pluginTool = ""
+    studio.pluginToolOwner = ""
+    studio.pluginHit = .()
     studio.tool = 3
     studio.changed()
 }
 
 @Command(title: "Toggle 2D / 3D", menu: "View", group: 1, order: 0, key: "t", hotkey: "t")
-func viewToggle2d(studio: Studio!, call: Invocation&) {
+func viewToggle2d(studio: Studio!, call: Invocation&): Unit {
     studio.mode3d = !studio.mode3d
     studio.camera.orthographic = !studio.mode3d
-    studio.message(if studio.mode3d { "3D view" } else { "2D view" })
+    studio.message(if studio.mode3d then "3D view" else "2D view")
+}
+
+@Command(title: "Lit", menu: "View", group: 2, order: 0)
+func viewLit(studio: Studio!, call: Invocation&) { studio.viewMode = 0
+    studio.changed()
+}
+
+@Command(title: "Unlit", menu: "View", group: 2, order: 1)
+func viewUnlit(studio: Studio!, call: Invocation&) { studio.viewMode = 1
+    studio.changed()
+}
+
+@Command(title: "Wireframe", menu: "View", group: 2, order: 2)
+func viewWireframe(studio: Studio!, call: Invocation&) { studio.viewMode = 2
+    studio.changed()
 }
 
 @Command(title: "Focus Selection", menu: "View", group: 1, order: 1, key: "f", shift: true, hotkey: "f")
-func viewFocus(studio: Studio!, call: Invocation&) {
+func viewFocus(studio: Studio!, call: Invocation&): Unit {
     fin selected = studio.selected()
     if !studio.scene.isAlive(selected) {
         studio.camera.focus(Vec3(0.0, 0.5, 0.0), 3.0)
+        studio.changed()
+        return
+    }
+    if storageHas<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene), selected) {
+        fin terrain = storageGet<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene), selected).clone()
+        studio.camera.focus(worldPosition(studio.scene, selected), photonMax(terrain.width, terrain.length)*0.25)
         studio.changed()
         return
     }
@@ -278,10 +340,27 @@ func viewFocus(studio: Studio!, call: Invocation&) {
     studio.changed()
 }
 
+@Command(title: "Toggle Photon Field", menu: "View", group: 3, order: 0)
+func viewTogglePhotons(studio: Studio!, call: Invocation&) {
+    var light = photonSceneLight(studio.scene)
+    if !studio.scene.isAlive(light) then light = photonSceneLight(studio.scene, false)
+    if !studio.scene.isAlive(light) {
+        studio.notify("Add a Directional Light to enable Photon Field", 1)
+        return
+    }
+    fin before = studio.snapshot(light)
+    var field = storageGetOrDefault<PhotonField>(ensureStorage<PhotonField>(studio.scene), light, PhotonField(enabled: false))
+    field.enabled = !field.enabled
+    fin enabled = field.enabled
+    storageInsert<PhotonField>(ensureStorage<PhotonField>(studio.scene), light, take field)
+    studio.record(light, before, studio.scene.getParent(light).id, "toggle Photon Field")
+    studio.message(if enabled then "Photon Field enabled" else "Photon Field disabled")
+}
+
 // ── Run ─────────────────────────────────────────────────────────────────
 
 @Command(title: "Play Scene", menu: "Run", group: 0, order: 0, key: "p")
-func runPlay(studio: Studio!, call: Invocation&) {
+func runPlay(studio: Studio!, call: Invocation&): Unit {
     if studio.playing && studio.paused {
         studio.paused = false
     } else {
@@ -293,31 +372,37 @@ func runPlay(studio: Studio!, call: Invocation&) {
 }
 
 @Command(title: "Pause Scene", menu: "Run", group: 0, order: 1, key: "p", shift: true)
-func runPause(studio: Studio!, call: Invocation&) {
-    if !studio.playing { return }
+func runPause(studio: Studio!, call: Invocation&): Unit {
+    if !studio.playing then return
     studio.paused = !studio.paused
     studio.message(if studio.paused { "Scene preview paused" } else { "Scene preview playing" })
 }
 
 @Command(title: "Stop Scene", menu: "Run", group: 0, order: 2)
-func runStop(studio: Studio!, call: Invocation&) {
+func runStop(studio: Studio!, call: Invocation&): Unit {
     studio.playing = false
     studio.paused = false
     studio.message("Scene preview stopped")
 }
 
 @Command(title: "Build", menu: "Run", group: 1, order: 0, key: "b")
-func toolBuild(studio: Studio!, call: Invocation&) { studio.requestedTool = "build" }
+func toolBuild(studio: Studio!, call: Invocation&): Unit {
+    studio.requestedTool = "build"
+}
 
 @Command(title: "Run App", menu: "Run", group: 1, order: 1, key: "r")
-func toolRun(studio: Studio!, call: Invocation&) { studio.requestedTool = "play" }
+func toolRun(studio: Studio!, call: Invocation&): Unit {
+    if saveSceneDocument(studio) then studio.requestedTool = "play"
+}
 
 @Command(title: "Check Source", menu: "Run", group: 1, order: 2, key: "i", shift: true)
-func toolInspect(studio: Studio!, call: Invocation&) { studio.requestedTool = "inspect" }
+func toolInspect(studio: Studio!, call: Invocation&): Unit {
+    studio.requestedTool = "inspect"
+}
 
 @Command(title: "Cancel Build", menu: "Run", group: 1, order: 3)
-func toolCancel(studio: Studio!, call: Invocation&) {
-    if studio.process != Long(0) {
+func toolCancel(studio: Studio!, call: Invocation&): Unit {
+    if studio.process != 0 {
         azsProcessCancel(studio.process)
         studio.notify("Cancelled ${studio.processAction}", 3)
     }
@@ -325,28 +410,100 @@ func toolCancel(studio: Studio!, call: Invocation&) {
 
 // ── Window ──────────────────────────────────────────────────────────────
 
+/** Ends the session: the frame loop saves the layout and closes the window. */
+@Command(title: "Quit Azora Studio", key: "q")
+func studioQuit(studio: Studio!, call: Invocation&) { studio.quitting = true }
+
 @Command(title: "Reset Layout", menu: "Window", group: 0, order: 0)
-func windowResetLayout(studio: Studio!, call: Invocation&) {
+func windowResetLayout(studio: Studio!, call: Invocation&): Unit {
     studio.resetLayout = true
     studio.message("Layout reset")
 }
 
 /** Shows panel [call.text]: its tab when it is open, otherwise a new one. */
 @Command
-func panelShow(studio: Studio!, call: Invocation&) {
+func panelShow(studio: Studio!, call: Invocation&): Unit {
     studio.showPanel = call.text
+}
+
+fin renderPreferencesFile: String = "rendering.azon"
+
+func loadRenderPreferences(studio: Studio!, home: String) {
+    fin overridePath = azsEnvironment("AZORA_STUDIO_PREFERENCES")
+    studio.preferencesRoot = if overridePath != "" then overridePath
+        else if home != "" then "${home}/Library/Application Support/Azora Studio" else ""
+    if studio.preferencesRoot == "" then return
+    fin source = readProjectFile(studio.preferencesRoot, renderPreferencesFile)
+    if source == "" then return
+    fin document = decodeSerialValue(source, serializerOptions()) catch SerialValue.Null
+    when document {
+        SerialValue.Object(fields) -> {
+            studio.indirectLighting = memberText(fields, "lighting", "photon") != "standard"
+            studio.virtualShadows = memberText(fields, "shadows", "virtual") != "computed"
+            studio.upscaling = memberText(fields, "upscaling", "native") == "temporal"
+        }
+        else -> {}
+    }
+}
+
+func saveRenderPreferences(studio: Studio!) {
+    if studio.preferencesRoot == "" then return
+    makeFolders(studio.preferencesRoot)
+    fin project = azsProjectOpen(studio.preferencesRoot, 0)
+    if project == 0 {
+        studio.notify("Couldn't open the preferences folder", 3)
+        return
+    }
+    fin lighting = if studio.indirectLighting then "photon" else "standard"
+    fin shadows = if studio.virtualShadows then "virtual" else "computed"
+    fin upscaling = if studio.upscaling then "temporal" else "native"
+    fin buffer = azsBufferNew("{\"lighting\": \"${lighting}\", \"shadows\": \"${shadows}\", \"upscaling\": \"${upscaling}\"}\n")
+    fin written = if buffer == 0 then 0 else azsProjectWrite(project, renderPreferencesFile, buffer)
+    if buffer != 0 then azsBufferClose(buffer)
+    azsProjectClose(project)
+    if written == 0 then studio.notify("Couldn't save rendering preferences", 3)
+}
+
+@Command
+func preferencesShow(studio: Studio!, call: Invocation&) { studio.showPanel = "PreferencesPanel" }
+
+@Command
+func preferencesLighting(studio: Studio!, call: Invocation&) {
+    studio.indirectLighting = call.text == "photon"
+    saveRenderPreferences(studio)
+    studio.changed()
+}
+
+@Command
+func preferencesShadows(studio: Studio!, call: Invocation&) {
+    studio.virtualShadows = call.text == "virtual"
+    saveRenderPreferences(studio)
+    studio.changed()
+}
+
+@Command
+func preferencesUpscaling(studio: Studio!, call: Invocation&) {
+    studio.upscaling = call.text == "temporal"
+    saveRenderPreferences(studio)
+    studio.changed()
+}
+
+@Command
+func preferencesRecompute(studio: Studio!, call: Invocation&) {
+    studio.recomputeShadows = true
+    studio.showPanel = "ScenePanel"
 }
 
 // ── Scene tree ──────────────────────────────────────────────────────────
 
 @Command
-func sceneSelect(studio: Studio!, call: Invocation&) {
+func sceneSelect(studio: Studio!, call: Invocation&): Unit {
     studio.sourceFocused = false
     studio.select(studio.scene.entityAt(call.target))
 }
 
 @Command
-func sceneToggleExpand(studio: Studio!, call: Invocation&) {
+func sceneToggleExpand(studio: Studio!, call: Invocation&): Unit {
     fin entity = studio.scene.entityAt(call.target)
     if storageHas<Expanded>(ensureStorage<Expanded>(studio.scene), entity) {
         storageRemove<Expanded>(ensureStorage<Expanded>(studio.scene), entity)
@@ -357,7 +514,7 @@ func sceneToggleExpand(studio: Studio!, call: Invocation&) {
 }
 
 @Command
-func sceneToggleVisible(studio: Studio!, call: Invocation&) {
+func sceneToggleVisible(studio: Studio!, call: Invocation&): Unit {
     fin entity = studio.scene.entityAt(call.target)
     fin before = studio.snapshot(entity)
     fin visible = !storageHas<Visibility>(ensureStorage<Visibility>(studio.scene), entity) ||
@@ -369,79 +526,81 @@ func sceneToggleVisible(studio: Studio!, call: Invocation&) {
 // ── Components ──────────────────────────────────────────────────────────
 
 @Command
-func popupAddComponent(studio: Studio!, call: Invocation&) {
+func popupAddComponent(studio: Studio!, call: Invocation&): Unit {
     studio.popup = Popup("addComponent", studio.pointerX, studio.pointerY, -1)
     studio.changed()
 }
 
 @Command
-func popupClose(studio: Studio!, call: Invocation&) {
+func popupClose(studio: Studio!, call: Invocation&): Unit {
     studio.popup = Popup()
     studio.changed()
 }
 
 @Command
-func componentAdd(studio: Studio!, call: Invocation&) {
+func componentAdd(studio: Studio!, call: Invocation&): Unit {
     fin selected = studio.selected()
     studio.popup = Popup()
-    if !studio.scene.isAlive(selected) { return }
+    if !studio.scene.isAlive(selected) then return
     fin before = studio.snapshot(selected)
-    addComponent(studio.scene, selected, call.text)
+    var pluginComponent = false
+    for contribution in studio.pluginComponents {
+        if contribution.id == call.text {
+            pluginComponent = setExternalComponent(studio.scene, selected, contribution.id, contribution.defaults)
+            break
+        }
+    }
+    if !pluginComponent then addComponent(studio.scene, selected, call.text)
     studio.record(selected, before, studio.scene.getParent(selected).id, "add ${call.text}")
     studio.message("Added ${call.text}")
 }
 
 @Command
-func componentRemove(studio: Studio!, call: Invocation&) {
+func componentRemove(studio: Studio!, call: Invocation&): Unit {
     fin selected = studio.selected()
-    if !studio.scene.isAlive(selected) { return }
+    if !studio.scene.isAlive(selected) then return
     fin before = studio.snapshot(selected)
-    removeComponent(studio.scene, selected, call.text)
+    if externalComponentText(studio.scene, selected, call.text) != "" then setExternalComponent(studio.scene, selected, call.text, "")
+    else removeComponent(studio.scene, selected, call.text)
     studio.record(selected, before, studio.scene.getParent(selected).id, "remove ${call.text}")
     studio.message("Removed ${call.text}")
 }
 
 @Command
-func componentToggle(studio: Studio!, call: Invocation&) {
-    var at = -1
-    var index = 0
-    while index < studio.collapsed.size {
-        if studio.collapsed[index] == call.text { at = index }
-        index = index + 1
-    }
-    if at >= 0 { studio.collapsed.removeAt(at) } else { studio.collapsed.add(call.text) }
+func componentToggle(studio: Studio!, call: Invocation&): Unit {
+    var at: Int = -1
+    for i: Int in 0..<studio.collapsed.size then if studio.collapsed[i] == call.text then at = i
+    if at >= 0 then studio.collapsed.removeAt(at) else studio.collapsed.add(call.text)
     studio.changed()
 }
 
 /** "Component.field" split at the dot. */
 func dotted(text: String, second: Bool): String {
-    var index = 0
-    while index < stringLength(text) {
-        if charAt(text, index) == '.' { return if second { substring(text, index + 1, stringLength(text)) } else { substring(text, 0, index) } }
-        index = index + 1
-    }
-    return if second { "" } else { text }
+    return for i: Int in 0..<stringLength(text) {
+        if charAt(text, i) == '.' then
+            break if second then substring(text, i + 1, stringLength(text)) else substring(text, 0, i)
+    } else if second then "" else text
 }
 
 @Command
-func fieldToggle(studio: Studio!, call: Invocation&) {
+func fieldToggle(studio: Studio!, call: Invocation&): Unit {
     fin entity = studio.scene.entityAt(call.target)
     fin before = studio.snapshot(entity)
-    fin component = dotted(call.text, false)
-    fin field = dotted(call.text, true)
+    fin component: String = dotted(call.text, false)
+    fin field: String = dotted(call.text, true)
     setFieldFlag(studio.scene, entity, component, field, !fieldFlag(studio.scene, entity, component, field))
     studio.record(entity, before, studio.scene.getParent(entity).id, "edit ${field}")
 }
 
 /** The next of an `@Choice` field's options; [call.arg] is how many there are. */
 @Command
-func fieldCycle(studio: Studio!, call: Invocation&) {
+func fieldCycle(studio: Studio!, call: Invocation&): Unit {
     fin entity = studio.scene.entityAt(call.target)
     fin before = studio.snapshot(entity)
-    fin component = dotted(call.text, false)
-    fin field = dotted(call.text, true)
+    fin component: String = dotted(call.text, false)
+    fin field: String = dotted(call.text, true)
     fin current = fieldNumber(studio.scene, entity, component, field, 0) as Int
-    fin next = if call.arg > 0 { (current + 1) % call.arg } else { 0 }
+    fin next = if call.arg > 0 then (current + 1) % call.arg else 0
     setFieldNumber(studio.scene, entity, component, field, 0, next as Double)
     studio.record(entity, before, studio.scene.getParent(entity).id, "edit ${field}")
 }
@@ -449,20 +608,43 @@ func fieldCycle(studio: Studio!, call: Invocation&) {
 // ── Assets and problems ─────────────────────────────────────────────────
 
 @Command
-func assetsOpen(studio: Studio!, call: Invocation&) {
+func assetsOpen(studio: Studio!, call: Invocation&): Unit {
     studio.assetsPath = call.text
     studio.refreshAssets()
 }
 
 @Command
-func assetsSelect(studio: Studio!, call: Invocation&) {
+func assetsSelect(studio: Studio!, call: Invocation&): Unit {
     studio.assetSelected = call.text
-    studio.message(call.text)
+    if fusionAssetPath(call.text) then openFusionAsset(studio, call.text) else studio.message(call.text)
+}
+
+@Command(title: "Create Landscape from Heightmap", menu: "Assets", group: 0, order: 1)
+func createHeightfield(studio: Studio!, call: Invocation&) {
+    fin path = if call.text != "" then call.text else studio.assetSelected
+    if !terrainFile(path) {
+        studio.notify("Select a P2 PGM heightmap in Assets", 1)
+        return
+    }
+    fin image = readTerrainImage("${studio.root}/${path}")
+    if image.samples == 0 {
+        studio.notify("Could not read 16-bit PGM heightmap", 3)
+        return
+    }
+    azFree(image.samples)
+    fin entity = studio.scene.spawn()
+    storageInsert<Name>(ensureStorage<Name>(studio.scene), entity, Name("Heightfield"))
+    storageInsert<Transform>(ensureStorage<Transform>(studio.scene), entity, Transform())
+    storageInsert<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene), entity, HeightfieldTerrain(image: path))
+    studio.record(entity, "", -1, "create heightfield")
+    studio.select(entity)
+    studio.showPanel = "ScenePanel"
+    studio.message("Created Heightfield")
 }
 
 @Command
-func problemOpen(studio: Studio!, call: Invocation&) {
-    if call.arg < 0 || call.arg >= studio.problems.size { return }
+func problemOpen(studio: Studio!, call: Invocation&): Unit {
+    if call.arg < 0 || call.arg >= studio.problems.size then return
     fin problem = studio.problems[call.arg].clone()
     studio.showPanel = "CodePanel"
     studio.sourceFocused = true
@@ -479,12 +661,12 @@ func studioOffsetAt(studio: Studio!, row: Int, column: Int): Int {
     var current = 0
     fin size = azsBufferSize(source)
     while start < size && current < row {
-        if azsBufferByte(source, start) == 10 { current = current + 1 }
+        if azsBufferByte(source, start) == 10 then current = current + 1
         start = start + 1
     }
     var end = start
     while end < size && azsBufferByte(source, end) != 10 { end = end + 1 }
     var offset = start + column
-    if offset > end { offset = end }
+    if offset > end then offset = end
     return offset
 }

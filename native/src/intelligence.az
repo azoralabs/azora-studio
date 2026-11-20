@@ -15,39 +15,39 @@ func declarationWidth(source: Long, offset: Int): Int {
     fin b = azsBufferByte(source, offset + 1)
     fin c = azsBufferByte(source, offset + 2)
     fin d = azsBufferByte(source, offset + 3)
-    var width = 0
-    if a == 102 && b == 117 && c == 110 && d == 99 { width = 4 }
-    if a == 112 && b == 97 && c == 99 && d == 107 { width = 4 }
-    if a == 115 && b == 112 && c == 101 && d == 99 { width = 4 }
-    if a == 101 && b == 110 && c == 117 && d == 109 { width = 4 }
-    if a == 108 && b == 101 && c == 116 { width = 3 }
-    if a == 118 && b == 97 && c == 114 { width = 3 }
-    if a == 102 && b == 105 && c == 110 { width = 3 }
-    if width > 0 && identifierByte(azsBufferByte(source, offset + width)) { return 0 }
+    var width: Int = 0
+    if a == 102 && b == 117 && c == 110 && d == 99 then width = 4
+    if a == 112 && b == 97 && c == 99 && d == 107 then width = 4
+    if a == 115 && b == 112 && c == 101 && d == 99 then width = 4
+    if a == 101 && b == 110 && c == 117 && d == 109 then width = 4
+    if a == 108 && b == 101 && c == 116 then width = 3
+    if a == 118 && b == 97 && c == 114 then width = 3
+    if a == 102 && b == 105 && c == 110 then width = 3
+    if width > 0 && identifierByte(azsBufferByte(source, offset + width)) then return 0
     return width
 }
 
 func inspectSource(source: Long): Int {
     fin stack = azsBufferAllocate(256)
-    if stack == Long(0) { return 1 }
-    var depth = 0
-    var offset = 0
-    var line = 1
-    var column = 1
-    var quote = 0
-    var escape = false
-    var lineComment = false
-    var blockDepth = 0
-    var errors = 0
-    var declaration = false
-    var beforeIdentifier = false
+    if stack == 0 then return 1
+    var depth: Int = 0
+    var offset: Int = 0
+    var line: Int = 1
+    var column: Int = 1
+    var quote: Int = 0
+    var escape: Bool = false
+    var lineComment: Bool = false
+    var blockDepth: Int = 0
+    var errors: Int = 0
+    var declaration: Bool = false
+    var beforeIdentifier: Bool = false
     fin size = azsBufferSize(source)
     while offset < size {
         fin value = azsBufferByte(source, offset)
         fin next = azsBufferByte(source, offset + 1)
-        var skip = 1
+        var skip: Int = 1
         if lineComment {
-            if value == 10 { lineComment = false }
+            if value == 10 then lineComment = false
         } else if blockDepth > 0 {
             if value == 47 && next == 42 { blockDepth = blockDepth + 1
         skip = 2 }
@@ -74,7 +74,7 @@ func inspectSource(source: Long): Int {
         depth = depth + 1 }
             } else if value == 41 || value == 93 || value == 125 {
                 var expected = value - 2
-                if value == 41 { expected = 40 }
+                if value == 41 then expected = 40
                 if depth == 0 {
                     azsDiagnostic(offset, 1, line, column, "unexpected closing delimiter")
                     errors = errors + 1
@@ -86,7 +86,7 @@ func inspectSource(source: Long): Int {
             }
             if identifierByte(value) && !beforeIdentifier {
                 if declaration {
-                    var end = offset + 1
+                    var end: Int = offset + 1
                     while identifierByte(azsBufferByte(source, end)) { end = end + 1 }
                     azsSymbol(offset, end - offset, line, column)
                     declaration = false

@@ -5,9 +5,15 @@ import engine.core
 import engine.ecs
 import engine.math
 import engine.platform
+import engine.objc
 import engine.gpu
 import engine.gpu.draw
 import engine.scene
+import engine.scene.terrain
+import engine.lighting.photon
+import studio.fields
+import engine.sky
+import studio.host
 import engine.render.scene
 import engine.gizmos
 import engine.ui.node
@@ -18,6 +24,7 @@ import studio.theme
 import studio.state
 import studio.ui
 import studio.panels
+import studio.plugins
 
 // The scene viewport: the Engine renders the scene into the panel's surface,
 // and the gizmos package draws the grid, the handles and the axis widget over
@@ -26,33 +33,67 @@ import studio.panels
 
 @Panel(title: "Scene", icon: "box", area: .Center, order: 0, closable: false)
 @Canvas
-pack ScenePanel { }
-impl ScenePanel {
+impl pack ScenePanel {
     react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
-        return Column(modifier: Modifier::fillMaxSize(), key: "scene") {
+        return Column(modifier: ::fillMaxSize(), key: "scene") {
             PanelBar {
                 BarButton("toolSelect", app, icon: "mouse-pointer-2", active: studio.tool == 0, key: "select")
                 BarButton("toolMove", app, icon: "move", active: studio.tool == 1, key: "move")
                 BarButton("toolRotate", app, icon: "rotate-3d", active: studio.tool == 2, key: "rotate")
                 BarButton("toolScale", app, icon: "scale-3d", active: studio.tool == 3, key: "scale")
                 Divider(key: "divider")
-                BarButton("viewToggle2d", app, label: if studio.mode3d { "3D" } else { "2D" }, active: true, key: "mode")
+                BarButton("viewToggle2d", app, label: if studio.mode3d then "3D" else "2D", active: true, key: "mode")
+                BarButton("viewLit", app, label: "Lit", active: studio.viewMode == 0, key: "lit")
+                BarButton("viewUnlit", app, label: "Unlit", active: studio.viewMode == 1, key: "unlit")
+                BarButton("viewWireframe", app, label: "Wireframe", active: studio.viewMode == 2, key: "wire")
                 Spacer(key: "fill")
+                fin sky = viewSkyEntity(studio)
+                if sky.isValid {
+                    fin hour = storageGet<SkyEnvironment>(storageOf<SkyEnvironment>(studio.scene), sky).hour
+                    Text("Hour", modifier: ::width(30.0).fontSize(11.0).mutedText(), key: "sky-label")
+                    Row(modifier: ::width(68.0).height(26.0), key: "sky-time") {
+                        NumberField("SkyTime", "hour", 0, hour, studio.focus, key: "hour")
+                    }
+                }
                 BarButton("viewFocus", app, icon: "focus", label: "Focus", key: "focus")
             }
             Surface("ScenePanel", studioTheme.viewport)
         }
     }
 
-    func draw(app: App!, studio: Studio!, rect: ViewRect&) { drawViewport(app, studio, rect) }
+    func draw(app: App!, studio: Studio!, rect: ViewRect&) {
+        drawViewport(app, studio, rect)
+    }
 
-    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
-        return viewportPointer(studio, rect, input)
+    func pointer(app: App!, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+        return viewportPointer(app, studio, rect, input)
     }
 }
 
+func viewSkyEntity(studio: Studio&): Entity {
+    fin skies = storageOf<SkyEnvironment>(studio.scene)
+    var index = 0
+    while index < storageLength<SkyEnvironment>(skies) {
+        fin entity = storageEntityAt<SkyEnvironment>(skies, index)
+        if skies.values[index].enabled && studio.scene.isAlive(entity) then return entity
+        index += 1
+    }
+    return Entity::invalid
+}
+
+func setViewportSkyHour(studio: Studio!, text: String) {
+    fin entity = viewSkyEntity(studio)
+    if !studio.scene.isAlive(entity) then return
+    fin before = studio.snapshot(entity)
+    var sky = storageGet<SkyEnvironment>(ensureStorage<SkyEnvironment>(studio.scene), entity).clone()
+    sky.hour = skyClamp(parseNumber(text, sky.hour), 0.0, 24.0)
+    storageInsert<SkyEnvironment>(ensureStorage<SkyEnvironment>(studio.scene), entity, take sky)
+    studio.viewportStarted = azsMonotonicSeconds()
+    studio.record(entity, before, studio.scene.getParent(entity).id, "edit sky hour")
+}
+
 func gizmoColors(): GizmoColors {
-    var colors = GizmoColors()
+    var colors: GizmoColors = .()
     colors.x = studioTheme.axisX
     colors.y = studioTheme.axisY
     colors.z = studioTheme.axisZ
@@ -88,8 +129,8 @@ func rayIntoEntity(world: World!, entity: Entity, ray: Ray&): Ray {
         current = world.getParent(current)
         depth = depth + 1
     }
-    var origin = Vec3(ray.origin.x, ray.origin.y, ray.origin.z)
-    var direction = Vec3(ray.direction.x, ray.direction.y, ray.direction.z)
+    var origin: Vec3 = .(ray.origin.x, ray.origin.y, ray.origin.z)
+    var direction: Vec3 = .(ray.direction.x, ray.direction.y, ray.direction.z)
     var index = 0
     while index < chain.size {
         if storageHas<Transform>(ensureStorage<Transform>(world), chain[index]) {
@@ -108,16 +149,16 @@ func rayOriginSphere(ray: Ray&, radius: Double): Double {
     fin b = v3dot(ray.origin, ray.direction)
     fin c = v3dot(ray.origin, ray.origin) - radius * radius
     fin disc = b * b - a * c
-    if disc < 0.0 || a <= 0.0 { return -1.0 }
+    if disc < 0.0 || a <= 0.0 then return -1.0
     fin root = sqrt(disc)
     fin near = (0.0 - b - root) / a
-    if near >= 0.0 { return near }
+    if near >= 0.0 then return near
     fin far = (0.0 - b + root) / a
     return if far >= 0.0 { far } else { -1.0 }
 }
 
 /** The mesh entity the ray from ([x], [y]) meets first, or an invalid entity. */
-func pickMesh(studio: Studio!, ray: Ray&): Entity {
+func pickMesh(app: App!, studio: Studio!, ray: Ray&): Entity {
     var best = Entity::invalid
     var bestDistance: Double = 1000000000.0
     var index = 0
@@ -139,6 +180,43 @@ func pickMesh(studio: Studio!, ray: Ray&): Entity {
         }
         index = index + 1
     }
+    index = 0
+    while index < storageLength<PluginObject>(ensureStorage<PluginObject>(studio.scene)) {
+        fin entity = storageEntityAt<PluginObject>(ensureStorage<PluginObject>(studio.scene), index)
+        fin object = storageValueAt<PluginObject>(ensureStorage<PluginObject>(studio.scene), index).clone()
+        if studio.scene.isAlive(entity) && visibleInWorld(studio.scene, entity) {
+            fin local = rayIntoEntity(studio.scene, entity, ray)
+            fin distance = studio.pluginPick(app, object.plugin, object.id, local)
+            if distance >= 0.0 && distance < bestDistance {
+                bestDistance = distance
+                best = entity
+            }
+        }
+        index = index + 1
+    }
+    fin terrains = ensureStorage<HeightfieldTerrain>(studio.scene)
+    index = 0
+    while index < storageLength<HeightfieldTerrain>(terrains) {
+        fin entity = storageEntityAt<HeightfieldTerrain>(terrains, index)
+        if studio.scene.isAlive(entity) && visibleInWorld(studio.scene, entity) {
+            fin terrain = terrains.values[index].clone()
+            fin asset = app.gpu.terrainIndex(terrain.image)
+            fin data = app.gpu.terrains[asset].image.clone()
+            if data.samples != 0 {
+                fin local = rayIntoEntity(studio.scene, entity, ray)
+                fin w = terrainClamp(terrain.width, 1.0, 100000.0)
+                fin h = terrainClamp(terrain.elevation, 0.1, 10000.0)
+                fin l = terrainClamp(terrain.length, 1.0, 100000.0)
+                fin t = photonTerrainRay(data, Vec3(local.origin.x/w,local.origin.y/h,local.origin.z/l),
+                    Vec3(local.direction.x/w,local.direction.y/h,local.direction.z/l)).t
+                if t >= 0.0 && t < bestDistance {
+                    bestDistance = t
+                    best = entity
+                }
+            }
+        }
+        index += 1
+    }
     return best
 }
 
@@ -150,7 +228,7 @@ func pickMarker(studio: Studio!, viewProj: Mat4&, rect: ViewRect&, x: Double, y:
         if studio.scene.isAlive(entity) && (storageHas<Camera3d>(ensureStorage<Camera3d>(studio.scene), entity) ||
             storageHas<Light3d>(ensureStorage<Light3d>(studio.scene), entity)) {
             fin at = project(viewProj, rect, worldPosition(studio.scene, entity))
-            if at.visible && absValue(at.x - x) < 13.0 && absValue(at.y - y) < 13.0 { return entity }
+            if at.visible && absValue(at.x - x) < 13.0 && absValue(at.y - y) < 13.0 then return entity
         }
         id = id + 1
     }
@@ -186,6 +264,45 @@ func applyGizmo(studio: Studio!, entity: Entity, rect: ViewRect&, input: FrameIn
     studio.changed()
 }
 
+/** Routes a brush to the selected plugin entity, or its first visible entity. */
+func brushPointer(app: App&, studio: Studio!, phase: String, ray: Ray&, seconds: Double) {
+    var entity = studio.selected()
+    var target = PluginObject()
+    if studio.scene.isAlive(entity) {
+        target = storageGetOrDefault<PluginObject>(ensureStorage<PluginObject>(studio.scene), entity, PluginObject())
+    }
+    if target.plugin != studio.pluginToolOwner && studio.pluginHasComponents(studio.pluginToolOwner) {
+        if phase == "begin" then studio.message("Select a plugin object to edit it")
+        studio.pluginHit = .()
+        return
+    }
+    if target.plugin != studio.pluginToolOwner {
+        entity = Entity::invalid
+        var index = 0
+        while index < storageLength<PluginObject>(ensureStorage<PluginObject>(studio.scene)) {
+            fin candidate = storageEntityAt<PluginObject>(ensureStorage<PluginObject>(studio.scene), index)
+            fin item = storageValueAt<PluginObject>(ensureStorage<PluginObject>(studio.scene), index).clone()
+            if item.plugin == studio.pluginToolOwner {
+                if target.plugin != studio.pluginToolOwner then target = PluginObject(item.plugin, -1, item.kind)
+                if visibleInWorld(studio.scene, candidate) {
+                    entity = candidate
+                    target = item
+                    break
+                }
+            }
+            index = index + 1
+        }
+    } else if !visibleInWorld(studio.scene, entity) {
+        target.id = -1
+    }
+    if target.id > 0 {
+        fin local = rayIntoEntity(studio.scene, entity, ray)
+        studio.pluginToolRequest(app, phase, ray, seconds, local, target.id, worldMatrix(studio.scene, entity))
+    } else {
+        studio.pluginToolRequest(app, phase, ray, seconds, ray, target.id, mat4Identity())
+    }
+}
+
 /**
  * The viewport's share of this frame's pointer. Answers whether it used it.
  *
@@ -194,7 +311,7 @@ func applyGizmo(studio: Studio!, entity: Entity, rect: ViewRect&, input: FrameIn
  * fingers orbit (Shift pans) and a pinch zooms; a wheel zooms. In 2D every
  * drag pans and the fly keys slide the view.
  */
-func viewportPointer(studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+func viewportPointer(app: App!, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
     studio.camera.orthographic = !studio.mode3d
     fin selected = studio.selected()
     when studio.viewDrag {
@@ -222,9 +339,20 @@ func viewportPointer(studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool
             }
             studio.viewDrag = 0
         }
+        6 -> {
+            // A plugin tool's stroke, from press to release.
+            fin ray = studio.camera.ray(rect, input.x, input.y)
+            if input.down && rect.contains(input.x, input.y) {
+                brushPointer(app, studio, "drag", ray, input.seconds)
+                return true
+            }
+            brushPointer(app, studio, "end", ray, input.seconds)
+            studio.viewDrag = 0
+            return true
+        }
         3 -> {
             if input.down {
-                if studio.scene.isAlive(selected) { applyGizmo(studio, selected, rect, input) }
+                if studio.scene.isAlive(selected) then applyGizmo(studio, selected, rect, input)
                 return true
             }
             studio.gizmo.end()
@@ -241,8 +369,8 @@ func viewportPointer(studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool
         }
         else -> { }
     }
-    if !rect.contains(input.x, input.y) { return false }
-    if input.pinch != 0.0 { studio.camera.zoom(input.pinch * 6.0) }
+    if !rect.contains(input.x, input.y) then return false
+    if input.pinch != 0.0 then studio.camera.zoom(input.pinch * 6.0)
     if input.scrollX != 0.0 || input.scrollY != 0.0 {
         when {
             !input.preciseScroll -> studio.camera.zoom(input.scrollY * 0.35)
@@ -250,7 +378,7 @@ func viewportPointer(studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool
             else -> studio.camera.orbit(input.scrollX, input.scrollY)
         }
     }
-    fin hasHandles = studio.tool != 0 && studio.scene.isAlive(selected)
+    fin hasHandles = studio.pluginTool == "" && studio.tool != 0 && studio.scene.isAlive(selected)
     if hasHandles {
         studio.gizmo.mode = studio.tool - 1
         studio.gizmo.origin = worldPosition(studio.scene, selected)
@@ -271,7 +399,18 @@ func viewportPointer(studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool
         studio.viewDrag = 2
         return true
     }
-    if !input.pressed { return false }
+    // A plugin tool in hand answers the pointer before picking does.
+    if studio.pluginTool != "" && !input.alt {
+        fin ray = studio.camera.ray(rect, input.x, input.y)
+        if input.pressed {
+            brushPointer(app, studio, "begin", ray, input.seconds)
+            studio.viewDrag = 6
+            return true
+        }
+        brushPointer(app, studio, "hover", ray, input.seconds)
+        return false
+    }
+    if !input.pressed then return false
     if input.alt {
         studio.viewDrag = if studio.mode3d { 5 } else { 2 }
         return true
@@ -291,7 +430,7 @@ func viewportPointer(studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool
     }
     fin viewProj = studio.camera.viewProj(rect.aspect())
     var hit = pickMarker(studio, viewProj, rect, input.x, input.y)
-    if !studio.scene.isAlive(hit) { hit = pickMesh(studio, studio.camera.ray(rect, input.x, input.y)) }
+    if !studio.scene.isAlive(hit) then hit = pickMesh(app, studio, studio.camera.ray(rect, input.x, input.y))
     studio.select(hit)
     if studio.scene.isAlive(hit) { studio.message("Selected ${studio.nameOf(hit)}") }
     return true
@@ -301,7 +440,7 @@ func viewportPointer(studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool
 
 /** The corners of [entity]'s mesh bounds, in the world. */
 func boundsLines(app: App!, studio: Studio!, entity: Entity, viewProj: Mat4&, rect: ViewRect&, color: Rgba) {
-    if !storageHas<Mesh3d>(ensureStorage<Mesh3d>(studio.scene), entity) { return }
+    if !storageHas<Mesh3d>(ensureStorage<Mesh3d>(studio.scene), entity) then return
     fin mesh = storageGet<Mesh3d>(ensureStorage<Mesh3d>(studio.scene), entity).clone()
     fin m = worldMatrix(studio.scene, entity)
     fin half = mesh.size * 0.5
@@ -331,7 +470,7 @@ func drawMarkers(app: App!, studio: Studio!, viewProj: Mat4&, rect: ViewRect&) {
     while id < studio.scene.entityCount {
         fin entity = studio.scene.entityAt(id)
         fin camera = studio.scene.isAlive(entity) && storageHas<Camera3d>(ensureStorage<Camera3d>(studio.scene), entity)
-        fin light = studio.scene.isAlive(entity) && storageHas<Light3d>(ensureStorage<Light3d>(studio.scene), entity)
+        fin light = studio.scene.isAlive(entity) && storageHas<Light3d>(ensureStorage<Light3d>(studio.scene), entity) && entity != sceneSkyLight(studio.scene)
         if camera || light {
             fin position = worldPosition(studio.scene, entity)
             fin m = worldMatrix(studio.scene, entity)
@@ -350,27 +489,90 @@ func drawMarkers(app: App!, studio: Studio!, viewProj: Mat4&, rect: ViewRect&) {
     }
 }
 
+/** Reuses the authored camera for heightfield scenes so the terrain opens framed. */
+func frameTerrainScene(studio: Studio!) {
+    if storageLength<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene)) == 0 then return
+    fin cameras = ensureStorage<Camera3d>(studio.scene)
+    var index = 0
+    while index < storageLength<Camera3d>(cameras) {
+        fin entity = storageEntityAt<Camera3d>(cameras, index)
+        if studio.scene.isAlive(entity) && cameras.values[index].active {
+            fin camera = cameras.values[index].clone()
+            fin pose = worldMatrix(studio.scene, entity)
+            fin forward = v3unit(Vec3(-pose.m02, -pose.m12, -pose.m22))
+            fin eye = Vec3(pose.m03, pose.m13, pose.m23)
+            fin terrain = storageValueAt<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene), 0).clone()
+            studio.camera.distance = (terrain.width + terrain.length) * 0.15
+            studio.camera.target = v3add(eye, v3scale(forward, studio.camera.distance))
+            studio.camera.pitch = asin(clampValue(forward.y, -1.0, 1.0)) / degreesToRadians
+            studio.camera.yaw = atan2(-forward.x, -forward.z) / degreesToRadians
+            studio.camera.fov = camera.fov
+            studio.camera.far = camera.far
+            return
+        }
+        index += 1
+    }
+}
+
+/** A count as people read it: 980, 48.2k, 1.4M. */
+func countText(count: Int): String = when {
+    count >= 1000000 -> "${fixedDecimal((count as Double)/1000000.0,1)}M"
+    count >= 1000 -> "${fixedDecimal((count as Double)/1000.0,1)}k"
+    else -> "${count}"
+}
+
 func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
-    if rect.width < 4.0 || rect.height < 4.0 { return }
+    if rect.width < 4.0 || rect.height < 4.0 then return
     studio.camera.orthographic = !studio.mode3d
     fin colors = gizmoColors()
     fin viewProj = studio.camera.viewProj(rect.aspect())
     app.setScissor(rect.x, rect.y, rect.width, rect.height)
-    app.drawGrid(studio.camera, rect, 1.0, 40.0, colors)
+    fin elapsed = azsMonotonicSeconds() - studio.viewportStarted
+    fin skyEntity = sceneSkyLight(studio.scene)
+    if studio.mode3d && studio.scene.isAlive(skyEntity) {
+        fin sky = sampleSky(storageGet<SkyEnvironment>(ensureStorage<SkyEnvironment>(studio.scene), skyEntity), elapsed)
+        app.drawSkyView(rect.x, rect.y, rect.width, rect.height, sky,
+            studio.camera.forward(), studio.camera.right(), studio.camera.up(), tan(studio.camera.fov*degreesToRadians*0.5))
+    } else {
+        app.drawGrid(studio.camera, rect, 1.0, 40.0, colors)
+    }
     app.beginView(viewProj, rect)
-    app.applySceneLight(studio.scene)
+    app.setMaterialEye(studio.camera.position())
+    app.gpu.flatMaterials = studio.viewMode != 0
+    if studio.viewMode == 0 {
+        app.gpu.indirectLighting = studio.indirectLighting
+        app.gpu.virtualShadows = studio.virtualShadows
+        app.gpu.upscale = studio.upscaling
+        if studio.recomputeShadows {
+            discardStaticShadows(app.gpu)
+            studio.recomputeShadows = false
+        }
+        app.applySceneLight(studio.scene, elapsed)
+        app.updateScenePhotons(studio.scene, studio.camera.target, elapsed)
+    } else {
+        app.setAmbientLight(1.0)
+    }
+    if studio.viewMode == 2 then send1(app.gpu.enc, sel("setTriangleFillMode:"), 1)
     app.drawScene(studio.scene, studio.meshes)
+    app.drawPluginMeshes(studio, rect)
+    if studio.viewMode == 2 then send1(app.gpu.enc, sel("setTriangleFillMode:"), 0)
+    app.gpu.flatMaterials = false
     app.endView()
     app.setScissor(rect.x, rect.y, rect.width, rect.height)
     fin selected = studio.selected()
-    if studio.scene.isAlive(selected) { boundsLines(app, studio, selected, viewProj, rect, studioTheme.accent.withAlpha(0.9)) }
+    if studio.scene.isAlive(selected) then boundsLines(app, studio, selected, viewProj, rect, studioTheme.accent.withAlpha(0.9))
     drawMarkers(app, studio, viewProj, rect)
-    if studio.tool != 0 && studio.scene.isAlive(selected) {
+    app.drawPluginBrush(studio, viewProj, rect, studioTheme.accent)
+    if studio.pluginTool == "" && studio.tool != 0 && studio.scene.isAlive(selected) {
         studio.gizmo.mode = studio.tool - 1
-        if studio.gizmo.active == 0 { studio.gizmo.origin = worldPosition(studio.scene, selected) }
+        if studio.gizmo.active == 0 then studio.gizmo.origin = worldPosition(studio.scene, selected)
         app.drawGizmo(studio.gizmo, studio.camera, rect, colors)
     }
-    if studio.mode3d { app.drawOrientation(studio.camera, rect, colors, 0) }
+    if studio.mode3d then app.drawOrientation(studio.camera, rect, colors, 0)
+    // Frame rate and frame time beside the axis widget, with what the terrain and plugin meshes cost.
+    fin triangles = app.gpu.terrainTriangles + studio.pluginTriangles
+    fin detail = if triangles > 0 then "${countText(triangles)} terrain tris" else ""
+    app.drawFrameStats(studio.frameStats, rect.x + rect.width - (if studio.mode3d then 92.0 else 10.0), rect.y + 10.0, detail)
     fin label = if studio.mode3d { "Perspective" } else { "2D · Orthographic" }
     fin width = app.uiTextWidth(label, 11.0) + 18.0
     app.uiRoundRect(rect.x + 10.0, rect.y + 10.0, width, 22.0, 11.0, 0.0, 0.0, 0.0, 0.35)

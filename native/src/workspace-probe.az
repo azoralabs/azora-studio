@@ -23,7 +23,7 @@ react func main() {
     var saveHit = false
     var probeX: Double = 0.0
     while probeX < 1280.0 {
-        if pass.hit(probeX, 26.0) == 1 { saveHit = true }
+        if pass.hit(probeX, 26.0) == 1 then saveHit = true
         probeX = probeX + 4.0
     }
     assert saveHit panic "toolbar save must be an Engine action node"

@@ -1,0 +1,1031 @@
+module studio.plugins
+import std.math
+import std.io
+import std.serializer
+import std.container.list
+import engine.core
+import engine.ecs
+import engine.scene
+import engine.render.scene
+import engine.math
+import engine.platform
+import engine.gpu
+import engine.gpu.draw
+import engine.gizmos
+import engine.objc
+import engine.io
+import engine.scene.io
+import studio.host
+import studio.os
+import studio.ui
+import engine.lighting.photon
+import studio.state
+
+// Plugins: packages Studio builds and loads while it runs, the way an engine
+// editor loads its modules - but with no restart. A package is a folder with a
+// `plugin.azon` manifest and Azora sources. Dropping one into the plugins
+// folder (or selecting a package on disk) is all it takes: the frame
+// loop notices it, compiles it with the native compiler into a shared library
+// exporting the manifest's `entry`, loads that library and calls the entry.
+// Editing a loaded plugin's sources rebuilds and reloads it the same way.
+//
+// Plugin ABIs 1 and 2. Studio calls `entry(request: String): Int` with one AZON
+// request; the plugin answers through the `studioPlugin…` services below,
+// which this executable exports by name (build-window.sh `--export`). The SDK
+// a plugin compiles against declares them: resources/sdk/sdk.az.
+
+fin pluginAbi: Int = 2
+
+func supportedPluginAbi(abi: Int): Bool = abi >= 1 && abi <= pluginAbi
+
+// ── Services a plugin calls ─────────────────────────────────────────────
+
+/** What the plugin being called has answered so far. */
+threadlocal var pluginReply: String = ""
+/** The last file a plugin read, kept until it reads the next. */
+threadlocal var pluginFileText: String = ""
+pack PluginMeshSubmission derives Clone {
+    var key: Int = 0
+    var object: Int = 0
+    var bytes: Long = 0
+    var count: Int = 0
+    var level: Int = 0
+    var x: Double = 0.0
+    var y: Double = 0.0
+    var z: Double = 0.0
+    var radius: Double = 0.0
+    var maxDeviation: Double = 0.0
+}
+
+threadlocal var pluginMeshSubmissions: Array<PluginMeshSubmission> = []
+
+/** Reads the reply after the foreign entry has called back into Studio. */
+func currentPluginReply(): String = pluginReply
+
+/** The project a plugin's files are relative to: the one Studio has open. */
+func pluginProject(): String = azsEnvironment("AZORA_STUDIO_PROJECT")
+
+/** Appends AZON [text] to the answer of the request being served. */
+func studioPluginReply(text: String) {
+    pluginReply = "${pluginReply}${text}"
+}
+
+/**
+ * Room for a mesh of [vertices] triangle-list vertices (position and normal,
+ * six float32 each) that replaces the plugin's mesh [key]; the plugin writes
+ * the vertices there before it returns. Zero vertices removes the mesh.
+ */
+func studioPluginMesh(key: Int, vertices: Int): Long = studioPluginObjectMesh(0, key, vertices)
+
+/** Submits a mesh in the local space of a plugin-owned scene object. */
+func studioPluginObjectMesh(object: Int, key: Int, vertices: Int): Long {
+    return studioPluginObjectMeshLod(object,key,0,vertices,0.0,0.0,0.0,0.0,0.0)
+}
+
+func studioPluginObjectMeshLod(object: Int, key: Int, level: Int, vertices: Int,
+                               x: Double, y: Double, z: Double, radius: Double, maxDeviation: Double): Long {
+    if level < 0 || level > 3 || vertices < 0 || vertices > 2000000 then return 0
+    fin bytes: Long = if vertices > 0 then azAlloc((vertices as Long) * 24) else 0
+    if vertices > 0 && bytes == 0 then return 0
+    pluginMeshSubmissions.add(PluginMeshSubmission(key,object,bytes,vertices,level,x,y,z,radius,maxDeviation))
+    return bytes
+}
+
+/** The project file at [relative], "" when there is none. */
+func studioPluginReadFile(relative: String): String {
+    pluginFileText = readProjectFile(pluginProject(), relative)
+    return pluginFileText
+}
+
+/** Writes [text] to the project file at [relative], making its folders. 1 on success. */
+func studioPluginWriteFile(relative: String, text: String): Int {
+    fin slash = lastSlash(relative)
+    if slash > 0 then makeFolders("${pluginProject()}/${substring(relative, 0, slash)}")
+    fin project = azsProjectOpen(pluginProject(), 0)
+    if project == 0 then return 0
+    fin buffer = azsBufferNew(text)
+    fin written = if buffer == 0 then 0 else azsProjectWrite(project, relative, buffer)
+    if buffer != 0 then azsBufferClose(buffer)
+    azsProjectClose(project)
+    return written
+}
+
+func lastSlash(text: String): Int {
+    var at = stringLength(text) - 1
+    while at >= 0 && charAt(text, at) != '/' { at = at - 1 }
+    return at
+}
+
+/** The file at [relative] under the folder [root], "" when there is none. */
+func readProjectFile(root: String, relative: String): String {
+    fin project = azsProjectOpen(root, 0)
+    if project == 0 then return ""
+    fin buffer = azsProjectRead(project, relative)
+    var text = ""
+    if buffer != 0 {
+        fin copied = "${azsBufferText(buffer)} "
+        text = substring(copied, 0, stringLength(copied) - 1)
+        azsBufferClose(buffer)
+    }
+    azsProjectClose(project)
+    return text
+}
+
+// ── Manifests ───────────────────────────────────────────────────────────
+
+func memberAt(fields: List<SerialField>&, name: String): Int {
+    var index = 0
+    while index < fields.size {
+        if fields[index].name == name then return index
+        index = index + 1
+    }
+    return -1
+}
+
+func memberText(fields: List<SerialField>&, name: String, fallback: String): String {
+    fin at = memberAt(fields, name)
+    return if at < 0 then fallback else serialAsText(fields[at].value) catch fallback
+}
+
+func memberReal(fields: List<SerialField>&, name: String, fallback: Double): Double {
+    fin at = memberAt(fields, name)
+    return if at < 0 then fallback else serialAsReal(fields[at].value) catch fallback
+}
+
+func memberInt(fields: List<SerialField>&, name: String, fallback: Int): Int {
+    fin at = memberAt(fields, name)
+    return if at < 0 then fallback else serialAsInt(fields[at].value) catch fallback
+}
+
+/** Package ids also serve as installed directory names and stable tab ids. */
+func packageId(id: String): Bool {
+    if id == "" || id == "." || id == ".." || startsWith(id, ".") then return false
+    var index = 0
+    while index < stringLength(id) {
+        fin c = charAt(id, index)
+        if !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9') && c != '.' && c != '-' && c != '_' then return false
+        index = index + 1
+    }
+    return true
+}
+
+/** The plugin [text] describes, found in [folder]; its id is "" when it is no manifest. */
+func readManifest(text: String, folder: String): Plugin {
+    var plugin: Plugin = .()
+    plugin.folder = folder
+    fin root = decodeSerialValue(text, serializerOptions()) catch SerialValue.Null
+    when root {
+        SerialValue.Object(fields) -> {
+            if memberText(fields, "format", "") != "azora-studio-plugin" then return plugin
+            plugin.id = memberText(fields, "id", "")
+            if !packageId(plugin.id) then plugin.id = ""
+            plugin.name = memberText(fields, "name", folder)
+            plugin.version = memberText(fields, "version", "")
+            plugin.description = memberText(fields, "description", "")
+            plugin.abi = memberInt(fields, "studioAbi", 0)
+            plugin.source = memberText(fields, "source", "src")
+            plugin.main = memberText(fields, "main", "plugin.az")
+            plugin.entry = memberText(fields, "entry", "")
+            fin tintAt = memberAt(fields, "tint")
+            if tintAt >= 0 {
+                when fields[tintAt].value {
+                    SerialValue.Object(rgb) -> plugin.tint = .(memberReal(rgb, "r", 0.62), memberReal(rgb, "g", 0.66), memberReal(rgb, "b", 0.6), 1.0)
+                    else -> { }
+                }
+            }
+        }
+        else -> { }
+    }
+    return plugin
+}
+
+/** The objects of the list [name] in [text]'s top level, each as its fields. */
+func listedObjects(text: String, name: String, visit: inline (List<SerialField>&) -> Unit) {
+    fin root = decodeSerialValue(text, serializerOptions()) catch SerialValue.Null
+    when root {
+        SerialValue.Object(fields) -> {
+            fin at = memberAt(fields, name)
+            if at < 0 then return
+            when fields[at].value {
+                SerialValue.Array(items) -> {
+                    var index = 0
+                    while index < items.size {
+                        when items[index] {
+                            SerialValue.Object(entry) -> visit(entry)
+                            else -> { }
+                        }
+                        index = index + 1
+                    }
+                }
+                else -> { }
+            }
+        }
+        else -> { }
+    }
+}
+
+impl Studio {
+    /** The index of the plugin installed in [folder], or -1. */
+    func &.pluginAt(folder: String): Int {
+        var index = 0
+        while index < self.plugins.size {
+            if self.plugins[index].folder == folder then return index
+            index = index + 1
+        }
+        return -1
+    }
+
+    func &.pluginById(id: String): Int {
+        var index = 0
+        while index < self.plugins.size {
+            if self.plugins[index].id == id then return index
+            index = index + 1
+        }
+        return -1
+    }
+
+    func &.pluginFolder(index: Int): String = "${self.pluginsRoot}/${self.plugins[index].folder}"
+
+    /** What a loaded plugin's manifest adds: its tools, settings and creatable kinds. */
+    func !.addContributions(id: String, text: String) {
+        listedObjects(text, "tools") { fields ->
+            self.pluginTools.add(PluginTool(id, memberText(fields, "id", ""), memberText(fields, "label", ""),
+                memberText(fields, "icon", "wrench"), memberText(fields, "hint", "")))
+        }
+        listedObjects(text, "params") { fields ->
+            fin low = memberReal(fields, "min", 0.0)
+            self.pluginParams.add(PluginParam(id, memberText(fields, "id", ""), memberText(fields, "label", ""),
+                low, memberReal(fields, "max", 1.0), memberReal(fields, "step", 0.1), memberReal(fields, "value", low), memberText(fields, "section", "Brush")))
+        }
+        listedObjects(text, "components") { fields ->
+            fin name = memberText(fields, "id", "")
+            fin defaults = memberAt(fields, "defaults")
+            fin document = if defaults < 0 then "{}" else (encodeSerialValue(fields[defaults].value, serializerOptions()) catch "{}")
+            if name != "" then self.pluginComponents.add(PluginComponentSpec(id, name, memberText(fields, "label", name),
+                memberText(fields, "icon", "component"), document, memberText(fields, "objectKind", "")))
+        }
+        listedObjects(text, "objects") { fields ->
+            self.pluginKinds.add(PluginKind(id, memberText(fields, "kind", ""), memberText(fields, "label", ""), memberText(fields, "icon", "box"), memberText(fields, "component", "")))
+        }
+    }
+
+    /** Takes back everything plugin [id] added, its meshes included. */
+    func !.removeContributions(app: App&, id: String) {
+        var component = 0
+        while component < self.pluginComponents.size {
+            if self.pluginComponents[component].plugin == id then self.pluginComponents.removeAt(component) else component += 1
+        }
+        var atTool = 0
+        while atTool < self.pluginTools.size {
+            if self.pluginTools[atTool].plugin == id then self.pluginTools.removeAt(atTool) else atTool = atTool + 1
+        }
+        var atParam = 0
+        while atParam < self.pluginParams.size {
+            if self.pluginParams[atParam].plugin == id then self.pluginParams.removeAt(atParam) else atParam = atParam + 1
+        }
+        var atKind = 0
+        while atKind < self.pluginKinds.size {
+            if self.pluginKinds[atKind].plugin == id then self.pluginKinds.removeAt(atKind) else atKind = atKind + 1
+        }
+        var index = 0
+        while index < self.pluginMeshes.size {
+            if self.pluginMeshes[index].plugin == id {
+                releasePluginMesh(self.pluginMeshes[index])
+                self.pluginMeshes.removeAt(index)
+            } else {
+                index = index + 1
+            }
+        }
+        if self.pluginToolOwner == id {
+            self.pluginTool = ""
+            self.pluginToolOwner = ""
+            self.pluginHit = .()
+        }
+    }
+}
+
+// ── Discovery ───────────────────────────────────────────────────────────
+
+impl Studio {
+    /**
+     * Looks for new, changed and removed packages in the plugins folder.
+     * A new or changed one is queued to build.
+     */
+    func !.scanPlugins(app: App&) {
+        fin folders = listFolders(self.pluginsRoot)
+        var present: Array<String> = []
+        var index = 0
+        while index < folders.size {
+            fin folder = folders[index]
+            fin manifest = readProjectFile("${self.pluginsRoot}/${folder}", "plugin.azon")
+            if manifest != "" {
+                present.add(folder)
+                fin stamp = treeStamp("${self.pluginsRoot}/${folder}")
+                fin at = self.pluginAt(folder)
+                // A package still being copied in has files younger than a
+                // second; it is built once it has settled, not half-written.
+                fin settled = azsWallSeconds() - stamp > 1.0
+                when {
+                    !settled -> { }
+                    at < 0 -> {
+                        var found = readManifest(manifest, folder)
+                        if found.id != "" && self.pluginById(found.id) < 0 {
+                            found.stamp = stamp
+                            found.state = if supportedPluginAbi(found.abi) && found.entry != "" then 0 else 4
+                            found.message = if found.state == 4 then "Requires Studio plugin ABI ${found.abi}" else "Installed"
+                            self.plugins.add(found)
+                            self.output("Plugin found: ${found.name} ${found.version}")
+                            self.changed()
+                        }
+                    }
+                    stamp > self.plugins[at].stamp && self.plugins[at].state != 1 -> {
+                        // The sources changed: read the manifest again and rebuild.
+                        var updated = readManifest(manifest, folder)
+                        if updated.id != self.plugins[at].id {
+                            self.plugins[at].stamp = stamp
+                            self.plugins[at].message = "The package ID changed. Reinstall it to use the new ID."
+                            self.changed()
+                            index = index + 1
+                            continue
+                        }
+                        updated.library = self.plugins[at].library
+                        updated.entryAddress = self.plugins[at].entryAddress
+                        updated.builds = self.plugins[at].builds
+                        updated.stamp = stamp
+                        updated.state = if supportedPluginAbi(updated.abi) && updated.entry != "" then 0 else 4
+                        updated.message = "Changed - rebuilding"
+                        self.plugins[at] = updated
+                        self.changed()
+                    }
+                    else -> { }
+                }
+            }
+            index = index + 1
+        }
+        // A folder that went away takes its plugin with it.
+        var at = 0
+        while at < self.plugins.size {
+            if !present.contains(self.plugins[at].folder) {
+                self.unloadPlugin(app, at)
+                self.output("Plugin removed: ${self.plugins[at].name}")
+                self.plugins.removeAt(at)
+                self.changed()
+            } else {
+                at = at + 1
+            }
+        }
+        self.pluginScanned = true
+    }
+
+    /** Installs a package selected on disk. Publish the copy only when it is complete. */
+    func !.installPackage(path: String) {
+        fin slash = lastSlash(path)
+        fin folder = if substring(path, slash + 1, stringLength(path)) == "plugin.azon" then substring(path, 0, slash) else path
+        fin package = readManifest(readProjectFile(folder, "plugin.azon"), "")
+        if package.id == "" || package.entry == "" {
+            self.notify("Choose a plugin folder or its plugin.azon manifest", 3)
+            return
+        }
+        if !supportedPluginAbi(package.abi) {
+            self.notify("${package.name} requires Studio plugin ABI ${package.abi}", 3)
+            return
+        }
+        fin installed = self.pluginById(package.id)
+        if installed >= 0 && self.plugins[installed].state == 1 {
+            self.notify("Wait for the current plugin build to finish", 1)
+            return
+        }
+        fin destination = if installed >= 0 then self.pluginFolder(installed) else "${self.pluginsRoot}/${package.id}"
+        makeFolders(self.pluginsRoot)
+        fin staged = temporaryFolder(self.pluginsRoot, "install")
+        if staged == "" {
+            self.notify("Could not create a folder for the plugin", 3)
+            return
+        }
+        if azsCopyTree(folder, staged) != 1 {
+            removeTemporaryFolder(staged)
+            self.notify("Could not copy ${package.name}", 3)
+            return
+        }
+        var backup = ""
+        if installed >= 0 {
+            fin previous = temporaryFolder(self.pluginsRoot, "backup")
+            if previous == "" || rename(destination, "${previous}/${self.plugins[installed].folder}") != 0 {
+                if previous != "" then removeTemporaryFolder(previous)
+                removeTemporaryFolder(staged)
+                self.notify("Could not back up ${package.name}", 3)
+                return
+            }
+            backup = "${previous}/${self.plugins[installed].folder}"
+        }
+        if rename(staged, destination) == 0 {
+            self.notify(if installed >= 0 then "Updating ${package.name}…" else "Installing ${package.name}…", 1)
+            if backup != "" then self.output("Previous plugin package: ${backup}")
+            self.pluginScanAt = 0.0
+        } else {
+            if backup != "" && rename(backup, destination) != 0 then self.output("Previous plugin package: ${backup}")
+            removeTemporaryFolder(staged)
+            self.notify("Could not install ${package.name}", 3)
+        }
+    }
+}
+
+// ── Building and loading ────────────────────────────────────────────────
+
+impl Studio {
+    /** Moves the plugin build along: one plugin at a time, one step per frame at most. */
+    func !.advancePluginBuild(app: App!) {
+        if self.pluginBuilding == "" {
+            var index = 0
+            while index < self.plugins.size && self.plugins[index].state != 0 { index = index + 1 }
+            if index < self.plugins.size then self.startPluginCompile(index)
+            return
+        }
+        fin index = self.pluginAt(self.pluginBuilding)
+        if index < 0 {
+            self.pluginProcess.cancel()
+            self.pluginBuilding = ""
+            return
+        }
+        fin status = self.pluginProcess.poll()
+        if status < 0 then return
+        fin folder = self.pluginFolder(index)
+        if status != 0 {
+            fin log = readProjectFile(folder, if self.pluginStep == 1 then "build/compile.log" else "build/link.log")
+            self.plugins[index].state = 3
+            self.plugins[index].message = if log == "" then "Build failed (exit ${status})" else trim(log)
+            self.output("Plugin ${self.plugins[index].name} did not build:\n${self.plugins[index].message}")
+            self.notify("${self.plugins[index].name} failed to build", 3)
+            self.pluginBuilding = ""
+            self.changed()
+            return
+        }
+        when self.pluginStep {
+            1 -> self.startPluginLink(index)
+            else -> {
+                self.pluginBuilding = ""
+                self.loadPlugin(app, index, "${folder}/build/plugin-${self.plugins[index].builds}.dylib")
+            }
+        }
+    }
+
+    /** Stages the sources beside the SDK and compiles them to LLVM, exporting the entry. */
+    func !.startPluginCompile(index: Int) {
+        fin compiler = azsEnvironment("AZORA_NATIVE_COMPILER")
+        fin resources = azsEnvironment("AZORA_STUDIO_RESOURCES")
+        if compiler == "" || resources == "" {
+            self.plugins[index].state = 3
+            self.plugins[index].message = "Set AZORA_NATIVE_COMPILER and AZORA_STUDIO_RESOURCES to build plugins"
+            self.changed()
+            return
+        }
+        self.plugins[index].builds = self.plugins[index].builds + 1
+        fin folder = self.pluginFolder(index)
+        fin staged = "${folder}/build/staged-${self.plugins[index].builds}"
+        makeFolders(staged)
+        if azsCopyTree("${folder}/${self.plugins[index].source}", staged) != 1 || azsCopyTree("${resources}/sdk", staged) != 1 {
+            self.plugins[index].state = 3
+            self.plugins[index].message = "Could not stage the sources: ${azsError()}"
+            self.changed()
+            return
+        }
+        var args: Array<String> = []
+        args.add("compile")
+        args.add("llvm")
+        args.add("--export=${self.plugins[index].entry}")
+        args.add("-o")
+        args.add("${folder}/build/plugin.ll")
+        args.add("${staged}/${self.plugins[index].main}")
+        self.pluginProcess = spawn(compiler, folder, args, "${folder}/build/compile.log")
+        self.startedStep(index, 1, "Compiling")
+    }
+
+    /** Links the module into a shared library that takes Studio's services from Studio itself. */
+    func !.startPluginLink(index: Int) {
+        fin folder = self.pluginFolder(index)
+        fin clang = if azsEnvironment("AZORA_CLANG") != "" then azsEnvironment("AZORA_CLANG") else "/usr/bin/clang"
+        fin runtime = "${azsEnvironment("AZORA_ENGINE_HOME")}/runtime/build"
+        var args: Array<String> = []
+        args.add("-dynamiclib")
+        args.add("-O2")
+        args.add("-Wno-override-module")
+        args.add("${folder}/build/plugin.ll")
+        args.add("-L${runtime}")
+        args.add("-lazora_runtime")
+        args.add("-Wl,-rpath,${runtime}")
+        // The services resolve against the Studio that loads the library.
+        args.add("-undefined")
+        args.add("dynamic_lookup")
+        args.add("-o")
+        args.add("${folder}/build/plugin-${self.plugins[index].builds}.dylib")
+        self.pluginProcess = spawn(clang, folder, args, "${folder}/build/link.log")
+        self.startedStep(index, 2, "Linking")
+    }
+
+    func !.startedStep(index: Int, step: Int, what: String) {
+        if self.pluginProcess.pid == 0 {
+            self.plugins[index].state = 3
+            self.plugins[index].message = "${what} could not start"
+            self.pluginBuilding = ""
+        } else {
+            self.plugins[index].state = 1
+            self.plugins[index].message = "${what}…"
+            self.pluginBuilding = self.plugins[index].folder
+            self.pluginStep = step
+        }
+        self.changed()
+    }
+
+    /** Swaps in the library at [path]: the old one says goodbye, the new one is told the project. */
+    func !.loadPlugin(app: App!, index: Int, path: String) {
+        fin library = openLibrary(path)
+        fin entry = if library == 0 then 0 else librarySymbol(library, self.plugins[index].entry)
+        if entry == 0 {
+            self.plugins[index].state = 3
+            self.plugins[index].message = if library == 0 then libraryError() else "The library exports no '${self.plugins[index].entry}'"
+            closeLibrary(library)
+            self.changed()
+            return
+        }
+        self.unloadPlugin(app, index)
+        self.plugins[index].library = library
+        self.plugins[index].entryAddress = entry
+        self.plugins[index].state = 2
+        self.plugins[index].message = "Loaded"
+        self.addContributions(self.plugins[index].id, readProjectFile(self.pluginFolder(index), "plugin.azon"))
+        self.callPlugin(app, index, "{\"op\": \"load\", \"project\": ${azonText(self.root)}}")
+        self.pluginOpen = self.plugins[index].id
+        self.output("Plugin loaded: ${self.plugins[index].name} ${self.plugins[index].version} (build ${self.plugins[index].builds})")
+        self.notify("${self.plugins[index].name} loaded", 2)
+        self.changed()
+    }
+
+    func !.unloadPlugin(app: App&, index: Int) {
+        if self.plugins[index].library == 0 then return
+        self.callPlugin(app, index, "{\"op\": \"unload\"}")
+        self.removeContributions(app, self.plugins[index].id)
+        closeLibrary(self.plugins[index].library)
+        self.plugins[index].library = 0
+        self.plugins[index].entryAddress = 0
+    }
+}
+
+// ── Calling a plugin ────────────────────────────────────────────────────
+
+impl Studio {
+    /**
+     * Sends [request] (AZON members) to loaded plugin [index] and takes in its
+     * answer: the meshes it submitted, its objects and where its tool's ray hit.
+     */
+    func !.callPlugin(app: App&, index: Int, request: String): Int {
+        if self.plugins[index].entryAddress == 0 then return -1
+        pluginReply = ""
+        fin entry = self.plugins[index].entryAddress as* foreign (String) -> Int
+        fin status = entry(request)
+        fin id = self.plugins[index].id
+        for mesh in pluginMeshSubmissions { self.takeMesh(app, id, mesh) }
+        pluginMeshSubmissions.clear()
+        fin reply = currentPluginReply()
+        if self.tracing && !startsWith(request, "{\"op\": \"tool\"") && !startsWith(request, "{\"op\": \"pick\"") {
+            println("Plugin request ${request} returned ${status}: ${reply}")
+        }
+        self.takeReply(id, reply)
+        pluginReply = ""
+        return status
+    }
+
+    /** Replaces one LOD. Replacing the base also clears obsolete variants. */
+    func !.takeMesh(app: App&, plugin: String, update: PluginMeshSubmission&) {
+        var index = 0
+        while index < self.pluginMeshes.size && !(self.pluginMeshes[index].plugin == plugin &&
+              self.pluginMeshes[index].object == update.object && self.pluginMeshes[index].key == update.key) {
+            index += 1
+        }
+        fin size = (update.count as Long) * 24
+        fin buffer = if update.bytes == 0 then 0 else send3(app.gpu.device, sel("newBufferWithBytes:length:options:"), update.bytes,size,0)
+        if update.bytes != 0 then azFree(update.bytes)
+        if update.level == 0 {
+            if index < self.pluginMeshes.size {
+                releasePluginMesh(self.pluginMeshes[index])
+                self.pluginMeshes.removeAt(index)
+            }
+            if buffer != 0 {
+                var item = PluginMesh(plugin, update.key, update.object, update.x, update.y, update.z, update.radius)
+                item.levels.add(PluginMeshLevel(buffer,update.count,0.0))
+                self.pluginMeshes.add(take item)
+            }
+        } else if buffer != 0 {
+            if index < self.pluginMeshes.size && update.level == self.pluginMeshes[index].levels.size {
+                self.pluginMeshes[index].levels.add(PluginMeshLevel(buffer,update.count,update.maxDeviation))
+            } else {
+                send0(buffer, sel("release"))
+            }
+        }
+    }
+
+    /** A plugin's answer: `message`, the full `objects` list, and the tool's `hit`. */
+    func !.takeReply(plugin: String, reply: String) {
+        if reply == "" then return
+        fin root = decodeSerialValue(reply, serializerOptions()) catch SerialValue.Null
+        when root {
+            SerialValue.Object(fields) -> {
+                fin message = memberText(fields, "message", "")
+                if message != "" then self.notify(message, 0)
+                fin failure = memberText(fields, "error", "")
+                if failure != "" {
+                    self.notify(failure, 3)
+                    self.output("${plugin}: ${failure}")
+                }
+                if memberAt(fields, "objects") >= 0 {
+                    self.syncPluginObjects(plugin, reply, memberInt(fields, "selected", 0))
+                }
+                fin hitAt = memberAt(fields, "hit")
+                if hitAt >= 0 {
+                    var hit: PluginHit = .()
+                    when fields[hitAt].value {
+                        SerialValue.Object(at) -> {
+                            hit.valid = true
+                            hit.x = memberReal(at, "x", 0.0)
+                            hit.y = memberReal(at, "y", 0.0)
+                            hit.z = memberReal(at, "z", 0.0)
+                            hit.nx = memberReal(at, "nx", 0.0)
+                            hit.ny = memberReal(at, "ny", 1.0)
+                            hit.nz = memberReal(at, "nz", 0.0)
+                            hit.radius = memberReal(at, "radius", 1.0)
+                            hit.distance = memberReal(at, "distance", -1.0)
+                            fin local = memberAt(fields, "local")
+                            if local >= 0 then hit.local = serialAsBool(fields[local].value) catch false
+                        }
+                        else -> { }
+                    }
+                    self.pluginHit = hit
+                }
+            }
+            else -> self.output("${plugin} answered something that is not AZON:\n${reply}")
+        }
+    }
+}
+
+impl Studio {
+    func &.pluginEntity(plugin: String, object: Int): Entity {
+        fin objects = storageOf<PluginObject>(self.scene)
+        var index = 0
+        while index < storageLength<PluginObject>(objects) {
+            fin entity = storageEntityAt<PluginObject>(objects, index)
+            if self.scene.isAlive(entity) && objects.values[index].plugin == plugin && objects.values[index].id == object then return entity
+            index = index + 1
+        }
+        return Entity::invalid
+    }
+
+    /** Reconciles the plugin's object list with the scene, preserving entity edits on reload. */
+    func !.syncPluginObjects(plugin: String, reply: String, selected: Int) {
+        var ids: Array<Int> = []
+        listedObjects(reply, "objects") { fields ->
+            fin id = memberInt(fields, "id", 0)
+            if id > 0 && !ids.contains(id) {
+                ids.add(id)
+                var entity = self.pluginEntity(plugin, id)
+                if !self.scene.isAlive(entity) {
+                    entity = self.scene.spawn()
+                    storageInsert<Name>(ensureStorage<Name>(self.scene), entity, Name(memberText(fields, "name", "Object ${id}")))
+                    storageInsert<Transform>(ensureStorage<Transform>(self.scene), entity, Transform())
+                    storageInsert<PluginObject>(ensureStorage<PluginObject>(self.scene), entity, PluginObject(plugin, id, memberText(fields, "kind", "")))
+                    fin kind = memberText(fields, "kind", "")
+                    for contribution in self.pluginComponents {
+                        if contribution.plugin == plugin && contribution.objectKind == kind {
+                            setExternalComponent(self.scene, entity, contribution.id, contribution.defaults)
+                        }
+                    }
+                    self.sceneDirty = true
+                }
+                if id == selected then self.select(entity)
+            }
+        }
+        var index = 0
+        while index < storageLength<PluginObject>(ensureStorage<PluginObject>(self.scene)) {
+            fin entity = storageEntityAt<PluginObject>(ensureStorage<PluginObject>(self.scene), index)
+            fin object = storageValueAt<PluginObject>(ensureStorage<PluginObject>(self.scene), index).clone()
+            if object.plugin == plugin && !ids.contains(object.id) {
+                self.scene.despawn(entity)
+                self.sceneDirty = true
+            } else {
+                index = index + 1
+            }
+        }
+        self.changed()
+    }
+
+    func &.pluginHasComponents(plugin: String): Bool {
+        for kind in self.pluginKinds {
+            if kind.plugin == plugin && kind.component != "" then return true
+        }
+        return false
+    }
+
+    func &.pluginParam(plugin: String, param: String): Int {
+        var index = 0
+        while index < self.pluginParams.size {
+            if self.pluginParams[index].plugin == plugin && self.pluginParams[index].id == param then return index
+            index = index + 1
+        }
+        return -1
+    }
+
+    func !.setPluginNumber(index: Int, value: Double) {
+        if index < 0 || index >= self.pluginParams.size then return
+        self.pluginParams[index].value = clampValue(value, self.pluginParams[index].min, self.pluginParams[index].max)
+        self.changed()
+    }
+}
+
+/** [p] as an AZON object `{"x": …, "y": …, "z": …}`. */
+func azonPoint(p: Vec3&): String = "{\"x\": ${formatDecimal(p.x, 6)}, \"y\": ${formatDecimal(p.y, 6)}, \"z\": ${formatDecimal(p.z, 6)}}"
+
+impl Studio {
+    /** The closest pickable plugin object along the ray, in the same units as native picks. */
+    func !.pluginPick(app: App&, plugin: String, object: Int, ray: Ray&): Double {
+        fin owner = self.pluginById(plugin)
+        if owner < 0 then return -1.0
+        self.pluginHit = .()
+        self.callPlugin(app, owner, "{\"op\": \"pick\", \"object\": ${object}, " +
+            "\"origin\": ${azonPoint(ray.origin)}, \"direction\": ${azonPoint(ray.direction)}}")
+        return if self.pluginHit.valid then self.pluginHit.distance else -1.0
+    }
+
+    /** The settings of plugin [id] as an AZON object, for a tool request. */
+    func &.pluginSettings(id: String): String {
+        var members = ""
+        var index = 0
+        while index < self.pluginParams.size {
+            if self.pluginParams[index].plugin == id {
+                fin entry = "${azonText(self.pluginParams[index].id)}: ${formatDecimal(self.pluginParams[index].value, 4)}"
+                members = if members == "" then entry else "${members}, ${entry}"
+            }
+            index = index + 1
+        }
+        return "{${members}}"
+    }
+
+    /**
+     * Sends the active tool's [phase] ("hover", "begin", "drag", "end") along
+     * [ray]; [seconds] is the frame's length, so a held brush works by time.
+     */
+    func !.pluginToolRequest(app: App&, phase: String, ray: Ray&, seconds: Double, local: Ray&, object: Int, model: Mat4&) {
+        fin index = self.pluginById(self.pluginToolOwner)
+        if index < 0 then return
+        self.pluginHit = .()
+        self.callPlugin(app, index, "{\"op\": \"tool\", \"tool\": ${azonText(self.pluginTool)}, \"phase\": ${azonText(phase)}, " +
+            "\"origin\": ${azonPoint(ray.origin)}, \"direction\": ${azonPoint(ray.direction)}, " +
+            "\"object\": ${object}, \"localOrigin\": ${azonPoint(local.origin)}, \"localDirection\": ${azonPoint(local.direction)}, " +
+            "\"seconds\": ${formatDecimal(seconds, 4)}, \"settings\": ${self.pluginSettings(self.pluginToolOwner)}}")
+        if object > 0 && self.pluginHit.valid && self.pluginHit.local {
+            fin p = self.pluginHit
+            self.pluginHit.x = model.m00 * p.x + model.m01 * p.y + model.m02 * p.z + model.m03
+            self.pluginHit.y = model.m10 * p.x + model.m11 * p.y + model.m12 * p.z + model.m13
+            self.pluginHit.z = model.m20 * p.x + model.m21 * p.y + model.m22 * p.z + model.m23
+            self.pluginHit.nx = model.m00 * p.nx + model.m01 * p.ny + model.m02 * p.nz
+            self.pluginHit.ny = model.m10 * p.nx + model.m11 * p.ny + model.m12 * p.nz
+            self.pluginHit.nz = model.m20 * p.nx + model.m21 * p.ny + model.m22 * p.nz
+            self.pluginHit.radius = p.radius * v3length(Vec3(model.m00, model.m10, model.m20))
+        }
+    }
+}
+
+// ── The frame ───────────────────────────────────────────────────────────
+
+impl Studio {
+    /** Called once a frame: discovers, builds, loads, and runs queued requests. */
+    func !.tickPlugins(app: App!) {
+        if self.pluginsRoot == "" then return
+        fin now = azsMonotonicSeconds()
+        if now >= self.pluginScanAt && self.pluginBuilding == "" {
+            self.pluginScanAt = now + 1.0
+            self.scanPlugins(app)
+        }
+        if self.pluginInstallPath != "" {
+            fin path = self.pluginInstallPath
+            self.pluginInstallPath = ""
+            self.installPackage(path)
+        }
+        self.advancePluginBuild(app)
+        while self.pluginRequests.size > 0 {
+            fin request = self.pluginRequests.removeAt(0)
+            fin split = indexOf(request, "\n")
+            fin index = self.pluginById(substring(request, 0, split))
+            if index >= 0 then self.callPlugin(app, index, substring(request, split + 1, stringLength(request)))
+        }
+        if self.pluginSave {
+            self.pluginSave = false
+            var index = 0
+            while index < self.plugins.size {
+                if self.plugins[index].entryAddress != 0 then self.callPlugin(app, index, "{\"op\": \"save\"}")
+                index = index + 1
+            }
+        }
+    }
+
+    /** Queues [request] for plugin [id]; the frame loop sends it where the GPU is at hand. */
+    func !.requestPlugin(id: String, request: String) {
+        self.pluginRequests.add("${id}\n${request}")
+    }
+}
+
+func releasePluginMesh(mesh: PluginMesh&) {
+    for level in mesh.levels { if level.buffer != 0 then send0(level.buffer, sel("release")) }
+}
+
+impl App {
+    /** One mesh variant per visible group. The plugin supplies the geometric error. */
+    func !.drawPluginMeshes(studio: Studio!, rect: ViewRect&) {
+        fin eye = studio.camera.position()
+        fin forward = studio.camera.forward()
+        fin right = studio.camera.right()
+        fin up = studio.camera.up()
+        fin lens = tan(studio.camera.fov * degreesToRadians * 0.5)
+        // Screen points per unit of error at depth one: a variant draws while its error stays under 3 points.
+        fin pixels = rect.height * 0.5
+        fin horizontal = lens * rect.aspect()
+        fin upMargin = sqrt(1.0+lens*lens)
+        fin rightMargin = sqrt(1.0+horizontal*horizontal)
+        var index = 0
+        var cachedPlugin = ""
+        var cachedObject = -1
+        var model = mat4Identity()
+        var tint = Rgba(0.62, 0.66, 0.6, 1.0)
+        var visibleObject = true
+        var scale: Double = 1.0
+        var triangles = 0
+        while index < studio.pluginMeshes.size {
+            fin item = studio.pluginMeshes[index].&
+            if cachedObject != item.object || cachedPlugin != item.plugin {
+                cachedObject = item.object
+                cachedPlugin = item.plugin
+                fin owner = studio.pluginById(item.plugin)
+                fin entity = studio.pluginEntity(item.plugin, item.object)
+                visibleObject = item.object == 0 || (studio.scene.isAlive(entity) && visibleInWorld(studio.scene, entity))
+                if visibleObject {
+                    model = if item.object == 0 then mat4Identity() else worldMatrix(studio.scene, entity)
+                    tint = if owner < 0 then Rgba(0.62, 0.66, 0.6, 1.0) else studio.plugins[owner].tint.clone()
+                    scale = photonMax(v3length(Vec3(model.m00,model.m10,model.m20)),
+                        photonMax(v3length(Vec3(model.m01,model.m11,model.m21)),v3length(Vec3(model.m02,model.m12,model.m22))))
+                }
+            }
+            if visibleObject {
+                var detail = 0
+                var visible = true
+                if item.radius > 0.0 && studio.mode3d {
+                    fin radius = item.radius * scale
+                    fin delta = v3sub(Vec3(model.m00*item.x+model.m01*item.y+model.m02*item.z+model.m03,
+                        model.m10*item.x+model.m11*item.y+model.m12*item.z+model.m13,
+                        model.m20*item.x+model.m21*item.y+model.m22*item.z+model.m23),eye)
+                    fin depth = v3dot(delta,forward)
+                    visible = depth+radius >= studio.camera.near && depth-radius <= studio.camera.far &&
+                        absValue(v3dot(delta,up)) <= depth*lens + radius*upMargin &&
+                        absValue(v3dot(delta,right)) <= depth*horizontal + radius*rightMargin
+                    fin nearest = photonMax(depth-radius,0.001)
+                    while detail+1 < item.levels.size &&
+                        item.levels[detail+1].maxDeviation*scale*pixels <= 3.0*nearest*lens {
+                        detail += 1
+                    }
+                }
+                if visible {
+                    fin level = item.levels[detail].&
+                    self.drawMesh(Mesh(level.buffer,level.count),model,tint.r,tint.g,tint.b)
+                    triangles += level.count/3
+                }
+            }
+            index += 1
+        }
+        studio.pluginTriangles = triangles
+    }
+
+    /** The active plugin tool's brush: a ring on the surface where its ray hits. */
+    func !.drawPluginBrush(studio: Studio&, viewProj: Mat4&, rect: ViewRect&, color: Rgba) {
+        if studio.pluginTool == "" || !studio.pluginHit.valid then return
+        fin hit = studio.pluginHit
+        if hit.radius <= 0.0 then return
+        fin radius = hit.radius
+        fin centre = Vec3(hit.x, hit.y, hit.z)
+        fin normal = v3unit(Vec3(hit.nx, hit.ny, hit.nz))
+        // Two directions across the surface at the hit.
+        fin helper = if normal.y < 0.9 && normal.y > -0.9 then Vec3(0.0, 1.0, 0.0) else Vec3(1.0, 0.0, 0.0)
+        fin across = v3unit(v3cross(normal, helper))
+        fin along = v3cross(normal, across)
+        fin segments = 48
+        var step = 0
+        while step < segments {
+            fin a = 6.283185307179586 * (step as Double) / (segments as Double)
+            fin b = 6.283185307179586 * ((step + 1) as Double) / (segments as Double)
+            fin p = v3add(centre, v3add(v3scale(across, cos(a) * radius), v3scale(along, sin(a) * radius)))
+            fin q = v3add(centre, v3add(v3scale(across, cos(b) * radius), v3scale(along, sin(b) * radius)))
+            self.worldLine(viewProj, rect, p, q, 2.0, color)
+            step = step + 1
+        }
+        self.worldLine(viewProj, rect, centre, v3add(centre, v3scale(normal, radius * 0.5)), 1.5, color)
+    }
+}
+
+// ── Commands ────────────────────────────────────────────────────────────
+
+/** Opens macOS's file picker for a package folder or a manifest. */
+@Command
+func pluginInstall(studio: Studio!, call: Invocation&) {
+    if studio.pluginsRoot == "" then return
+    if call.text != "" {
+        studio.pluginInstallPath = call.text
+        return
+    }
+    fin panel = send0(cls("NSOpenPanel"), sel("openPanel"))
+    send1(panel, sel("setTitle:"), nsString("Install Studio Plugin"))
+    send1(panel, sel("setPrompt:"), nsString("Install"))
+    send1(panel, sel("setCanChooseDirectories:"), 1)
+    send1(panel, sel("setCanChooseFiles:"), 1)
+    if send0(panel, sel("runModal")) == 1 {
+        studio.pluginInstallPath = nsStringText(send0(send0(panel, sel("URL")), sel("path")))
+    }
+}
+
+/** Restores a plugin's own tab from the Plugins panel. */
+@Command
+func pluginShow(studio: Studio!, call: Invocation&) {
+    studio.pluginOpen = call.text
+    studio.showPanel = "plugin:${call.text}"
+}
+
+/**
+ * Removes the plugin in folder [call.text]: its folder goes to the Trash, so
+ * removing is undone by putting it back, and the next scan unloads it.
+ */
+@Command
+func pluginRemove(studio: Studio!, call: Invocation&) {
+    fin index = studio.pluginAt(call.text)
+    if index < 0 || studio.plugins[index].state == 1 then return
+    fin home = azsEnvironment("HOME")
+    fin to = "${home}/.Trash/${call.text} ${formatDecimal(azsWallSeconds(), 0)}"
+    if home != "" && rename(studio.pluginFolder(index), to) == 0 {
+        studio.notify("Removed ${studio.plugins[index].name}; it is in the Trash", 2)
+        studio.pluginScanAt = 0.0
+    } else {
+        studio.notify("Could not remove ${studio.plugins[index].name}", 3)
+    }
+}
+
+/** Builds and reloads the plugin in folder [call.text]. */
+@Command
+func pluginReload(studio: Studio!, call: Invocation&) {
+    fin index = studio.pluginAt(call.text)
+    if index < 0 || studio.plugins[index].state == 1 || !supportedPluginAbi(studio.plugins[index].abi) then return
+    studio.plugins[index].state = 0
+    studio.plugins[index].message = "Rebuilding"
+    studio.changed()
+}
+
+/** Takes up plugin tool [call.arg], or puts it down when it is the one in hand. */
+@Command
+func pluginUseTool(studio: Studio!, call: Invocation&) {
+    if call.arg < 0 || call.arg >= studio.pluginTools.size then return
+    fin tool = studio.pluginTools[call.arg].clone()
+    if studio.pluginTool == tool.id && studio.pluginToolOwner == tool.plugin {
+        studio.pluginTool = ""
+        studio.pluginToolOwner = ""
+        studio.message("Transform tools")
+    } else {
+        studio.pluginTool = tool.id
+        studio.pluginToolOwner = tool.plugin
+        studio.message(if tool.hint == "" then tool.label else "${tool.label} · ${tool.hint}")
+    }
+    studio.pluginHit = .()
+    studio.changed()
+}
+
+/** Steps setting [call.arg] by its step, up when [call.target] is 1 and down otherwise. */
+@Command
+func pluginStep(studio: Studio!, call: Invocation&) {
+    if call.arg < 0 || call.arg >= studio.pluginParams.size then return
+    fin param = studio.pluginParams[call.arg].clone()
+    fin moved = param.value + (if call.target == 1 then param.step else 0.0 - param.step)
+    studio.setPluginNumber(call.arg, moved)
+}
+
+/** Asks the owner of kind [call.arg] to create a scene object. */
+@Command
+func pluginCreate(studio: Studio!, call: Invocation&) {
+    if call.arg < 0 || call.arg >= studio.pluginKinds.size then return
+    fin kind = studio.pluginKinds[call.arg].clone()
+    studio.requestPlugin(kind.plugin, "{\"op\": \"create\", \"kind\": ${azonText(kind.kind)}, \"settings\": ${studio.pluginSettings(kind.plugin)}}")
+}
+
+/** Asks the owning plugin to delete the scene entity [call.target]. */
+@Command
+func pluginDelete(studio: Studio!, call: Invocation&) {
+    fin entity = studio.scene.entityAt(call.target)
+    if !storageHas<PluginObject>(ensureStorage<PluginObject>(studio.scene), entity) then return
+    fin object = storageGet<PluginObject>(ensureStorage<PluginObject>(studio.scene), entity).clone()
+    fin owner = studio.pluginById(object.plugin)
+    if owner < 0 || studio.plugins[owner].entryAddress == 0 {
+        studio.notify("Load the object's plugin before deleting it", 1)
+        return
+    }
+    studio.requestPlugin(object.plugin, "{\"op\": \"delete\", \"object\": ${object.id}}")
+}
