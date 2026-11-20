@@ -47,7 +47,7 @@ import studio.problems
 
 /** Passes the pointer to the `@Canvas` panel [panel]; answers whether it used it. */
 /** 1 while [positive] is held, -1 while [negative] is, 0 for both or neither. */
-func keyAxis(app: App&, positive: Int, negative: Int): Double {
+func keyAxis(app: App&, positive: KeyCode, negative: KeyCode): Double {
     var axis: Double = 0.0
     if app.keyDown(positive) { axis = axis + 1.0 }
     if app.keyDown(negative) { axis = axis - 1.0 }
@@ -255,18 +255,20 @@ react func describeStudio(pass: Composition!, studio: Studio&, app: App&, style:
 
 fin keyLetters = "abcdefghijklmnopqrstuvwxyz"
 
+/** The keys a command's `key` / `hotkey` can name besides Backspace: digits, then letters. */
+fin hotkeys: Array<KeyCode> = [
+    .Digit0, .Digit1, .Digit2, .Digit3, .Digit4, .Digit5, .Digit6, .Digit7, .Digit8, .Digit9,
+    .A, .B, .C, .D, .E, .F, .G, .H, .I, .J, .K, .L, .M, .N, .O, .P, .Q, .R, .S, .T, .U, .V, .W, .X, .Y, .Z,
+]
+
 /** The name a command's `key` / `hotkey` uses for the key pressed this frame, or "". */
 func pressedKeyName(app: App&, injected: Int): String {
-    if injected == keyBackspace || app.keyPressed(keyBackspace) { return "backspace" }
-    var code = 48
-    while code <= 57 {
-        if injected == code || app.keyPressed(code) { return substring("0123456789", code - 48, code - 47) }
-        code = code + 1
-    }
-    code = 65
-    while code <= 90 {
-        if injected == code || app.keyPressed(code) { return substring(keyLetters, code - 65, code - 64) }
-        code = code + 1
+    if injected == KeyCode.Backspace.value || app.keyPressed(.Backspace) { return "backspace" }
+    for key in hotkeys {
+        fin code = key.value
+        if injected == code || app.keyPressed(key) {
+            return if code <= 57 then substring("0123456789", code - 48, code - 47) else substring(keyLetters, code - 65, code - 64)
+        }
     }
     return ""
 }
@@ -293,16 +295,16 @@ func commitField(studio: Studio!) {
 
 /** Typing into a focused field: characters, Backspace, Enter, Escape. */
 func typeIntoField(studio: Studio!, app: App&, typed: String, injected: Int) {
-    if injected == keyEscape || app.keyPressed(keyEscape) {
+    if injected == KeyCode.Escape.value || app.keyPressed(.Escape) {
         studio.focus = FieldFocus()
         studio.changed()
         return
     }
-    if injected == keyEnter || app.keyPressed(keyEnter) || injected == keyTab || app.keyPressed(keyTab) {
+    if injected == KeyCode.Enter.value || app.keyPressed(.Enter) || injected == KeyCode.Tab.value || app.keyPressed(.Tab) {
         commitField(studio)
         return
     }
-    if (injected == keyBackspace || app.keyPressed(keyBackspace)) && stringLength(studio.focus.text) > 0 {
+    if (injected == KeyCode.Backspace.value || app.keyPressed(.Backspace)) && stringLength(studio.focus.text) > 0 {
         studio.focus.text = substring(studio.focus.text, 0, stringLength(studio.focus.text) - 1)
         studio.changed()
     }
@@ -469,9 +471,9 @@ react func main() {
             input.y = app.mouseY()
             // A tap can go down and up between two frames; it still counts as
             // held for the frame it happened in, so it presses and releases.
-            input.down = app.mouseDown(mouseLeft) || app.mouseClicked(mouseLeft)
-            input.rightDown = app.mouseDown(mouseRight) || app.mouseClicked(mouseRight)
-            input.middleDown = app.mouseDown(mouseMiddle) || app.mouseClicked(mouseMiddle)
+            input.down = app.mouseDown(.Left) || app.mouseClicked(.Left)
+            input.rightDown = app.mouseDown(.Right) || app.mouseClicked(.Right)
+            input.middleDown = app.mouseDown(.Middle) || app.mouseClicked(.Middle)
             input.scrollX = app.scrollX()
             input.scrollY = app.scrollY()
             input.preciseScroll = app.scrollIsPrecise()
@@ -480,19 +482,19 @@ react func main() {
         input.middlePressed = input.middleDown && !wasMiddleDown
         wasMiddleDown = input.middleDown
         input.seconds = app.deltaTime()
-        input.flyForward = keyAxis(app, keyW, keyS)
-        input.flyRight = keyAxis(app, keyD, keyA)
-        input.flyUp = keyAxis(app, keyE, keyQ)
+        input.flyForward = keyAxis(app, .W, .S)
+        input.flyRight = keyAxis(app, .D, .A)
+        input.flyUp = keyAxis(app, .E, .Q)
         input.pressed = input.down && !wasDown
         input.released = !input.down && wasDown
-        input.rightPressed = if player.pointing { cue.rightClick } else { app.mouseClicked(mouseRight) }
+        input.rightPressed = if player.pointing { cue.rightClick } else { app.mouseClicked(.Right) }
         input.dx = if frames == 1 { 0.0 } else { input.x - lastX }
         input.dy = if frames == 1 { 0.0 } else { input.y - lastY }
-        input.shift = app.keyDown(keyShift)
-        input.alt = app.keyDown(keyAlt)
-        input.command = app.keyDown(keyMeta) || injectedMeta
-        if tracing && (app.mouseClicked(mouseLeft) || input.pressed || input.released) {
-            println("pointer ${formatDecimal(input.x, 1)},${formatDecimal(input.y, 1)} clicked ${app.mouseClicked(mouseLeft)} down ${input.down} pressed ${input.pressed} released ${input.released}")
+        input.shift = app.keyDown(.Shift)
+        input.alt = app.keyDown(.Alt)
+        input.command = app.keyDown(.Meta) || injectedMeta
+        if tracing && (app.mouseClicked(.Left) || input.pressed || input.released) {
+            println("pointer ${formatDecimal(input.x, 1)},${formatDecimal(input.y, 1)} clicked ${app.mouseClicked(.Left)} down ${input.down} pressed ${input.pressed} released ${input.released}")
         }
         lastX = input.x
         lastY = input.y
@@ -517,7 +519,7 @@ react func main() {
             typeIntoField(studio, app, typed, injectedKey)
             typed = ""
         } else if !studio.sourceFocused && studio.viewDrag != 1 {
-            if injectedKey == keyEscape || app.keyPressed(keyEscape) {
+            if injectedKey == KeyCode.Escape.value || app.keyPressed(.Escape) {
                 studio.popup = Popup()
                 studio.changed()
             }
@@ -526,7 +528,7 @@ react func main() {
                 fin command = commandForHotkey(name)
                 if command != "" { runCommand(studio, command, Invocation()) }
             }
-        } else if injectedKey == keyEscape || app.keyPressed(keyEscape) {
+        } else if injectedKey == KeyCode.Escape.value || app.keyPressed(.Escape) {
             studio.sourceFocused = false
             studio.changed()
         }

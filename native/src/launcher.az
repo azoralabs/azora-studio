@@ -144,7 +144,7 @@ react func main() {
     while app.frame() {
         frames = frames + 1
         var action = 0
-        if app.mouseClicked(mouseLeft) { action = pass.hit(app.mouseX(), app.mouseY()) }
+        if app.mouseClicked(.Left) { action = pass.hit(app.mouseX(), app.mouseY()) }
         if action >= 40 && action <= 45 {
             selected = action - 40
             status = "${templateTitle(selected)} · templates/${templateName(selected)}"

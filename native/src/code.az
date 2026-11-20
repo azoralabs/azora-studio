@@ -341,7 +341,7 @@ func tokenColor(kind: Int): Rgba {
 // ── Editing ─────────────────────────────────────────────────────────────
 
 /** Whether [key] was pressed this frame, by the user or by the input script. */
-func pressedKey(app: App&, injected: Int, key: Int): Bool { return injected == key || app.keyPressed(key) }
+func pressedKey(app: App&, injected: Int, key: KeyCode): Bool = injected == key.value || app.keyPressed(key)
 
 /** Deletes the selection, if any, leaving the cursor where it began. */
 func deleteSelection(view: Studio!): Bool {
@@ -356,22 +356,22 @@ func deleteSelection(view: Studio!): Bool {
 
 /** ⌘A, ⌘C, ⌘X and ⌘V on the source. Answers whether the source changed. */
 func clipboardKeys(app: App&, view: Studio!, injected: Int): Bool {
-    if pressedKey(app, injected, keyA) {
+    if pressedKey(app, injected, .A) {
         view.anchor = 0
         view.cursor = azsBufferSize(view.editor.source)
         return false
     }
-    if (pressedKey(app, injected, keyC) || pressedKey(app, injected, keyX)) && view.hasSelection() {
+    if (pressedKey(app, injected, .C) || pressedKey(app, injected, .X)) && view.hasSelection() {
         fin start = view.selectionStart()
         fin copied = azsBufferSlice(view.editor.source, start, view.selectionEnd())
         if copied != Long(0) {
             app.setClipboardText(azsBufferText(copied))
             azsBufferClose(copied)
         }
-        if pressedKey(app, injected, keyX) { return deleteSelection(view) }
+        if pressedKey(app, injected, .X) { return deleteSelection(view) }
         return false
     }
-    if pressedKey(app, injected, keyV) {
+    if pressedKey(app, injected, .V) {
         fin pasted = app.clipboardText()
         if pasted == "" { return false }
         deleteSelection(view)
@@ -386,34 +386,34 @@ func clipboardKeys(app: App&, view: Studio!, injected: Int): Bool {
 func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool): Bool {
     if !view.sourceFocused { return false }
     if meta { return clipboardKeys(app, view, injected) }
-    if app.keyDown(keyControl) { return false }
+    if app.keyDown(.Control) { return false }
     var changed = false
     fin source = view.editor.source
     // Movement extends the selection while Shift is held and drops it otherwise.
-    fin extending = app.keyDown(keyShift)
-    fin moving = pressedKey(app, injected, keyArrowLeft) || pressedKey(app, injected, keyArrowRight) ||
-        pressedKey(app, injected, keyArrowUp) || pressedKey(app, injected, keyArrowDown) ||
-        pressedKey(app, injected, keyHome) || pressedKey(app, injected, keyEnd)
+    fin extending = app.keyDown(.Shift)
+    fin moving = pressedKey(app, injected, .Left) || pressedKey(app, injected, .Right) ||
+        pressedKey(app, injected, .Up) || pressedKey(app, injected, .Down) ||
+        pressedKey(app, injected, .Home) || pressedKey(app, injected, .End)
     if moving {
         if extending && view.anchor < 0 { view.anchor = view.cursor }
         if !extending { view.anchor = -1 }
     }
-    if pressedKey(app, injected, keyArrowLeft) && view.cursor > 0 {
+    if pressedKey(app, injected, .Left) && view.cursor > 0 {
         view.cursor = view.cursor - 1
         while view.cursor > 0 && isContinuation(azsBufferByte(view.editor.source, view.cursor)) { view.cursor = view.cursor - 1 }
     }
-    if pressedKey(app, injected, keyArrowRight) && view.cursor < azsBufferSize(view.editor.source) {
+    if pressedKey(app, injected, .Right) && view.cursor < azsBufferSize(view.editor.source) {
         view.cursor = view.cursor + 1
         while view.cursor < azsBufferSize(view.editor.source) && isContinuation(azsBufferByte(view.editor.source, view.cursor)) { view.cursor = view.cursor + 1 }
     }
-    if pressedKey(app, injected, keyArrowUp) {
+    if pressedKey(app, injected, .Up) {
         fin start = lineStartOf(view.editor.source, view.cursor)
         if start > 0 {
             fin column = columnsBetween(view.editor.source, start, view.cursor)
             view.cursor = offsetAtColumn(view.editor.source, lineStartOf(view.editor.source, start - 1), column)
         }
     }
-    if pressedKey(app, injected, keyArrowDown) {
+    if pressedKey(app, injected, .Down) {
         fin start = lineStartOf(view.editor.source, view.cursor)
         fin end = lineEndOf(view.editor.source, view.cursor)
         if end < azsBufferSize(view.editor.source) {
@@ -421,27 +421,27 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
             view.cursor = offsetAtColumn(view.editor.source, end + 1, column)
         }
     }
-    if pressedKey(app, injected, keyHome) { view.cursor = lineStartOf(view.editor.source, view.cursor) }
-    if pressedKey(app, injected, keyEnd) { view.cursor = lineEndOf(view.editor.source, view.cursor) }
-    if (pressedKey(app, injected, keyBackspace) || pressedKey(app, injected, keyDelete)) && view.hasSelection() {
+    if pressedKey(app, injected, .Home) { view.cursor = lineStartOf(view.editor.source, view.cursor) }
+    if pressedKey(app, injected, .End) { view.cursor = lineEndOf(view.editor.source, view.cursor) }
+    if (pressedKey(app, injected, .Backspace) || pressedKey(app, injected, .Delete)) && view.hasSelection() {
         return deleteSelection(view)
     }
-    if (typed != "" || pressedKey(app, injected, keyEnter) || pressedKey(app, injected, keyTab)) && view.hasSelection() {
+    if (typed != "" || pressedKey(app, injected, .Enter) || pressedKey(app, injected, .Tab)) && view.hasSelection() {
         if deleteSelection(view) { changed = true }
     }
     if !moving && view.anchor == view.cursor { view.anchor = -1 }
-    if pressedKey(app, injected, keyBackspace) && view.cursor > 0 {
+    if pressedKey(app, injected, .Backspace) && view.cursor > 0 {
         var start = view.cursor - 1
         while start > 0 && isContinuation(azsBufferByte(view.editor.source, start)) { start = start - 1 }
         if view.editor.splice(start, view.cursor - start, "") >= 0 { view.cursor = start
             changed = true }
     }
-    if pressedKey(app, injected, keyDelete) && view.cursor < azsBufferSize(view.editor.source) {
+    if pressedKey(app, injected, .Delete) && view.cursor < azsBufferSize(view.editor.source) {
         var end = view.cursor + 1
         while end < azsBufferSize(view.editor.source) && isContinuation(azsBufferByte(view.editor.source, end)) { end = end + 1 }
         if view.editor.splice(view.cursor, end - view.cursor, "") >= 0 { changed = true }
     }
-    if pressedKey(app, injected, keyEnter) {
+    if pressedKey(app, injected, .Enter) {
         // A new line keeps the current line's indentation.
         fin start = lineStartOf(view.editor.source, view.cursor)
         var indent = start
@@ -458,7 +458,7 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
         if inserted >= 0 { view.cursor = view.cursor + inserted
             changed = true }
     }
-    if pressedKey(app, injected, keyTab) {
+    if pressedKey(app, injected, .Tab) {
         fin inserted = view.editor.splice(view.cursor, 0, "    ")
         if inserted >= 0 { view.cursor = view.cursor + inserted
             changed = true }
