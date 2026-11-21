@@ -9,7 +9,8 @@ import studio.host
 // ── Input script ────────────────────────────────────────────────────────
 //
 // AZORA_STUDIO_SCRIPT drives the window through the same paths as a user:
-// `wait N`, `command NAME`, `click X Y`, `move X Y`, `press X Y`, `release`,
+// `wait N`, `command NAME`, `click X Y`, `dclick X Y` (two clicks on
+// consecutive frames: a double click), `move X Y`, `press X Y`, `release`,
 // `rpress X Y`, `rrelease`, `scroll N`, `type TEXT`, `key N`, `meta N`,
 // `shot NAME`, `quit`. Once a script moves the pointer, the real mouse is
 // ignored for the rest of the session.
@@ -74,6 +75,11 @@ func parseScript(script: Long): Array<ScriptStep> {
                 "wait" -> steps.add(ScriptStep(0, scriptNumber(script, argument, end), 0, 0, 0))
                 "command" -> steps.add(ScriptStep(1, 0, 0, textStart, end))
                 "click" -> steps.add(ScriptStep(2, scriptNumber(script, argument, end), scriptNumber(script, second, end), 0, 0))
+                "dclick" -> {
+                    fin click = ScriptStep(2, scriptNumber(script, argument, end), scriptNumber(script, second, end), 0, 0)
+                    steps.add(click)
+                    steps.add(click)
+                }
                 "type" -> steps.add(ScriptStep(3, 0, 0, textStart, end))
                 "key" -> steps.add(ScriptStep(4, scriptNumber(script, argument, end), 0, 0, 0))
                 "quit" -> steps.add(ScriptStep(5, 0, 0, 0, 0))

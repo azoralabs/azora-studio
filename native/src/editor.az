@@ -1,4 +1,5 @@
 module studio.editor
+import std.string
 import studio.host
 
 func createNativeProject(root: String, template: String = ""): Bool {
@@ -41,6 +42,40 @@ pack Editor {
     var dirty: Bool
     /** Where a run of typing ends, so the next keystroke can extend it; -1 when none. */
     var typingEnd: Int = -1
+    /** The project file this edits. */
+    var path: String = "src/main.az"
+}
+
+/**
+ * An open file that is not the one being edited: its buffers and where its
+ * caret was. Studio swaps it with the [Editor]'s when its tab is used.
+ */
+pack OpenFile derives Clone {
+    var path: String = ""
+    var source: Long = 0
+    var history: Array<Long> = []
+    var future: Array<Long> = []
+    var dirty: Bool = false
+    var typingEnd: Int = -1
+    var cursor: Int = 0
+    var anchor: Int = -1
+    var scroll: Int = 0
+}
+
+/** The project's entry source, which the "main.az" tab (CodePanel) edits and the compiler checks. */
+inline fin mainSource: String = "src/main.az"
+
+/** What starts the dock panel name of a tab editing another project file. */
+inline fin filePanelPrefix: String = "file:"
+
+/** The dock panel that edits project file [path]. */
+func documentPanel(path: String): String = if path == mainSource then "CodePanel" else "${filePanelPrefix}${path}"
+
+/** The project file dock [panel] edits, or "" when it edits none. */
+func panelDocument(panel: String): String = when {
+    panel == "CodePanel" -> mainSource
+    startsWith(panel, filePanelPrefix) -> substring(panel, stringLength(filePanelPrefix), stringLength(panel))
+    else -> ""
 }
 
 /** How many edits undo can walk back. */
@@ -52,6 +87,12 @@ func editorOf(project: Long, source: Long): Editor {
 
 func closeBuffers(buffers: Array<Long>!): Unit {
     while buffers.size > 0 then azsBufferClose(buffers.removeLast())
+}
+
+/** Moves every buffer of [from], in order, onto the end of [to]. */
+func moveBuffers(from: Array<Long>!, to: Array<Long>!): Unit {
+    for buffer in from { to.add(buffer) }
+    while from.size > 0 then from.removeLast()
 }
 
 impl Editor {
@@ -157,14 +198,14 @@ impl Editor {
     }
 
     func !.save(): Bool {
-        if azsProjectWrite(self.project, "src/main.az", self.source) == 0 then return false
+        if azsProjectWrite(self.project, self.path, self.source) == 0 then return false
         self.dirty = false
         return true
     }
 
     // Reload is transactional: failure leaves source and history intact.
     func !.reopen(): Bool {
-        fin next = azsProjectRead(self.project, "src/main.az")
+        fin next = azsProjectRead(self.project, self.path)
         if next == 0 then return false
         azsBufferClose(self.source)
         closeBuffers(self.history)

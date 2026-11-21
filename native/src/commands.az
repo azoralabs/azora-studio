@@ -130,17 +130,17 @@ func saveSceneDocument(studio: Studio!): Bool {
     return true
 }
 
-/** Writes the source, the scene and the layout; then the source is checked again. */
+/** Writes the open files, the scene and the layout; then the source is checked again. */
 @Command(title: "Save", menu: "File", group: 0, order: 0, key: "s")
 func fileSave(studio: Studio!, call: Invocation&): Unit {
-    if !studio.editor.save() {
+    if !studio.saveDocuments() {
         studio.notify(azsError(), 3)
         return
     }
     if !saveSceneDocument(studio) then return
     studio.layoutDirty = true
     studio.requestedTool = "inspect"
-    studio.notify("Saved src/main.az and ${sceneFile}", 2)
+    studio.notify("Saved ${studio.editor.path} and ${sceneFile}", 2)
 }
 
 @Command(title: "Revert to Saved", menu: "File", group: 0, order: 1)
@@ -151,7 +151,7 @@ func fileRevert(studio: Studio!, call: Invocation&): Unit {
     }
     if studio.cursor > azsBufferSize(studio.editor.source) then studio.cursor = azsBufferSize(studio.editor.source)
     studio.anchor = -1
-    studio.message("Reopened src/main.az from disk")
+    studio.message("Reopened ${studio.editor.path} from disk")
 }
 
 // ── Edit ────────────────────────────────────────────────────────────────
@@ -619,6 +619,21 @@ func assetsSelect(studio: Studio!, call: Invocation&): Unit {
     if fusionAssetPath(call.text) then openFusionAsset(studio, call.text) else studio.message(call.text)
 }
 
+/** Opens the Assets file [call.text] in a tab of its own, or shows its tab when it is open. */
+@Command
+func assetsEdit(studio: Studio!, call: Invocation&): Unit {
+    if !studio.editsAsText(call.text) then return
+    if !studio.editDocument(call.text) {
+        studio.notify("Could not open ${call.text}", 3)
+        return
+    }
+    studio.showPanel = documentPanel(call.text)
+    studio.sourceFocused = true
+    studio.focus = FieldFocus()
+    studio.revealCursor = true
+    studio.message(call.text)
+}
+
 @Command(title: "Create Landscape from Heightmap", menu: "Assets", group: 0, order: 1)
 func createHeightfield(studio: Studio!, call: Invocation&) {
     fin path = if call.text != "" then call.text else studio.assetSelected
@@ -646,6 +661,7 @@ func createHeightfield(studio: Studio!, call: Invocation&) {
 func problemOpen(studio: Studio!, call: Invocation&): Unit {
     if call.arg < 0 || call.arg >= studio.problems.size then return
     fin problem = studio.problems[call.arg].clone()
+    if !studio.editDocument(mainSource) then return
     studio.showPanel = "CodePanel"
     studio.sourceFocused = true
     studio.cursor = studioOffsetAt(studio, problem.line, problem.startByte)

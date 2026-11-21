@@ -20,13 +20,14 @@ pack Invocation derives Clone {
     var text: String = ""
 }
 
-/** A node that runs [command] when it is pressed. */
+/** A node that runs [command] when it is pressed, and [double] when pressed twice in quick succession. */
 @Component
 pack Pressable derives Clone {
     var command: String = ""
     var target: Int = -1
     var arg: Int = 0
     var text: String = ""
+    var double: String = ""
 }
 
 /** Fills the leftover room along its row or column. */
@@ -85,6 +86,7 @@ impl pack Press {
         target: Int = -1
         arg: Int = 0
         text: String = ""
+        double: String = ""
         spacing: Double = 0.0
         center: Bool = false
         key: String = ""
@@ -92,7 +94,7 @@ impl pack Press {
     ): Entity {
         fin id: String = if key == "" then anchor.pass.positionalKey(anchor.parent, "press") else key
         fin node = anchor.pass.row(anchor.parent, id, modifier, if center then .Center else .Start, .Center, spacing)
-        storageInsert<Pressable>(store<Pressable>(anchor.pass), node, Pressable(command, target, arg, text))
+        storageInsert<Pressable>(store<Pressable>(anchor.pass), node, Pressable(command, target, arg, text, double))
         using anchor.inside(node) then children()
         return node
     }

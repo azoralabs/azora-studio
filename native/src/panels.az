@@ -388,7 +388,8 @@ impl pack AssetsPanel {
                     fin name = substring(entry, 2, stringLength(entry))
                     fin target = if studio.assetsPath == "" { name } else { "${studio.assetsPath}/${name}" }
                     fin kind = studio.fileKind(name, folder)
-                    Press(if folder { "assetsOpen" } else { "assetsSelect" }, modifier: ::size(84.0, 82.0).rounded(7.0).ghost(), text: target, key: "tile-${name}") {
+                    Press(if folder { "assetsOpen" } else { "assetsSelect" }, modifier: ::size(84.0, 82.0).rounded(7.0).ghost(), text: target,
+                        double: if folder { "" } else { "assetsEdit" }, key: "tile-${name}") {
                         Column(modifier: ::fillMaxSize().padding(top: 8.0), horizontalAlignment: .Center, spacing: 6.0, key: "stack") {
                             Icon(kind.icon, themeColor(kind.color, studioTheme.muted), size: studioTheme.iconLarge, key: "icon")
                             Text(name, modifier: ::fillMaxWidth().height(18.0).padding(start: 4.0, end: 4.0).fontSize(11.5).bodyText(), key: "name")

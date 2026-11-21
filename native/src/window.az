@@ -60,6 +60,7 @@ func keyAxis(app: App&, positive: KeyCode, negative: KeyCode): Double {
 }
 
 func canvasPointer(panel: String, app: App!, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+    if startsWith(panel, filePanelPrefix) then return documentPointer(app, studio, rect, input, panelDocument(panel))
     inline for P in reflect<*>.withAnnot<Panel> {
         inline if reflect<P>.hasAnnot<Canvas> {
             if panel == reflect<P>.declName then return P::pointer(app, studio, rect, input)
@@ -70,6 +71,10 @@ func canvasPointer(panel: String, app: App!, studio: Studio!, rect: ViewRect&, i
 
 /** Has the `@Canvas` panel [panel] draw into [rect]. */
 func canvasDraw(panel: String, app: App!, studio: Studio!, rect: ViewRect&) {
+    if startsWith(panel, filePanelPrefix) {
+        drawDocument(app, studio, rect, panelDocument(panel))
+        return
+    }
     inline for P in reflect<*>.withAnnot<Panel> {
         inline if reflect<P>.hasAnnot<Canvas> {
             if panel == reflect<P>.declName then P::draw(app, studio, rect)
@@ -119,7 +124,7 @@ impl pack TopBar {
             Label("Azora Studio", app, studioTheme.text, size: 13.5, bold: true, key: "name")
             Icon("chevron-right", studioTheme.faint, size: studioTheme.iconSmall, key: "sep")
             Label(studio.projectName(), app, studioTheme.muted, size: 13.0, key: "project")
-            if studio.sceneDirty || studio.editor.dirty || studio.fusionDirty {
+            if studio.sceneDirty || studio.documentsDirty() || studio.fusionDirty {
                 Shape(modifier: ::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty")
             }
             Spacer(key: "left")
@@ -254,10 +259,23 @@ func popupHeight(studio: Studio!, kind: String): Double {
 
 inline fin pluginPanelPrefix = "plugin:"
 
+/** How soon and how near a second press must follow the first to make a double click. */
+inline fin doubleClickSeconds: Double = 0.5
+inline fin doubleClickSlop: Double = 5.0
+
+/** Where the last '/' in [path] is, or -1. */
+func lastSlash(path: String): Int {
+    var index = stringLength(path) - 1
+    while index >= 0 && charAt(path, index) != '/' { index = index - 1 }
+    return index
+}
+
 react func (anchor: Anchor!).studioPanel(panel: String, studio: Studio&, app: App&) {
     if startsWith(panel, pluginPanelPrefix) {
         fin id = substring(panel, stringLength(pluginPanelPrefix), stringLength(panel))
         anchor.pluginPanel(studio, app, id)
+    } else if startsWith(panel, filePanelPrefix) {
+        SourceTab(panel, panelDocument(panel), studio, app)
     } else {
         inline for P in reflect<*>.withAnnot<Panel> {
             if panel == reflect<P>.declName then P(studio, app)
@@ -479,6 +497,35 @@ func clearLayout(world: World!) {
 }
 
 /** Reads a host file into text; "" when it cannot be read. */
+/**
+ * Hands activation to the game Studio ran from [root], once its window is up.
+ * Since macOS 14 an app becomes active only when the active one yields to it,
+ * so a game started from Studio could open without the keyboard: W did
+ * nothing until the player clicked its window. Studio - active when Run was
+ * chosen - yields to the game and activates it; when the player has moved to
+ * another app meanwhile, macOS refuses and nothing is taken from them.
+ * True once the game was found.
+ */
+func handOverToGame(root: String): Bool {
+    fin built = "${menuText(send0(nsString(root), sel("stringByResolvingSymlinksInPath")))}/.azora-build/"
+    fin apps = send0(send0(cls("NSWorkspace"), sel("sharedWorkspace")), sel("runningApplications"))
+    fin count = send0(apps, sel("count"))
+    var index: Long = 0
+    while index < count {
+        fin game = send1(apps, sel("objectAtIndex:"), index)
+        fin url = send0(game, sel("executableURL"))
+        if url != 0 && startsWith(menuText(send0(url, sel("path"))), built) {
+            fin nsapp = send0(cls("NSApplication"), sel("sharedApplication"))
+            if responds(nsapp, "yieldActivationToApplication:") then send1(nsapp, sel("yieldActivationToApplication:"), game)
+            // NSApplicationActivateAllWindows: its window comes forward with it.
+            send1(game, sel("activateWithOptions:"), 1)
+            return true
+        }
+        index += 1
+    }
+    return false
+}
+
 func readText(project: Long, path: String): String {
     fin buffer = azsProjectRead(project, path)
     if buffer == 0 then return ""
@@ -604,6 +651,10 @@ react func main() {
     var wasMiddleDown = false
     var scrubMoved = false
     var dragPanel: String = ""
+    var lastPressKey: String = ""
+    var lastPressAt: Double = 0.0
+    var lastPressX: Double = 0.0
+    var lastPressY: Double = 0.0
     var player = ScriptPlayer::open()
     var floating: Array<Entity> = Array<Entity>()
     var floatLayers: Array<FloatingPaint> = []
@@ -753,6 +804,11 @@ react func main() {
         }
         if !consumed {
             consumed = dockPointer(studio.dock, pass, floatPaint, mainPaint, style, input.x, input.y, input.pressed, input.down)
+            // A tab press may show another file; typing waits for a click into one.
+            if consumed && input.pressed && studio.sourceFocused {
+                studio.sourceFocused = false
+                studio.changed()
+            }
         }
         if tracing && input.pressed {
             println("after dock: consumed ${consumed} popup '${studio.popup.kind}' viewDrag ${studio.viewDrag} panel '${dragPanel}'")
@@ -849,7 +905,18 @@ react func main() {
                 consumed = true
             } else if hitPress.isValid {
                 fin press = storageGetOrDefault<Pressable>(store<Pressable>(pass), hitPress, Pressable())
-                runCommand(studio, press.command, Invocation(press.target, press.arg, 0.0, press.text))
+                // A second press on the same part, soon and close by, is a double click.
+                fin pressKey = "${press.command} ${press.target} ${press.arg} ${press.text}"
+                fin now = app.timeNow()
+                fin twice = press.double != "" && pressKey == lastPressKey && now - lastPressAt < doubleClickSeconds &&
+                    absValue(input.x - lastPressX) < doubleClickSlop && absValue(input.y - lastPressY) < doubleClickSlop
+                if tracing then println("press '${press.command}' '${press.text}'${if twice then " double '${press.double}'" else ""}")
+                runCommand(studio, if twice then press.double else press.command, Invocation(press.target, press.arg, 0.0, press.text))
+                // A third press starts the next double click rather than ending this one.
+                lastPressKey = if twice then "" else pressKey
+                lastPressAt = now
+                lastPressX = input.x
+                lastPressY = input.y
                 consumed = true
             }
         }
@@ -858,7 +925,7 @@ react func main() {
             if surface.isValid {
                 fin panel = storageGetOrDefault<PanelSurface>(store<PanelSurface>(pass), surface, PanelSurface()).panel
                 fin area = storageGetOrDefault<Rect>(store<Rect>(pass), surface, Rect())
-                if input.pressed && panel != "CodePanel" && studio.sourceFocused {
+                if input.pressed && panelDocument(panel) == "" && studio.sourceFocused {
                     studio.sourceFocused = false
                     studio.changed()
                 }
@@ -902,7 +969,13 @@ react func main() {
         if studio.showPanel != "" && !startsWith(studio.showPanel, pluginPanelPrefix) {
             fin tab = dockFindPanel(pass.world, studio.showPanel)
             if pass.world.isAlive(tab) { dockActivate(pass.world, tab) }
-            else {
+            else if startsWith(studio.showPanel, filePanelPrefix) {
+                // A file opens beside the other text tabs, named for the file.
+                fin code = dockFindPanel(pass.world, "CodePanel")
+                fin group = if pass.world.isAlive(code) then dockParent(pass.world, code) else mainDockGroup(pass.world)
+                fin path = panelDocument(studio.showPanel)
+                if pass.world.isAlive(group) then dockAddTab(pass.world, group, studio.showPanel, title: substring(path, lastSlash(path) + 1, stringLength(path)))
+            } else {
                 fin group = mainDockGroup(pass.world)
                 if pass.world.isAlive(group) then dockAddTab(pass.world, group, studio.showPanel)
             }
@@ -922,7 +995,7 @@ react func main() {
             studio.requestedTool = ""
             if compiler == "" {
                 studio.notify("Set AZORA_NATIVE_COMPILER to build, check and run", 3)
-            } else if studio.editor.save() {
+            } else if studio.saveDocuments() {
                 fin manifest = readText(project, "azora.azon")
                 if hasProjectPackages(manifest) {
                     // The game Studio runs renders as Preferences say, not only the viewport.
@@ -932,6 +1005,7 @@ react func main() {
                         azsSetEnvironment("AZORA_RENDER_UPSCALING", if studio.upscaling then "temporal" else "native")
                     }
                     studio.process = azsEngineProcessStart(compiler, root, if action == "play" then "run" else action)
+                    studio.handingOver = action == "play" && studio.process != 0
                 } else {
                     studio.process = azsProcessStart(compiler, root, root, action)
                 }
@@ -949,6 +1023,8 @@ react func main() {
             } else { studio.notify(azsError(), 3) }
         }
         if studio.process != 0 {
+            // The game is built first; look for its window a few times a second.
+            if studio.handingOver && frames % 10 == 0 && handOverToGame(root) then studio.handingOver = false
             fin result = azsProcessPoll(studio.process)
             if result != -1 {
                 fin output = azsProcessOutput(studio.process)
@@ -968,6 +1044,7 @@ react func main() {
                 }
                 azsProcessClose(studio.process)
                 studio.process = 0
+                studio.handingOver = false
                 studio.busy = false
                 studio.changed()
             }

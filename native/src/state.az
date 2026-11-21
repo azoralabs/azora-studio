@@ -259,6 +259,8 @@ pack MenuEntry derives Clone {
 pack Studio {
     var root: String = ""
     var editor: Editor
+    /** Files open in tabs besides the edited one ([editor]'s); see [editDocument]. */
+    var documents: Array<OpenFile> = []
     var scene: World = World()
     var history: Array<SceneEdit> = []
     var historyAt: Int = 0
@@ -278,6 +280,8 @@ pack Studio {
     var busy: Bool = false
     var process: Long = 0
     var processAction: String = ""
+    /** True from Run until the game it started has been handed activation (see [handOverToGame]). */
+    var handingOver: Bool = false
     var requestedTool: String = ""
 
     var sourceFocused: Bool = false
@@ -385,6 +389,8 @@ pack FileKind derives Clone {
     var extension: String = ""
     var icon: String = "file"
     var color: String = "muted"
+    /** Studio opens the file in a text tab. */
+    var text: Bool = false
 }
 
 /** The file kinds in [text], a `file-types.azon`; none when it is not one. */
@@ -403,6 +409,7 @@ func readFileKinds(text: String): Array<FileKind> {
                             when fields[field].name {
                                 "icon" -> { kind.icon = serialAsText(fields[field].value) catch kind.icon }
                                 "color" -> { kind.color = serialAsText(fields[field].value) catch kind.color }
+                                "text" -> { kind.text = serialAsBool(fields[field].value) catch false }
                                 else -> { }
                             }
                             field = field + 1
@@ -431,6 +438,84 @@ impl Studio {
         if self.projectLabel != 0 then azsBufferClose(self.projectLabel)
         while self.problemText.size > 0 { azsBufferClose(self.problemText.removeLast()) }
         if self.process != 0 then azsProcessClose(self.process)
+        while self.documents.size > 0 {
+            var file = self.documents.removeLast()
+            azsBufferClose(file.source)
+            closeBuffers(file.history)
+            closeBuffers(file.future)
+        }
+    }
+
+    // ── Open files ──────────────────────────────────────────────────────
+
+    /** Whether Studio edits [path] as text, as resources/file-types.azon says. */
+    func &.editsAsText(path: String): Bool = self.fileKind(path, false).text
+
+    /** Where [path] is among the parked [documents], or -1. */
+    func &.parkedFile(path: String): Int {
+        var index = 0
+        while index < self.documents.size {
+            if self.documents[index].path == path then return index
+            index = index + 1
+        }
+        return -1
+    }
+
+    /** Whether [path] is open with changes not yet saved. */
+    func &.documentDirty(path: String): Bool {
+        if path == self.editor.path then return self.editor.dirty
+        fin at = self.parkedFile(path)
+        return at >= 0 && self.documents[at].dirty
+    }
+
+    /** Whether any open file has changes not yet saved. */
+    func &.documentsDirty(): Bool {
+        if self.editor.dirty then return true
+        for file in self.documents { if file.dirty then return true }
+        return false
+    }
+
+    /**
+     * Makes project file [path] the edited one, reading it when it is not open
+     * yet. The file edited before is parked with its text, undo and caret.
+     * False when [path] cannot be read.
+     */
+    func !.editDocument(path: String): Bool {
+        if path == self.editor.path then return true
+        fin at = self.parkedFile(path)
+        var next = if at >= 0 { self.documents.removeAt(at) } else { OpenFile(path, azsProjectRead(self.editor.project, path)) }
+        if next.source == 0 then return false
+        var parked = OpenFile(self.editor.path, self.editor.source, [], [], self.editor.dirty, self.editor.typingEnd,
+            self.cursor, self.anchor, self.sourceScroll)
+        moveBuffers(self.editor.history, parked.history)
+        moveBuffers(self.editor.future, parked.future)
+        self.documents.add(take parked)
+        self.editor.path = path
+        self.editor.source = next.source
+        moveBuffers(next.history, self.editor.history)
+        moveBuffers(next.future, self.editor.future)
+        self.editor.dirty = next.dirty
+        self.editor.typingEnd = next.typingEnd
+        fin size = azsBufferSize(next.source)
+        self.cursor = if next.cursor > size then size else next.cursor
+        self.anchor = if next.anchor > size then -1 else next.anchor
+        self.sourceScroll = next.scroll
+        self.changed()
+        return true
+    }
+
+    /** Saves the edited file and every parked one with changes; false when one could not be written. */
+    func !.saveDocuments(): Bool {
+        var saved = self.editor.save()
+        var index = 0
+        while index < self.documents.size {
+            if self.documents[index].dirty {
+                if azsProjectWrite(self.editor.project, self.documents[index].path, self.documents[index].source) == 0 then saved = false
+                else self.documents[index].dirty = false
+            }
+            index = index + 1
+        }
+        return saved
     }
 
     func !.changed() { self.revision = self.revision + 1 }

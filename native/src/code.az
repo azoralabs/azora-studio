@@ -126,7 +126,7 @@ func offsetAt(source: Long, row: Int, column: Int): Int {
 func isKeyword(word: String): Bool {
     return word == "func" || word == "fin" || word == "var" || word == "let" || word == "import" ||
         word == "module" || word == "pack" || word == "impl" || word == "spec" || word == "enum" ||
-        word == "if" || word == "else" || word == "while" || word == "for" || word == "in" ||
+        word == "if" || word == "then" || word == "else" || word == "while" || word == "for" || word == "in" ||
         word == "loop" || word == "return" || word == "break" || word == "continue" || word == "when" ||
         word == "react" || word == "ctor" || word == "dtor" || word == "bridge" || word == "using" ||
         word == "take" || word == "lend" || word == "alloc" || word == "purge" || word == "defer" ||
@@ -486,25 +486,27 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
 
 // ── Panels ──────────────────────────────────────────────────────────────
 
-@Panel(title: "main.az", icon: "file-code", area: .Center, order: 1)
-@Canvas
-pack CodePanel { }
-impl CodePanel {
-    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+/** A text tab: [path]'s place in the project over the surface [panel] draws [path] into. */
+impl pack SourceTab {
+    react ctor (_: Anchor!).(panel: String, path: String, studio: Studio&, app: App&): Entity {
         return Column(modifier: Modifier::fillMaxSize(), key: "code") {
             PanelBar {
-                Label("src / main.az", app, studioTheme.muted, key: "path")
-                if studio.editor.dirty then Shape(modifier: Modifier::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty")
+                Label(replace(path, "/", " / "), app, studioTheme.muted, key: "path")
+                if studio.documentDirty(path) then Shape(modifier: Modifier::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty")
                 Spacer(key: "fill")
-                Label("Ln ${studio.line}, Col ${studio.column}", app, studioTheme.faint, key: "position")
-                Label("Azora · UTF-8", app, studioTheme.faint, key: "encoding")
+                if path == studio.editor.path then Label("Ln ${studio.line}, Col ${studio.column}", app, studioTheme.faint, key: "position")
+                Label(if endsWith(path, ".az") then "Azora · UTF-8" else "UTF-8", app, studioTheme.faint, key: "encoding")
             }
-            Surface("CodePanel", studioTheme.codeBackground)
+            Surface(panel, studioTheme.codeBackground)
         }
     }
+}
 
-    func draw(app: App!, studio: Studio!, rect: ViewRect&) {
-        fin area = Rect(rect.x, rect.y, rect.width, rect.height)
+/** Draws open file [path] into [rect]: the edited one with its caret, a parked one as it was left. */
+func drawDocument(app: App!, studio: Studio!, rect: ViewRect&, path: String) {
+    fin area = Rect(rect.x, rect.y, rect.width, rect.height)
+    app.setScissor(rect.x, rect.y, rect.width, rect.height)
+    if path == studio.editor.path {
         if studio.revealCursor {
             fin cursorLine = sourceRow(studio.editor.source, studio.cursor)
             var visibleRows = ((area.height - sourceTop * 2.0) / sourceLineHeight) as Int
@@ -516,40 +518,71 @@ impl CodePanel {
         // The caret holds steady while typing and blinks once idle.
         fin idle = app.timeNow() - studio.lastEdit
         fin caretVisible = idle < 0.6 || ((idle * 1.6) as Int) % 2 == 0
-        app.setScissor(rect.x, rect.y, rect.width, rect.height)
+        // Problems come from checking the entry source.
+        fin none: Array<Diagnostic> = []
         drawSource(app, studio.editor.source, studio.cursor, studio.sourceFocused, area, studio.sourceScroll, caretVisible,
-            studio.problems, studio.problemsStale, studio.selectionStart(), studio.selectionEnd())
-        app.clearScissor()
+            if path == mainSource then studio.problems else none, studio.problemsStale, studio.selectionStart(), studio.selectionEnd())
+    } else {
+        fin at = studio.parkedFile(path)
+        if at >= 0 {
+            fin file = studio.documents[at].clone()
+            fin none: Array<Diagnostic> = []
+            drawSource(app, file.source, file.cursor, false, area, file.scroll, false, none, false, file.cursor, file.cursor)
+        }
     }
+    app.clearScissor()
+}
 
-    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
-        fin area = Rect(rect.x, rect.y, rect.width, rect.height)
-        if studio.viewDrag == 4 {
-            if !input.down {
-                studio.viewDrag = 0
-                return true
-            }
-            studio.cursor = sourceOffsetAt(app, studio.editor.source, input.x, input.y, area, studio.sourceScroll)
-            studio.lastEdit = app.timeNow()
+/** The pointer over open file [path]'s surface: a press there makes it the edited file and places the caret. */
+func documentPointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&, path: String): Bool {
+    fin area = Rect(rect.x, rect.y, rect.width, rect.height)
+    if studio.viewDrag == 4 {
+        if !input.down {
+            studio.viewDrag = 0
             return true
         }
-        if !rect.contains(input.x, input.y) then return false
-        if input.scrollY != 0.0 {
-            if input.scrollY > 0.0 { studio.sourceScroll = studio.sourceScroll - 2 } else { studio.sourceScroll = studio.sourceScroll + 2 }
-            if studio.sourceScroll < 0 then studio.sourceScroll = 0
-        }
-        if !input.pressed then return false
-        studio.sourceFocused = true
-        studio.focus = FieldFocus()
-        fin clicked = sourceOffsetAt(app, studio.editor.source, input.x, input.y, area, studio.sourceScroll)
-        if input.shift { if studio.anchor < 0 { studio.anchor = studio.cursor } }
-        else { studio.anchor = clicked }
-        studio.cursor = clicked
-        studio.viewDrag = 4
+        studio.cursor = sourceOffsetAt(app, studio.editor.source, input.x, input.y, area, studio.sourceScroll)
         studio.lastEdit = app.timeNow()
-        studio.changed()
         return true
     }
+    if !rect.contains(input.x, input.y) then return false
+    if input.scrollY != 0.0 {
+        if path == studio.editor.path {
+            studio.sourceScroll = studio.sourceScroll + (if input.scrollY > 0.0 then -2 else 2)
+            if studio.sourceScroll < 0 then studio.sourceScroll = 0
+        } else {
+            fin at = studio.parkedFile(path)
+            if at >= 0 {
+                studio.documents[at].scroll = studio.documents[at].scroll + (if input.scrollY > 0.0 then -2 else 2)
+                if studio.documents[at].scroll < 0 then studio.documents[at].scroll = 0
+            }
+        }
+    }
+    if !input.pressed then return false
+    if !studio.editDocument(path) then return false
+    studio.sourceFocused = true
+    studio.focus = FieldFocus()
+    fin clicked = sourceOffsetAt(app, studio.editor.source, input.x, input.y, area, studio.sourceScroll)
+    if input.shift { if studio.anchor < 0 { studio.anchor = studio.cursor } }
+    else { studio.anchor = clicked }
+    studio.cursor = clicked
+    studio.viewDrag = 4
+    studio.lastEdit = app.timeNow()
+    studio.changed()
+    return true
+}
+
+@Panel(title: "main.az", icon: "file-code", area: .Center, order: 1)
+@Canvas
+pack CodePanel { }
+impl CodePanel {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        return SourceTab("CodePanel", mainSource, studio, app)
+    }
+
+    func draw(app: App!, studio: Studio!, rect: ViewRect&) = drawDocument(app, studio, rect, mainSource)
+
+    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool = documentPointer(app, studio, rect, input, mainSource)
 }
 
 @Panel(title: "Console", icon: "terminal", area: .Bottom, order: 1)
