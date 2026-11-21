@@ -20,6 +20,8 @@ import engine.lighting.photon
 import engine.scene.terrain
 import engine.render.scene
 import studio.plugins
+import studio.landscape
+import engine.landscape
 import studio.os
 
 // Every action Studio can take, as a `@Command`. A pressed node names one by
@@ -118,6 +120,10 @@ func readPresets(text: String): Array<EntityPresetSlot> {
 
 func saveSceneDocument(studio: Studio!): Bool {
     if !saveFusionAsset(studio) then return false
+    if saveBuiltInLandscape() != 0 {
+        studio.notify("Could not save the sculpted landscape", 3)
+        return false
+    }
     fin buffer = azsBufferNew(writeScene(studio.scene))
     fin written = if buffer == 0 then 0 else azsProjectWrite(studio.editor.project, sceneFile, buffer)
     if buffer != 0 then azsBufferClose(buffer)
@@ -261,6 +267,8 @@ func popupAddEntity(studio: Studio!, call: Invocation&): Unit {
 
 @Command(title: "Select Tool", menu: "View", group: 0, order: 0, key: "1", hotkey: "q")
 func toolSelect(studio: Studio!, call: Invocation&): Unit {
+    studio.roadPlacement = 0
+    studio.foliageBrush.mode = 0
     studio.pluginTool = ""
     studio.pluginToolOwner = ""
     studio.pluginHit = .()
@@ -270,6 +278,8 @@ func toolSelect(studio: Studio!, call: Invocation&): Unit {
 
 @Command(title: "Move Tool", menu: "View", group: 0, order: 1, key: "2", hotkey: "w")
 func toolMove(studio: Studio!, call: Invocation&): Unit {
+    studio.roadPlacement = 0
+    studio.foliageBrush.mode = 0
     studio.pluginTool = ""
     studio.pluginToolOwner = ""
     studio.pluginHit = .()
@@ -279,6 +289,8 @@ func toolMove(studio: Studio!, call: Invocation&): Unit {
 
 @Command(title: "Rotate Tool", menu: "View", group: 0, order: 2, key: "3", hotkey: "e")
 func toolRotate(studio: Studio!, call: Invocation&): Unit {
+    studio.roadPlacement = 0
+    studio.foliageBrush.mode = 0
     studio.pluginTool = ""
     studio.pluginToolOwner = ""
     studio.pluginHit = .()
@@ -288,6 +300,8 @@ func toolRotate(studio: Studio!, call: Invocation&): Unit {
 
 @Command(title: "Scale Tool", menu: "View", group: 0, order: 3, key: "4", hotkey: "r")
 func toolScale(studio: Studio!, call: Invocation&): Unit {
+    studio.roadPlacement = 0
+    studio.foliageBrush.mode = 0
     studio.pluginTool = ""
     studio.pluginToolOwner = ""
     studio.pluginHit = .()
@@ -638,7 +652,7 @@ func assetsEdit(studio: Studio!, call: Invocation&): Unit {
 func createHeightfield(studio: Studio!, call: Invocation&) {
     fin path = if call.text != "" then call.text else studio.assetSelected
     if !terrainFile(path) {
-        studio.notify("Select a P2 PGM heightmap in Assets", 1)
+        studio.notify("Select a PGM heightmap in Assets", 1)
         return
     }
     fin image = readTerrainImage("${studio.root}/${path}")
@@ -651,6 +665,7 @@ func createHeightfield(studio: Studio!, call: Invocation&) {
     storageInsert<Name>(ensureStorage<Name>(studio.scene), entity, Name("Heightfield"))
     storageInsert<Transform>(ensureStorage<Transform>(studio.scene), entity, Transform())
     storageInsert<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene), entity, HeightfieldTerrain(image: path))
+    storageInsert<LandscapeCollision>(ensureStorage<LandscapeCollision>(studio.scene),entity,LandscapeCollision())
     studio.record(entity, "", -1, "create heightfield")
     studio.select(entity)
     studio.showPanel = "ScenePanel"

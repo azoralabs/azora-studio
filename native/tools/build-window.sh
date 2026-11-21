@@ -27,7 +27,7 @@ case "$MODE" in
         # The editor shell: state, commands, panels, viewport and code surfaces.
         cp "$ROOT/src/problems.az" "$ROOT/src/state.az" "$ROOT/src/ui.az" "$ROOT/src/fields.az" "$ROOT/src/panels.az" \
             "$ROOT/src/viewport.az" "$ROOT/src/code.az" "$ROOT/src/commands.az" "$ROOT/src/script.az" \
-            "$ROOT/src/os.az" "$ROOT/src/fusion.az" "$ROOT/src/plugins.az" "$ROOT/src/menubar.az" "$BUILD/project/src/" ;;
+            "$ROOT/src/landscape.az" "$ROOT/src/pluginapi.az" "$ROOT/src/worldtools.az" "$ROOT/src/foliagetool.az" "$ROOT/src/os.az" "$ROOT/src/fusion.az" "$ROOT/src/plugins.az" "$ROOT/src/menubar.az" "$BUILD/project/src/" ;;
     launcher)
         # The launcher shares Studio's parts and its scripted input.
         cp "$ROOT/src/ui.az" "$ROOT/src/script.az" "$BUILD/project/src/" ;;

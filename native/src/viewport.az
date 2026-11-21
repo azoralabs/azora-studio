@@ -12,7 +12,7 @@ import engine.scene
 import engine.scene.terrain
 import engine.lighting.photon
 import studio.fields
-import engine.sky
+import engine.atmosphere
 import studio.host
 import engine.render.scene
 import engine.gizmos
@@ -25,6 +25,9 @@ import studio.state
 import studio.ui
 import studio.panels
 import studio.plugins
+import studio.worldtools
+import studio.foliagetool
+import engine.roads
 
 // The scene viewport: the Engine renders the scene into the panel's surface,
 // and the gizmos package draws the grid, the handles and the axis widget over
@@ -49,7 +52,9 @@ impl pack ScenePanel {
                 Spacer(key: "fill")
                 fin sky = viewSkyEntity(studio)
                 if sky.isValid {
-                    fin hour = storageGet<SkyEnvironment>(storageOf<SkyEnvironment>(studio.scene), sky).hour
+                    fin physical = storageHas<AetherSky>(storageOf<AetherSky>(studio.scene),sky)
+                    fin hour = if physical then storageGet<AetherSky>(storageOf<AetherSky>(studio.scene),sky).hour
+                        else storageGet<SkyEnvironment>(storageOf<SkyEnvironment>(studio.scene),sky).hour
                     Text("Hour", modifier: ::width(30.0).fontSize(11.0).mutedText(), key: "sky-label")
                     Row(modifier: ::width(68.0).height(26.0), key: "sky-time") {
                         NumberField("SkyTime", "hour", 0, hour, studio.focus, key: "hour")
@@ -71,6 +76,13 @@ impl pack ScenePanel {
 }
 
 func viewSkyEntity(studio: Studio&): Entity {
+    fin physical = storageOf<AetherSky>(studio.scene)
+    var at = 0
+    while at < storageLength<AetherSky>(physical) {
+        fin entity = storageEntityAt<AetherSky>(physical,at)
+        if physical.values[at].enabled && studio.scene.isAlive(entity) then return entity
+        at += 1
+    }
     fin skies = storageOf<SkyEnvironment>(studio.scene)
     var index = 0
     while index < storageLength<SkyEnvironment>(skies) {
@@ -85,9 +97,15 @@ func setViewportSkyHour(studio: Studio!, text: String) {
     fin entity = viewSkyEntity(studio)
     if !studio.scene.isAlive(entity) then return
     fin before = studio.snapshot(entity)
-    var sky = storageGet<SkyEnvironment>(ensureStorage<SkyEnvironment>(studio.scene), entity).clone()
-    sky.hour = skyClamp(parseNumber(text, sky.hour), 0.0, 24.0)
-    storageInsert<SkyEnvironment>(ensureStorage<SkyEnvironment>(studio.scene), entity, take sky)
+    if storageHas<AetherSky>(ensureStorage<AetherSky>(studio.scene),entity) {
+        var sky = storageGet<AetherSky>(ensureStorage<AetherSky>(studio.scene),entity).clone()
+        sky.hour = skyClamp(parseNumber(text,sky.hour),0.0,24.0)
+        storageInsert<AetherSky>(ensureStorage<AetherSky>(studio.scene),entity,take sky)
+    } else {
+        var sky = storageGet<SkyEnvironment>(ensureStorage<SkyEnvironment>(studio.scene),entity).clone()
+        sky.hour = skyClamp(parseNumber(text,sky.hour),0.0,24.0)
+        storageInsert<SkyEnvironment>(ensureStorage<SkyEnvironment>(studio.scene),entity,take sky)
+    }
     studio.viewportStarted = azsMonotonicSeconds()
     studio.record(entity, before, studio.scene.getParent(entity).id, "edit sky hour")
 }
@@ -200,7 +218,7 @@ func pickMesh(app: App!, studio: Studio!, ray: Ray&): Entity {
         fin entity = storageEntityAt<HeightfieldTerrain>(terrains, index)
         if studio.scene.isAlive(entity) && visibleInWorld(studio.scene, entity) {
             fin terrain = terrains.values[index].clone()
-            fin asset = app.gpu.terrainIndex(terrain.image)
+            fin asset = app.sceneTerrainIndex(entity,terrain,heightfieldMatrix(studio.scene,entity,terrain))
             fin data = app.gpu.terrains[asset].image.clone()
             if data.samples != 0 {
                 fin local = rayIntoEntity(studio.scene, entity, ray)
@@ -226,7 +244,10 @@ func pickMarker(studio: Studio!, viewProj: Mat4&, rect: ViewRect&, x: Double, y:
     while id < studio.scene.entityCount {
         fin entity = studio.scene.entityAt(id)
         if studio.scene.isAlive(entity) && (storageHas<Camera3d>(ensureStorage<Camera3d>(studio.scene), entity) ||
-            storageHas<Light3d>(ensureStorage<Light3d>(studio.scene), entity)) {
+            storageHas<Light3d>(ensureStorage<Light3d>(studio.scene), entity) ||
+            storageHas<RoadPoint>(ensureStorage<RoadPoint>(studio.scene),entity) ||
+            storageHas<RoadJunction>(ensureStorage<RoadJunction>(studio.scene),entity) ||
+            storageHas<PlayerStart>(ensureStorage<PlayerStart>(studio.scene),entity)) {
             fin at = project(viewProj, rect, worldPosition(studio.scene, entity))
             if at.visible && absValue(at.x - x) < 13.0 && absValue(at.y - y) < 13.0 then return entity
         }
@@ -339,6 +360,15 @@ func viewportPointer(app: App!, studio: Studio!, rect: ViewRect&, input: FrameIn
             }
             studio.viewDrag = 0
         }
+        7 -> {
+            if input.down && rect.contains(input.x,input.y) {
+                foliagePointer(app,studio,studio.camera.ray(rect,input.x,input.y),false,true)
+                return true
+            }
+            finishFoliageStroke(studio)
+            studio.viewDrag = 0
+            return true
+        }
         6 -> {
             // A plugin tool's stroke, from press to release.
             fin ray = studio.camera.ray(rect, input.x, input.y)
@@ -378,7 +408,7 @@ func viewportPointer(app: App!, studio: Studio!, rect: ViewRect&, input: FrameIn
             else -> studio.camera.orbit(input.scrollX, input.scrollY)
         }
     }
-    fin hasHandles = studio.pluginTool == "" && studio.tool != 0 && studio.scene.isAlive(selected)
+    fin hasHandles = studio.foliageBrush.mode == 0 && studio.pluginTool == "" && studio.tool != 0 && studio.scene.isAlive(selected)
     if hasHandles {
         studio.gizmo.mode = studio.tool - 1
         studio.gizmo.origin = worldPosition(studio.scene, selected)
@@ -397,6 +427,18 @@ func viewportPointer(app: App!, studio: Studio!, rect: ViewRect&, input: FrameIn
     }
     if input.middlePressed {
         studio.viewDrag = 2
+        return true
+    }
+    if studio.foliageBrush.mode > 0 && studio.mode3d && !input.alt {
+        foliagePointer(app,studio,studio.camera.ray(rect,input.x,input.y),input.pressed,false)
+        if input.pressed {
+            studio.viewDrag = 7
+            return true
+        }
+        return false
+    }
+    if studio.roadPlacement > 0 && input.pressed && !input.alt {
+        placeOnTerrain(app,studio,studio.camera.ray(rect,input.x,input.y))
         return true
     }
     // A plugin tool in hand answers the pointer before picking does.
@@ -471,6 +513,17 @@ func drawMarkers(app: App!, studio: Studio!, viewProj: Mat4&, rect: ViewRect&) {
         fin entity = studio.scene.entityAt(id)
         fin camera = studio.scene.isAlive(entity) && storageHas<Camera3d>(ensureStorage<Camera3d>(studio.scene), entity)
         fin light = studio.scene.isAlive(entity) && storageHas<Light3d>(ensureStorage<Light3d>(studio.scene), entity) && entity != sceneSkyLight(studio.scene)
+        fin point = studio.scene.isAlive(entity) && storageHas<RoadPoint>(ensureStorage<RoadPoint>(studio.scene),entity)
+        fin junction = studio.scene.isAlive(entity) && storageHas<RoadJunction>(ensureStorage<RoadJunction>(studio.scene),entity)
+        fin player = studio.scene.isAlive(entity) && storageHas<PlayerStart>(ensureStorage<PlayerStart>(studio.scene),entity)
+        if (point && (studio.selected() == entity || studio.selected() == studio.scene.getParent(entity) ||
+            (studio.roadPlacement == 1 && studio.roadTarget == studio.scene.getParent(entity)))) || junction || player {
+            fin at = project(viewProj,rect,worldPosition(studio.scene,entity))
+            if at.visible {
+                fin tint = if player then studioTheme.green else studioTheme.accent
+                app.uiRoundRect(at.x-4.0,at.y-4.0,8.0,8.0,4.0,tint.r,tint.g,tint.b,0.9)
+            }
+        }
         if camera || light {
             fin position = worldPosition(studio.scene, entity)
             fin m = worldMatrix(studio.scene, entity)
@@ -529,11 +582,12 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     app.setScissor(rect.x, rect.y, rect.width, rect.height)
     fin elapsed = azsMonotonicSeconds() - studio.viewportStarted
     fin skyEntity = sceneSkyLight(studio.scene)
-    if studio.mode3d && studio.scene.isAlive(skyEntity) {
+    fin drawnSky = drawPhysicalSky(app,studio,rect,elapsed)
+    if !drawnSky && studio.mode3d && studio.scene.isAlive(skyEntity) {
         fin sky = sampleSky(storageGet<SkyEnvironment>(ensureStorage<SkyEnvironment>(studio.scene), skyEntity), elapsed)
         app.drawSkyView(rect.x, rect.y, rect.width, rect.height, sky,
             studio.camera.forward(), studio.camera.right(), studio.camera.up(), tan(studio.camera.fov*degreesToRadians*0.5))
-    } else {
+    } else if !drawnSky {
         app.drawGrid(studio.camera, rect, 1.0, 40.0, colors)
     }
     app.beginView(viewProj, rect)
@@ -553,7 +607,7 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
         app.setAmbientLight(1.0)
     }
     if studio.viewMode == 2 then send1(app.gpu.enc, sel("setTriangleFillMode:"), 1)
-    app.drawScene(studio.scene, studio.meshes)
+    app.drawScene(studio.scene, studio.meshes, sculpted: false)
     app.drawPluginMeshes(studio, rect)
     if studio.viewMode == 2 then send1(app.gpu.enc, sel("setTriangleFillMode:"), 0)
     app.gpu.flatMaterials = false
@@ -563,7 +617,8 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     if studio.scene.isAlive(selected) then boundsLines(app, studio, selected, viewProj, rect, studioTheme.accent.withAlpha(0.9))
     drawMarkers(app, studio, viewProj, rect)
     app.drawPluginBrush(studio, viewProj, rect, studioTheme.accent)
-    if studio.pluginTool == "" && studio.tool != 0 && studio.scene.isAlive(selected) {
+    drawFoliageBrush(app,studio,viewProj,rect)
+    if studio.foliageBrush.mode == 0 && studio.pluginTool == "" && studio.tool != 0 && studio.scene.isAlive(selected) {
         studio.gizmo.mode = studio.tool - 1
         if studio.gizmo.active == 0 then studio.gizmo.origin = worldPosition(studio.scene, selected)
         app.drawGizmo(studio.gizmo, studio.camera, rect, colors)

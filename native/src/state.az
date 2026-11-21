@@ -4,6 +4,8 @@ import std.traits
 import std.container.list
 import std.serializer
 import engine.core
+import engine.atmosphere
+import engine.weather.presets
 import engine.ecs
 import engine.math
 import engine.scene
@@ -94,6 +96,17 @@ pack FieldFocus derives Clone {
     var replace: Bool = false
 }
 
+pack FoliageBrush {
+    var mode: Int = 0
+    var radius: Double = 18.0
+    var strength: Double = 0.65
+    var hover: Bool = false
+    var point: Vec3 = .(0.0,0.0,0.0)
+    var landscape: Entity = Entity::invalid
+    var before: String = ""
+    var last: Vec3 = .(0.0,0.0,0.0)
+}
+
 /**
  * The pointer and modifier keys for one frame, from the window or from a
  * scripted session alike: panels read this, never the platform.
@@ -157,6 +170,7 @@ pack Plugin derives Clone {
     var library: Long = 0
     /** The loaded library's `entry`, called as `foreign (String) -> Int`. */
     var entryAddress: Long = 0
+    var builtIn: Bool = false
     var builds: Int = 0
     var stamp: Double = 0.0
     var message: String = ""
@@ -200,15 +214,6 @@ pack PluginComponentSpec derives Clone {
     var icon: String = "component"
     var defaults: String = "{}"
     var objectKind: String = ""
-}
-
-/** Stable reference from a scene entity to an object owned by a plugin. */
-@Component
-@Inspectable(visible: false, removable: false)
-pack PluginObject derives Clone {
-    var plugin: String = ""
-    var id: Int = 0
-    var kind: String = ""
 }
 
 /** A GPU mesh variant and its geometric error in object space. */
@@ -363,6 +368,14 @@ pack Studio {
     var pluginScanned: Bool = false
     var viewMode: Int = 0
     var viewportStarted: Double = 0.0
+    var roadTarget: Entity = Entity::invalid
+    var roadPlacement: Int = 0
+    var foliageBrush: FoliageBrush = .()
+    var atmosphere: AetherRenderer = .()
+    var atmosphereState: AetherState = .()
+    var atmospherePrevious: Mat4 = mat4Identity()
+    var atmosphereOwner: Entity = Entity::invalid
+    var atmosphereTried: Bool = false
     /** Frame rate and frame time, shown in the viewport's top-right corner. */
     var frameStats: FrameStats = .()
     var frameClock: Double = 0.0

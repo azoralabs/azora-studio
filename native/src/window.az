@@ -15,7 +15,7 @@ import engine.core
 import engine.ecs
 import engine.math
 import engine.scene
-import engine.sky
+import engine.atmosphere.legacy
 import engine.scene.io
 import engine.render.scene
 import engine.gizmos
@@ -40,6 +40,11 @@ import studio.code
 import studio.commands
 import studio.problems
 import studio.plugins
+import studio.worldtools
+import studio.foliagetool
+import engine.vehicles
+import engine.weather
+import engine.roads
 import studio.menubar
 
 // The Studio window. Panels are found by reflection, commands are found by
@@ -310,7 +315,7 @@ func syncPluginPanels(studio: Studio!, world: World!) {
     fin id = studio.pluginOpen
     studio.pluginOpen = ""
     fin owner = studio.pluginById(id)
-    if owner < 0 || studio.plugins[owner].entryAddress == 0 then return
+    if owner < 0 || !pluginReady(studio.plugins[owner]) then return
     fin panel = "${pluginPanelPrefix}${id}"
     fin tab = dockFindPanel(world, panel)
     if world.isAlive(tab) {
@@ -577,6 +582,7 @@ react func main() {
     } else {
         studio.output("Azora Studio — native build.\nOpened ${studio.projectName()} · ${sceneFile}")
     }
+    fin landscapeTools = if resources != 0 then readText(resources, "landscape-tools.azon") else ""
     if resources != 0 then azsProjectClose(resources)
     var id = 0
     while id < studio.scene.entityCount {
@@ -619,6 +625,7 @@ react func main() {
     app.setClearColor(studioTheme.ground.r, studioTheme.ground.g, studioTheme.ground.b)
     studio.meshes = app.primitiveMeshes()
     app.setFusionRoot(root)
+    studio.installLandscapeEditor(app,landscapeTools)
     app.prepareFusionMaterials(studio.scene)
     // The icons every part draws, from the atlas tools/build-icons.sh renders.
     if resourcesRoot != "" {
@@ -961,7 +968,7 @@ react func main() {
             fin inspector = dockFindPanel(pass.world, "InspectorPanel")
             fin group = dockParent(pass.world, inspector)
             for plugin in studio.plugins {
-                if plugin.entryAddress != 0 then dockAddTab(pass.world, group, "${pluginPanelPrefix}${plugin.id}", title: plugin.name)
+                if pluginReady(plugin) then dockAddTab(pass.world, group, "${pluginPanelPrefix}${plugin.id}", title: plugin.name)
             }
             if pass.world.isAlive(inspector) then dockActivate(pass.world, inspector)
             studio.changed()
@@ -976,8 +983,10 @@ react func main() {
                 fin path = panelDocument(studio.showPanel)
                 if pass.world.isAlive(group) then dockAddTab(pass.world, group, studio.showPanel, title: substring(path, lastSlash(path) + 1, stringLength(path)))
             } else {
-                fin group = mainDockGroup(pass.world)
-                if pass.world.isAlive(group) then dockAddTab(pass.world, group, studio.showPanel)
+                // Keep brush settings beside the viewport that receives the stroke.
+                fin inspector = if studio.showPanel == "FoliagePanel" then dockFindPanel(pass.world,"ComponentsPanel") else Entity::invalid
+                fin group = if pass.world.isAlive(inspector) then dockParent(pass.world,inspector) else mainDockGroup(pass.world)
+                if pass.world.isAlive(group) then dockAddTab(pass.world,group,studio.showPanel)
             }
             studio.showPanel = ""
             studio.dock.changed()

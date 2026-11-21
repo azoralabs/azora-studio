@@ -1,0 +1,373 @@
+module studio.landscape
+import std.traits
+import std.math
+import std.serializer
+import std.container.list
+import studio.pluginapi
+import engine.io
+import engine.landscape.field
+import engine.landscape.surface
+import engine.landscape.volume
+
+// Studio's landscape tools share surface extraction and volume data with the Engine.
+
+threadlocal var landscapes: Array<Landscape> = []
+threadlocal var dirty: Bool = false
+threadlocal var nextId: Int = 1
+/** A stroke is locked to a landscape and remembers its sampled plane and last stamp. */
+threadlocal var stroking: Int = 0
+threadlocal var planePoint: Point = .()
+threadlocal var planeNormal: Point = .(0.0, 1.0, 0.0)
+threadlocal var previousStamp: Point = .()
+threadlocal var hasPreviousStamp: Bool = false
+
+/** The plugin's entry: Studio calls it with each request. 0 when it was handled. */
+func flexLandscape(request: String): Int {
+    fin root = decodeSerialValue(request, serializerOptions()) catch SerialValue.Null
+    return when root {
+        SerialValue.Object(fields) -> handle(fields)
+        else -> {
+            studioPluginReply("{\"error\": \"Landscape could not read the request\"}")
+            1
+        }
+    }
+}
+
+func handle(fields: List<SerialField>&): Int {
+    return when textAt(fields, "op", "") {
+        "load" -> load()
+        "unload" -> unload()
+        "save" -> saveBuiltInLandscape()
+        "create" -> create(fields)
+        "delete" -> remove(intAt(fields, "object", 0))
+        "tool" -> tool(fields)
+        "pick" -> pick(fields)
+        else -> 1
+    }
+}
+
+// ── Lifecycle ───────────────────────────────────────────────────────────
+
+func load(): Int {
+    landscapes = loadLandscapes()
+    nextId = nextLandscapeId()
+    var index = 0
+    while index < landscapes.size {
+        meshAll(landscapes[index].field, landscapes[index].id)
+        if landscapes[index].id >= nextId then nextId = landscapes[index].id + 1
+        index = index + 1
+    }
+    studioPluginReply("{\"objects\": ${objectsText()}}")
+    return 0
+}
+
+func unload(): Int {
+    if dirty then return saveBuiltInLandscape()
+    return 0
+}
+
+func saveBuiltInLandscape(): Int {
+    if !dirty then return 0
+    fin saved = saveLandscapes(landscapes, nextId)
+    if saved < 0 {
+        studioPluginReply("{\"error\": \"Could not save the landscape data\"}")
+        return 1
+    }
+    dirty = false
+    if saved > 0 then studioPluginReply("{\"message\": \"Saved ${saved} landscape${if saved == 1 then "" else "s"}\"}")
+    return 0
+}
+
+func create(fields: List<SerialField>&): Int {
+    fin cell = clampReal(settingAt(fields, "settings", "cell", 0.4), 0.25, 2.0)
+    fin width = round(clampReal(settingAt(fields, "settings", "width", 96.0), 8.0, 160.0) / cell)
+    fin height = round(clampReal(settingAt(fields, "settings", "height", 40.0), 8.0, 80.0) / cell)
+    fin depth = round(clampReal(settingAt(fields, "settings", "length", 96.0), 8.0, 160.0) / cell)
+    if pointCount(width, height, depth) > maxPoints {
+        studioPluginReply("{\"error\": \"Landscape is too large at this resolution. Increase Cell Size or reduce its dimensions.\"}")
+        return 1
+    }
+    fin id = nextId
+    nextId = nextId + 1
+    var made: Landscape = .()
+    made.id = id
+    made.name = "Landscape ${id}"
+    made.field = startingField(width, height, depth, cell)
+    meshAll(made.field, id)
+    landscapes.add(take made)
+    dirty = true
+    studioPluginReply("{\"objects\": ${objectsText()}, \"selected\": ${id}, \"message\": \"Created Landscape ${id}\"}")
+    return 0
+}
+
+func remove(id: Int): Int {
+    var index = 0
+    while index < landscapes.size {
+        if landscapes[index].id == id {
+            unmeshAll(landscapes[index].field, id)
+            landscapes.removeAt(index)
+            dirty = true
+            if stroking == id then stroking = 0
+            studioPluginReply("{\"objects\": ${objectsText()}, \"message\": \"Deleted Landscape ${id}\"}")
+            return 0
+        }
+        index = index + 1
+    }
+    return 1
+}
+
+func objectsText(): String {
+    var text = ""
+    var index = 0
+    while index < landscapes.size {
+        fin entry = "{\"id\": ${landscapes[index].id}, \"name\": ${quoted(landscapes[index].name)}, \"kind\": \"FlexLandscape\"}"
+        text = if text == "" then entry else "${text}, ${entry}"
+        index = index + 1
+    }
+    return "[${text}]"
+}
+
+// ── Tools ───────────────────────────────────────────────────────────────
+
+/** The landscape under the ray, restricted to the host's scene selection when provided. */
+pack Aim derives Clone {
+    var index: Int = -1
+    var hit: Hit = .()
+}
+
+func landscapeAt(id: Int): Int {
+    var index = 0
+    while index < landscapes.size {
+        if landscapes[index].id == id then return index
+        index = index + 1
+    }
+    return -1
+}
+
+func aim(origin: Point&, direction: Point&, object: Int): Aim {
+    var best: Aim = .()
+    if object < 0 then return best
+    if object > 0 {
+        fin index = landscapeAt(object)
+        if index >= 0 {
+            fin hit = landscapes[index].field.raycast(origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, 1000.0)
+            if hit.found then return Aim(index, hit)
+        }
+        return best
+    }
+    var index = 0
+    while index < landscapes.size {
+        fin hit = landscapes[index].field.raycast(origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, 1000.0)
+        if hit.found && (best.index < 0 || hit.distance < best.hit.distance) {
+            best.index = index
+            best.hit = hit
+        }
+        index = index + 1
+    }
+    return best
+}
+
+func pick(fields: List<SerialField>&): Int {
+    fin object = intAt(fields, "object", -1)
+    fin aimed = aim(pointAt(fields, "origin"), pointAt(fields, "direction"), object)
+    studioPluginReply("{\"hit\": ${hitText(aimed, 0.0)}}")
+    return 0
+}
+
+func hitText(aimed: Aim&, radius: Double): String {
+    if aimed.index < 0 then return "null"
+    fin p = aimed.hit.point
+    fin n = aimed.hit.normal
+    return "{\"x\": ${p.x}, \"y\": ${p.y}, \"z\": ${p.z}, " +
+        "\"nx\": ${n.x}, \"ny\": ${n.y}, \"nz\": ${n.z}, \"radius\": ${radius}, \"distance\": ${aimed.hit.distance}}"
+}
+
+/** Intersects the stroke's initial plane so a cave brush can cross its opening. */
+func caveCentre(origin: Point&, direction: Point&, depth: Double, fallback: Point&): Point {
+    fin dot = direction.x * planeNormal.x + direction.y * planeNormal.y + direction.z * planeNormal.z
+    var target = fallback.clone()
+    if magnitude(dot) > 0.001 {
+        fin t = ((planePoint.x - origin.x) * planeNormal.x + (planePoint.y - origin.y) * planeNormal.y +
+            (planePoint.z - origin.z) * planeNormal.z) / dot
+        if t >= 0.0 && t < 1000.0 {
+            target = .(origin.x + t * direction.x, origin.y + t * direction.y, origin.z + t * direction.z)
+        }
+    }
+    return Point(target.x - planeNormal.x * depth, target.y - planeNormal.y * depth, target.z - planeNormal.z * depth)
+}
+
+func tool(fields: List<SerialField>&): Int {
+    fin name = textAt(fields, "tool", "")
+    fin phase = textAt(fields, "phase", "")
+    fin object = intAt(fields, "object", 0)
+    fin origin = pointAt(fields, if object > 0 then "localOrigin" else "origin")
+    fin direction = pointAt(fields, if object > 0 then "localDirection" else "direction")
+    fin aimed = aim(origin, direction, if phase == "drag" && object >= 0 && stroking > 0 then stroking else object)
+    fin radius = clampReal(settingAt(fields, "settings", "radius", 3.0), 0.25, 24.0)
+    fin cave = name == "cave"
+    if phase == "end" {
+        stroking = 0
+        hasPreviousStamp = false
+    }
+    if phase == "begin" {
+        stroking = if aimed.index < 0 then 0 else landscapes[aimed.index].id
+        hasPreviousStamp = false
+        if aimed.index >= 0 {
+            planePoint = aimed.hit.point
+            fin slope = settingAt(fields, "settings", "flattenSlope", 0.0) >= 0.5
+            planeNormal = if name == "flatten" && !slope then Point(0.0, 1.0, 0.0) else aimed.hit.normal
+        }
+    }
+    fin active = (phase == "begin" || phase == "drag") && stroking > 0 && object >= 0
+    if active {
+        fin index = landscapeAt(stroking)
+        if index >= 0 && (cave || aimed.index == index) {
+            fin strokeRadius = higher(radius, landscapes[index].field.cell)
+            fin depth = clampReal(settingAt(fields, "settings", "caveDepth", 1.5), 0.0, 32.0)
+            fin centre = if cave then caveCentre(origin, direction, depth, planePoint) else aimed.hit.point
+            fin strength = clampReal(settingAt(fields, "settings", "strength", 0.5), 0.0, 1.0)
+            fin seconds = clampReal(realAt(fields, "seconds", 0.016), 0.0, 0.05)
+            fin elapsed = if phase == "begin" then higher(seconds, 0.045) else seconds
+            fin falloff = clampReal(settingAt(fields, "settings", "falloff", 0.65), 0.0, 1.0)
+            fin edgeBlend = clampReal(settingAt(fields, "settings", "edgeBlend", 0.75), 0.0, 4.0)
+            fin dx = centre.x - previousStamp.x
+            fin dy = centre.y - previousStamp.y
+            fin dz = centre.z - previousStamp.z
+            fin distance = length(dx, dy, dz)
+            fin spacing = higher(landscapes[index].field.cell * 0.75, strokeRadius * 0.22)
+            fin steps = if hasPreviousStamp && distance < strokeRadius * 6.0 then clampInt(ceil(distance / spacing), 1, 16) else 1
+            var reach: Reach = .()
+            var step = 1
+            while step <= steps {
+                fin t = (step as Double) / (steps as Double)
+                fin stamp = if steps == 1 then centre else Point(previousStamp.x + dx * t, previousStamp.y + dy * t, previousStamp.z + dz * t)
+                fin amount = strength * 9.0 * (if steps > 1 then higher(0.013, elapsed / (steps as Double)) else elapsed)
+                fin box = landscapes[index].field.brush(name, stamp, strokeRadius, amount, falloff, edgeBlend, planePoint, planeNormal)
+                reach.include(box)
+                step = step + 1
+            }
+            previousStamp = centre
+            hasPreviousStamp = true
+            if reach.changed {
+                meshReach(landscapes[index].field, stroking, reach)
+                dirty = true
+            }
+        } else {
+            hasPreviousStamp = false
+        }
+    }
+    fin previewRadius = if aimed.index < 0 then radius else higher(radius, landscapes[aimed.index].field.cell)
+    studioPluginReply("{\"hit\": ${hitText(aimed, previewRadius)}, \"local\": ${if object > 0 then "true" else "false"}}")
+    return 0
+}
+
+fin indexFile: String = "Landscapes/landscapes.azon"
+
+/** Writes every landscape and the index naming them. Answers how many it wrote. */
+func saveLandscapes(landscapes: Array<Landscape>&, nextId: Int): Int {
+    var ids = ""
+    var saved = 0
+    var index = 0
+    while index < landscapes.size {
+        if studioPluginWriteFile(landscapeFile(landscapes[index].id), landscapeText(landscapes[index])) == 1 then saved = saved + 1
+        ids = if ids == "" then "${landscapes[index].id}" else "${ids}, ${landscapes[index].id}"
+        index = index + 1
+    }
+    if saved != landscapes.size || studioPluginWriteFile(indexFile, "{\"format\": \"flex-landscape-index\", \"nextId\": ${nextId}, \"landscapes\": [${ids}]}\n") != 1 then return -1
+    return saved
+}
+
+func nextLandscapeId(): Int {
+    fin root = decodeSerialValue(studioPluginReadFile(indexFile), serializerOptions()) catch SerialValue.Null
+    return when root {
+        SerialValue.Object(fields) -> clampInt(intAt(fields, "nextId", 1), 1, 2147483646)
+        else -> 1
+    }
+}
+
+/** Every landscape the project's index names. */
+func loadLandscapes(): Array<Landscape> {
+    var landscapes: Array<Landscape> = []
+    fin root = decodeSerialValue(studioPluginReadFile(indexFile), serializerOptions()) catch SerialValue.Null
+    when root {
+        SerialValue.Object(fields) -> {
+            fin ids = intsAt(fields, "landscapes")
+            var index = 0
+            while index < ids.size {
+                fin landscape = readLandscape(studioPluginReadFile(landscapeFile(ids[index])))
+                if landscape.id != 0 then landscapes.add(take landscape)
+                index = index + 1
+            }
+        }
+        else -> { }
+    }
+    return landscapes
+}
+
+
+
+func submitLandscapeChunk(field: Field&, a: Int, b: Int, c: Int, object: Int, key: Int) {
+    fin mesh = meshChunk(field,a,b,c)
+    if mesh.levels.size == 0 {
+        studioPluginObjectMesh(object,key,0)
+        return
+    }
+    var index = 0
+    while index < mesh.levels.size {
+        fin level = mesh.levels[index].&
+        fin bytes = studioPluginObjectMeshLod(object,key,index,level.count,mesh.center.x,mesh.center.y,mesh.center.z,
+            mesh.radius,level.deviation)
+        if bytes != 0 then azCopy(bytes,level.vertices,(level.count as Long)*24)
+        index += 1
+    }
+}
+
+/** Builds every chunk of landscape [landscape]. */
+func meshAll(field: Field&, landscape: Int) {
+    var c = 0
+    while c < chunkCount(field.cellsZ) {
+        var b = 0
+        while b < chunkCount(field.cellsY) {
+            var a = 0
+            while a < chunkCount(field.cellsX) {
+                submitLandscapeChunk(field, a, b, c, landscape, chunkIndex(field, a, b, c))
+                a = a + 1
+            }
+            b = b + 1
+        }
+        c = c + 1
+    }
+}
+
+/** Rebuilds the chunks whose cells or vertices the grid points in [box] reach. */
+func meshReach(field: Field&, landscape: Int, box: Reach&) {
+    if !box.changed then return
+    fin lowA = clampInt((box.lowI - 2) / chunkCells, 0, chunkCount(field.cellsX) - 1)
+    fin lowB = clampInt((box.lowJ - 2) / chunkCells, 0, chunkCount(field.cellsY) - 1)
+    fin lowC = clampInt((box.lowK - 2) / chunkCells, 0, chunkCount(field.cellsZ) - 1)
+    fin highA = clampInt((box.highI + 2) / chunkCells, 0, chunkCount(field.cellsX) - 1)
+    fin highB = clampInt((box.highJ + 2) / chunkCells, 0, chunkCount(field.cellsY) - 1)
+    fin highC = clampInt((box.highK + 2) / chunkCells, 0, chunkCount(field.cellsZ) - 1)
+    var c = lowC
+    while c <= highC {
+        var b = lowB
+        while b <= highB {
+            var a = lowA
+            while a <= highA {
+                submitLandscapeChunk(field, a, b, c, landscape, chunkIndex(field, a, b, c))
+                a = a + 1
+            }
+            b = b + 1
+        }
+        c = c + 1
+    }
+}
+
+/** Takes landscape [landscape]'s meshes out of Studio. */
+func unmeshAll(field: Field&, landscape: Int) {
+    var chunk = 0
+    while chunk < chunkTotal(field) {
+        studioPluginObjectMesh(landscape, chunk, 0)
+        chunk = chunk + 1
+    }
+}

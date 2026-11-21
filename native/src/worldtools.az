@@ -1,0 +1,318 @@
+module studio.worldtools
+
+import std.math
+import engine.core
+import engine.ecs
+import engine.math
+import engine.math.mat
+import engine.scene
+import engine.scene.terrain
+import engine.render.scene
+import engine.render.atmosphere
+import engine.atmosphere
+import engine.atmosphere.view
+import engine.weather
+import engine.landscape.forest
+import engine.roads
+import engine.vehicles
+import engine.gpu
+import engine.gpu.draw
+import engine.platform
+import engine.gizmos
+import engine.lighting.photon
+import studio.state
+import studio.plugins
+
+func newWorldEntity(studio: Studio!, name: String, position: Vec3&): Entity {
+    fin entity = studio.scene.spawn()
+    storageInsert<Name>(ensureStorage<Name>(studio.scene),entity,Name(name))
+    storageInsert<Transform>(ensureStorage<Transform>(studio.scene),entity,Transform(translation: position.clone()))
+    return entity
+}
+
+@Command(title: "Sculpted Landscape…", menu: "World", group: 0, order: 0)
+func showLandscapeEditor(studio: Studio!, call: Invocation&) {
+    pluginShow(studio,Invocation(0,0,0.0,"azora.flex-landscape"))
+}
+
+@Command(title: "Landscape from Heightmap…", menu: "World", group: 0, order: 1)
+func heightmapEditor(studio: Studio!, call: Invocation&) {
+    studio.showPanel = "AssetsPanel"
+    studio.notify("Select a PGM heightmap in Assets and choose Create Landscape from Heightmap",1)
+}
+
+@Command(title: "Add Atmosphere and Weather", menu: "World", group: 1, order: 0)
+func addAtmosphere(studio: Studio!, call: Invocation&) {
+    fin entity = newWorldEntity(studio,"Atmosphere",Vec3(0.0,0.0,0.0))
+    storageInsert<AetherSky>(ensureStorage<AetherSky>(studio.scene),entity,AetherSky(altitude: 0.0))
+    storageInsert<AetherClouds>(ensureStorage<AetherClouds>(studio.scene),entity,AetherClouds())
+    storageInsert<AetherWeather>(ensureStorage<AetherWeather>(studio.scene),entity,AetherWeather())
+    storageInsert<AetherAudio>(ensureStorage<AetherAudio>(studio.scene),entity,AetherAudio())
+    storageInsert<Light3d>(ensureStorage<Light3d>(studio.scene),entity,Light3d())
+    studio.record(entity,"",-1,"add atmosphere")
+    studio.select(entity)
+}
+
+@Command(title: "Next Weather Preset", menu: "World", group: 1, order: 1)
+func nextWeather(studio: Studio!, call: Invocation&) {
+    fin entity = atmosphereEntity(studio.scene)
+    if !studio.scene.isAlive(entity) then return
+    fin before = studio.snapshot(entity)
+    var weather = storageGetOrDefault<AetherWeather>(ensureStorage<AetherWeather>(studio.scene),entity,AetherWeather())
+    weather.preset = presetName(nextPreset(presetNamed(weather.preset)))
+    storageInsert<AetherWeather>(ensureStorage<AetherWeather>(studio.scene),entity,take weather)
+    studio.record(entity,before,studio.scene.getParent(entity).id,"change weather preset")
+    studio.select(entity)
+}
+
+@Command(title: "Add Vehicle Start", menu: "World", group: 2, order: 0)
+func addVehicleStart(studio: Studio!, call: Invocation&) {
+    studio.roadPlacement = 5
+    studio.message("Click the ground or pavement to place a vehicle start")
+}
+
+@Command(title: "Place Forest Grove", menu: "World", group: 0, order: 2)
+func placeForestGrove(studio: Studio!, call: Invocation&) {
+    studio.roadPlacement = 6
+    studio.message("Click the terrain to plant a forest grove")
+}
+
+func setRoadMaterial(studio: Studio!, road: Entity) {
+    fin asset = "Materials/asphalt.azmaterial"
+    if readProjectFile(studio.root,asset) != "" {
+        storageInsert<FusionMaterial>(ensureStorage<FusionMaterial>(studio.scene),road,FusionMaterial(asset: asset))
+    }
+}
+
+@Command(title: "New Spline Road", menu: "World", group: 3, order: 0)
+func addSplineRoad(studio: Studio!, call: Invocation&) {
+    fin entity = newWorldEntity(studio,"Spline Road",Vec3(0.0,0.0,0.0))
+    storageInsert<SplineRoad>(ensureStorage<SplineRoad>(studio.scene),entity,SplineRoad())
+    setRoadMaterial(studio,entity)
+    storageInsert<Expanded>(ensureStorage<Expanded>(studio.scene),entity,Expanded())
+    studio.record(entity,"",-1,"add spline road")
+    studio.select(entity)
+    studio.roadPlacement = 0
+    placeRoadPoints(studio,call)
+}
+
+@Command(title: "Place Road Points", menu: "World", group: 3, order: 1)
+func placeRoadPoints(studio: Studio!, call: Invocation&) {
+    var entity = studio.selected()
+    if storageHas<RoadPoint>(ensureStorage<RoadPoint>(studio.scene),entity) then entity = studio.scene.getParent(entity)
+    if !storageHas<SplineRoad>(ensureStorage<SplineRoad>(studio.scene),entity) {
+        studio.notify("Select a spline road or one of its points",1)
+        return
+    }
+    studio.roadTarget = entity
+    studio.roadPlacement = if studio.roadPlacement == 1 then 0 else 1
+    studio.pluginTool = ""
+    studio.pluginToolOwner = ""
+    studio.message(if studio.roadPlacement == 1 then "Click the terrain to add road points in order" else "Road point placement ended")
+}
+
+@Command(title: "Place T-Junction", menu: "World", group: 4, order: 0)
+func placeRoadT(studio: Studio!, call: Invocation&) {
+    studio.roadPlacement = 2
+    studio.message("Click the terrain to place a T-junction")
+}
+
+@Command(title: "Place Crossroads", menu: "World", group: 4, order: 1)
+func placeRoadX(studio: Studio!, call: Invocation&) {
+    studio.roadPlacement = 3
+    studio.message("Click the terrain to place a crossroads")
+}
+
+@Command(title: "Place Roundabout", menu: "World", group: 4, order: 2)
+func placeRoadRoundabout(studio: Studio!, call: Invocation&) {
+    studio.roadPlacement = 4
+    studio.message("Click the terrain to place a roundabout")
+}
+
+pack RoadPlacementHit {
+    var distance: Double = 1.0e9
+    var found: Bool = false
+    var position: Vec3 = .(0.0,0.0,0.0)
+    var landscape: Entity = Entity::invalid
+}
+
+func terrainPlacement(app: App!, studio: Studio!, ray: Ray&, volumesToo: Bool = true): RoadPlacementHit {
+    var best = RoadPlacementHit()
+    fin terrains = ensureStorage<HeightfieldTerrain>(studio.scene)
+    var i = 0
+    while i < storageLength<HeightfieldTerrain>(terrains) {
+        fin entity = storageEntityAt<HeightfieldTerrain>(terrains,i)
+        if studio.scene.isAlive(entity) && visibleInWorld(studio.scene,entity) {
+            fin config = terrains.values[i].&
+            fin model = heightfieldMatrix(studio.scene,entity,config)
+            fin at = app.sceneTerrainIndex(entity,config,model)
+            fin image = app.gpu.terrains[at].image.&
+            if image.samples != 0 {
+                fin inv = mat4Inverse(model)
+                fin o = mat4Point(inv,ray.origin)
+                fin d = mat4Direction(inv,ray.direction)
+                fin hit = photonTerrainRay(image,o,d)
+                if hit.t >= 0.0 && hit.t < best.distance {
+                    best = RoadPlacementHit(hit.t,true,v3add(ray.origin,v3scale(ray.direction,hit.t)),entity)
+                }
+            }
+        }
+        i += 1
+    }
+    if !volumesToo then return take best
+    fin volumes = ensureStorage<PluginObject>(studio.scene)
+    i = 0
+    while i < storageLength<PluginObject>(volumes) {
+        fin entity = storageEntityAt<PluginObject>(volumes,i)
+        fin resource = volumes.values[i].&
+        if resource.plugin == "azora.flex-landscape" && studio.scene.isAlive(entity) && visibleInWorld(studio.scene,entity) {
+            fin inv = mat4Inverse(worldMatrix(studio.scene,entity))
+            fin local = Ray(mat4Point(inv,ray.origin),mat4Direction(inv,ray.direction))
+            fin t = studio.pluginPick(app,resource.plugin,resource.id,local)
+            if t >= 0.0 && t < best.distance {
+                best = RoadPlacementHit(t,true,v3add(ray.origin,v3scale(ray.direction,t)))
+            }
+        }
+        i += 1
+    }
+    return take best
+}
+
+func mat4Point(m: Mat4&, p: Vec3&): Vec3 =
+    Vec3(m.m00*p.x+m.m01*p.y+m.m02*p.z+m.m03,m.m10*p.x+m.m11*p.y+m.m12*p.z+m.m13,
+         m.m20*p.x+m.m21*p.y+m.m22*p.z+m.m23)
+
+func mat4Direction(m: Mat4&, p: Vec3&): Vec3 =
+    Vec3(m.m00*p.x+m.m01*p.y+m.m02*p.z,m.m10*p.x+m.m11*p.y+m.m12*p.z,
+         m.m20*p.x+m.m21*p.y+m.m22*p.z)
+
+func junctionSnap(world: World!, p: Vec3&): Vec3 {
+    fin sites = ensureStorage<RoadJunction>(world)
+    var nearest: Double = 14.0
+    var snap = p.clone()
+    var i = 0
+    while i < storageLength<RoadJunction>(sites) {
+        fin site = sites.values[i].&
+        fin entity = storageEntityAt<RoadJunction>(sites,i)
+        if site.enabled && world.isAlive(entity) && visibleInWorld(world,entity) {
+            fin center = worldPosition(world,entity)
+            fin d = roadHorizontal(p,center)
+            fin ring = site.kind == 2
+            fin distance = if ring then absValue(d-site.radius) else d
+            if distance < nearest && (!ring || d > 0.01) {
+                nearest = distance
+                if ring {
+                    // End slightly inside the rim so the approach and circulating lanes meet.
+                    fin t = (site.radius-0.8)/d
+                    snap = Vec3(center.x+(p.x-center.x)*t,center.y+0.06,center.z+(p.z-center.z)*t)
+                } else {
+                    snap = center.clone()
+                }
+            }
+        }
+        i += 1
+    }
+    return take snap
+}
+
+func placeOnTerrain(app: App!, studio: Studio!, ray: Ray&) {
+    fin mode = studio.roadPlacement
+    fin hit = terrainPlacement(app,studio,ray)
+    if !hit.found {
+        studio.notify("Click a visible landscape",1)
+        return
+    }
+    if mode == 1 {
+        fin parent = studio.roadTarget
+        if !studio.scene.isAlive(parent) {
+            studio.roadPlacement = 0
+            return
+        }
+        fin position = junctionSnap(studio.scene,hit.position)
+        fin knots = roadKnots(studio.scene,parent)
+        if knots.size > 0 && roadHorizontal(knots[knots.size-1].point,position) < 1.0 then return
+        fin order = if knots.size == 0 then 0 else knots[knots.size-1].order+1
+        fin local = mat4Point(mat4Inverse(worldMatrix(studio.scene,parent)),position)
+        fin point = newWorldEntity(studio,"Road Point ${order+1}",local)
+        studio.scene.setParent(point,parent)
+        storageInsert<RoadPoint>(ensureStorage<RoadPoint>(studio.scene),point,RoadPoint(order))
+        studio.record(point,"",-1,"add road point")
+        studio.select(point)
+        return
+    }
+    studio.roadPlacement = 0
+    if mode == 5 {
+        fin surface = roadSurfaceAt(app.gpu.roads.network,hit.position.x,hit.position.z)
+        fin position = Vec3(hit.position.x,if surface.found then surface.height else hit.position.y,hit.position.z)
+        fin entity = newWorldEntity(studio,"Vehicle Start",position)
+        storageInsert<PlayerStart>(ensureStorage<PlayerStart>(studio.scene),entity,PlayerStart())
+        storageInsert<PlayerController>(ensureStorage<PlayerController>(studio.scene),entity,PlayerController())
+        storageInsert<VehicleSetup>(ensureStorage<VehicleSetup>(studio.scene),entity,VehicleSetup())
+        studio.record(entity,"",-1,"add vehicle start")
+        studio.select(entity)
+        return
+    }
+    if mode == 6 {
+        fin grove = newWorldEntity(studio,"Forest Grove",hit.position)
+        storageInsert<ForestGrove>(ensureStorage<ForestGrove>(studio.scene),grove,ForestGrove(seed: grove.id+1021))
+        studio.record(grove,"",-1,"add forest grove")
+        studio.select(grove)
+        return
+    }
+    fin label = when mode {
+        2 -> "T-Junction"
+        3 -> "Crossroads"
+        else -> "Roundabout"
+    }
+    fin entity = newWorldEntity(studio,label,hit.position)
+    storageInsert<RoadJunction>(ensureStorage<RoadJunction>(studio.scene),entity,
+        RoadJunction(kind: mode-2,radius: if mode == 4 then 24.0 else 12.0))
+    setRoadMaterial(studio,entity)
+    studio.record(entity,"",-1,"add road junction")
+    studio.select(entity)
+}
+
+func drawPhysicalSky(app: App!, studio: Studio!, rect: ViewRect&, elapsed: Double): Bool {
+    fin owner = atmosphereEntity(studio.scene)
+    if !studio.mode3d || !studio.scene.isAlive(owner) {
+        if studio.atmosphereOwner.isValid then publishSceneEnvironment(studio.scene,SceneEnvironment())
+        studio.atmosphereOwner = Entity::invalid
+        return false
+    }
+    if owner != studio.atmosphereOwner {
+        studio.atmosphereState = AetherState()
+        studio.atmosphereOwner = owner
+    }
+    if !studio.atmosphereTried {
+        studio.atmosphere = makeAetherRenderer(app.gpu.device)
+        studio.atmosphereTried = true
+    }
+    if !studio.atmosphere.ready then return false
+    fin eye = studio.camera.position()
+    fin right = studio.camera.right()
+    fin forward = studio.camera.forward()
+    fin up = studio.camera.up()
+    if storageHas<AetherWeather>(ensureStorage<AetherWeather>(studio.scene),owner) {
+        previewWeather(studio.scene,owner,studio.atmosphereState,elapsed,app.deltaTime(),eye,right)
+    } else {
+        storageRemove<AtmosphereConditions>(ensureStorage<AtmosphereConditions>(studio.scene),owner)
+    }
+    prepareAtmosphere(studio.scene,owner,studio.atmosphere,elapsed,eye)
+    fin sky = storageGet<AetherSky>(ensureStorage<AetherSky>(studio.scene),owner)
+    fin width = app.width() as Double
+    fin height = app.height() as Double
+    fin view = SceneView(eyeX: eye.x,eyeY: eye.y,eyeZ: eye.z,forwardX: forward.x,forwardY: forward.y,forwardZ: forward.z,
+        rightX: right.x,rightY: right.y,rightZ: right.z,upX: up.x,upY: up.y,upZ: up.z,
+        tangent: tan(studio.camera.fov*degreesToRadians*0.5),aspect: rect.aspect(),time: elapsed,
+        width: rect.width as Int,height: rect.height as Int)
+    writeAetherView(studio.atmosphere.uniforms,view,sky)
+    fin current = studio.camera.viewProj(rect.aspect())
+    pokeMat4(studio.atmosphere.uniforms,176,mat4Inverse(current))
+    pokeMat4(studio.atmosphere.uniforms,352,if studio.atmosphere.cloudFrames > 0 then studio.atmospherePrevious else current)
+    studio.atmospherePrevious = current.clone()
+    ensureCloudTargets(app.gpu.device,studio.atmosphere,rect.width as Int,rect.height as Int)
+    updateAetherTables(app.gpu.queue,studio.atmosphere,sky)
+    drawAtmosphereSky(app.beginCustomSky(),app.gpu.depthOff,studio.atmosphere,rect.width/width,rect.height/height,
+        (rect.x*2.0+rect.width)/width-1.0,1.0-(rect.y*2.0+rect.height)/height)
+    return true
+}

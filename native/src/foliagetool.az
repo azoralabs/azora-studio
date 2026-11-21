@@ -1,0 +1,144 @@
+module studio.foliagetool
+
+import std.math
+import engine.core
+import engine.ecs
+import engine.foliage
+import engine.math
+import engine.math.mat
+import engine.platform
+import engine.gizmos
+import engine.scene.terrain
+import engine.ui.node
+import engine.ui.compose
+import studio.state
+import studio.theme
+import studio.ui
+import studio.panels
+import studio.worldtools
+
+@Command(title: "Foliage Paint…", menu: "World", group: 0, order: 3)
+func showFoliage(studio: Studio!, call: Invocation&) {
+    studio.showPanel = "FoliagePanel"
+    if studio.foliageBrush.mode == 0 then useFoliageBrush(studio,Invocation(arg: 1))
+}
+
+@Command
+func useFoliageBrush(studio: Studio!, call: Invocation&) {
+    if call.arg < 1 || call.arg > 4 then return
+    studio.foliageBrush.mode = if studio.foliageBrush.mode == call.arg then 0 else call.arg
+    studio.foliageBrush.hover = false
+    studio.roadPlacement = 0
+    studio.pluginTool = ""
+    studio.pluginToolOwner = ""
+    studio.changed()
+}
+
+@Command
+func stepFoliageBrush(studio: Studio!, call: Invocation&) {
+    if call.target == 0 {
+        studio.foliageBrush.radius = foliageClamp(studio.foliageBrush.radius+(call.arg as Double)*2.0,2.0,120.0)
+    } else {
+        studio.foliageBrush.strength = foliageClamp(studio.foliageBrush.strength+(call.arg as Double)*0.1,0.1,1.0)
+    }
+    studio.changed()
+}
+
+@Panel(title: "Foliage", icon: "trees", area: .Right, stack: 1, order: 1, initiallyOpen: false)
+impl pack FoliagePanel {
+    react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
+        return ScrollColumn(modifier: ::fillMaxSize().padding(all: 8.0), spacing: 5.0, key: "foliage") {
+            Row(modifier: ::fillMaxWidth().height(30.0), spacing: 4.0, key: "species") {
+                foliageButton(app,"Paint grass",1,studio.foliageBrush.mode,key: "grass")
+                foliageButton(app,"Paint firs",2,studio.foliageBrush.mode,key: "firs")
+            }
+            Row(modifier: ::fillMaxWidth().height(30.0), spacing: 4.0, key: "erase") {
+                foliageButton(app,"Erase grass",3,studio.foliageBrush.mode,key: "grass")
+                foliageButton(app,"Erase firs",4,studio.foliageBrush.mode,key: "firs")
+            }
+            foliageStep(app,"Radius", "${formatDecimal(studio.foliageBrush.radius,0)} m", 0,key: "radius")
+            foliageStep(app,"Density", "${formatDecimal(studio.foliageBrush.strength*100.0,0)}%", 1,key: "density")
+        }
+    }
+}
+
+react func (anchor: Anchor!).foliageButton(app: App&, label: String, tool: Int, active: Int, key: String) {
+    Press("useFoliageBrush", modifier: ::weight(1.0).fillMaxHeight().rounded(5.0).raised(), arg: tool, center: true,:key) {
+        Label(label,app,if tool == active then studioTheme.accent else studioTheme.text)
+    }
+}
+
+react func (anchor: Anchor!).foliageStep(app: App&, label: String, value: String, field: Int, key: String) {
+    Row(modifier: ::fillMaxWidth().height(25.0),spacing: 5.0,:key) {
+        Label(label,app,studioTheme.muted,key: "label")
+        Spacer(key: "fill")
+        Press("stepFoliageBrush",modifier: ::size(25.0,23.0).rounded(4.0).raised(),arg: -1,target: field,center: true,key: "less") {
+            Label("−",app,studioTheme.text)
+        }
+        Label(value,app,studioTheme.text,key: "value")
+        Press("stepFoliageBrush",modifier: ::size(25.0,23.0).rounded(4.0).raised(),arg: 1,target: field,center: true,key: "more") {
+            Label("+",app,studioTheme.text)
+        }
+    }
+}
+
+func foliagePointer(app: App!, studio: Studio!, ray: Ray&, begin: Bool, dragging: Bool) {
+    if studio.foliageBrush.mode == 0 then return
+    fin hit = terrainPlacement(app,studio,ray,volumesToo: false)
+    studio.foliageBrush.hover = hit.found
+    if !hit.found {
+        if begin then studio.notify("Paint on a visible heightfield",1)
+        return
+    }
+    studio.foliageBrush.point = hit.position.clone()
+    if !begin && !dragging then return
+    if begin {
+        studio.foliageBrush.landscape = hit.landscape
+        studio.foliageBrush.before = studio.snapshot(hit.landscape)
+        studio.foliageBrush.last = hit.position.clone()
+    }
+    if hit.landscape != studio.foliageBrush.landscape then return
+    fin last = studio.foliageBrush.last.&
+    fin dx = hit.position.x-last.x
+    fin dz = hit.position.z-last.z
+    fin distance = sqrt(dx*dx+dz*dz)
+    fin spacing = studio.foliageBrush.radius*0.5
+    if !begin && distance < spacing then return
+    fin source = storageGet<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene),hit.landscape)
+    fin inv = mat4Inverse(heightfieldMatrix(studio.scene,hit.landscape,source))
+    var paint = storageGetOrDefault<FoliagePaint>(ensureStorage<FoliagePaint>(studio.scene),hit.landscape,FoliagePaint())
+    paint.enabled = true
+    fin grass = studio.foliageBrush.mode == 1 || studio.foliageBrush.mode == 3
+    fin erase = studio.foliageBrush.mode >= 3
+    fin density = if erase then 0.0 else studio.foliageBrush.strength*(if grass then 4.0 else 0.2)
+    fin steps = if begin then 1 else foliageClamp(ceil(distance/spacing) as Double,1.0,16.0) as Int
+    var i = 1
+    while i <= steps {
+        fin t = (i as Double)/(steps as Double)
+        fin y = last.y+(hit.position.y-last.y)*t
+        fin at = mat4Point(inv,Vec3(last.x+dx*t,y,last.z+dz*t))
+        fin stamp = FoliageStamp(if grass then grassFoliage else firFoliage,foliageClamp(at.x,-0.5,0.5),
+            foliageClamp(at.z,-0.5,0.5),studio.foliageBrush.radius,density,if grass then paint.grassHeight else 12.0)
+        paint.strokes += foliageStampText(stamp)
+        i += 1
+    }
+    studio.foliageBrush.last = hit.position.clone()
+    storageInsert<FoliagePaint>(ensureStorage<FoliagePaint>(studio.scene),hit.landscape,take paint)
+    studio.sceneDirty = true
+}
+
+func finishFoliageStroke(studio: Studio!) {
+    fin ground = studio.foliageBrush.landscape
+    if studio.scene.isAlive(ground) {
+        studio.record(ground,studio.foliageBrush.before,studio.scene.getParent(ground).id,"paint foliage")
+    }
+    studio.foliageBrush.landscape = Entity::invalid
+    studio.foliageBrush.before = ""
+}
+
+func drawFoliageBrush(app: App!, studio: Studio&, view: Mat4&, rect: ViewRect&) {
+    if studio.foliageBrush.mode == 0 || !studio.foliageBrush.hover then return
+    fin tint = if studio.foliageBrush.mode < 3 then studioTheme.green else studioTheme.red
+    app.worldCircle(view,rect,studio.foliageBrush.point,Vec3(1.0,0.0,0.0),Vec3(0.0,0.0,1.0),
+        studio.foliageBrush.radius,1.6,tint)
+}

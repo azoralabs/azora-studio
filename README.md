@@ -41,6 +41,29 @@ Slice evidence is in [native qualification](native/NATIVE_QUALIFICATION_2026_10_
 Existing prototype architecture and build instructions are documented separately
 in [the legacy prototype reference](docs/LEGACY_PROTOTYPE.md).
 
+## Landscape, roads and driving
+
+Open the **Dolomites Drive** template in Launcher or point the native Studio at
+`../azora-engine/templates/dolomites-drive`. The **World** menu has the built-in
+landscape, vehicle start, atmosphere and road tools. The inspector edits the
+selected entity's component settings.
+
+- Choose **New Spline Road**, then click the terrain to lay out ordered control
+  points. Choose **Select** to end placement. Adjust a point with the transform
+  gizmo, and set lanes in each direction, lane width, shoulder and grading on
+  the road entity. The terrain adapts to the authored road profile.
+- Place a **T-Junction**, **Crossroads** or **Roundabout** before laying out its
+  approaches. Points snap to the junction centre or the roundabout rim. Rotate
+  T-junctions and crossroads to align their branches.
+- Use **Sculpted Landscape** for volume brushes, or select a P2 or P5 PGM in
+  Assets and choose **Create Landscape from Heightmap** for an image terrain.
+- Choose **World → Foliage Paint…** to paint or erase grass and firs on a
+  heightfield. Drag in the viewport and set brush radius and density in the
+  Foliage panel. Each stroke supports Undo and Redo and is saved with the scene.
+- Choose **Run App** to drive. Use WASD or the arrows, Shift for the handbrake,
+  and Space to switch between car and motorcycle. Edit the vehicle's tuning on
+  its start entity and the weather preset on the atmosphere entity.
+
 ## Native acceptance
 
 A matching installed native toolchain must create, edit, build, play, save and

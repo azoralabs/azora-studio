@@ -16,10 +16,13 @@ import engine.objc
 import engine.io
 import engine.scene.io
 import studio.host
+exposed import studio.pluginapi
 import studio.os
 import studio.ui
 import engine.lighting.photon
 import studio.state
+import studio.landscape
+import engine.landscape
 
 // Plugins: packages Studio builds and loads while it runs, the way an engine
 // editor loads its modules - but with no restart. A package is a folder with a
@@ -39,97 +42,6 @@ fin pluginAbi: Int = 2
 func supportedPluginAbi(abi: Int): Bool = abi >= 1 && abi <= pluginAbi
 
 // ── Services a plugin calls ─────────────────────────────────────────────
-
-/** What the plugin being called has answered so far. */
-threadlocal var pluginReply: String = ""
-/** The last file a plugin read, kept until it reads the next. */
-threadlocal var pluginFileText: String = ""
-pack PluginMeshSubmission derives Clone {
-    var key: Int = 0
-    var object: Int = 0
-    var bytes: Long = 0
-    var count: Int = 0
-    var level: Int = 0
-    var x: Double = 0.0
-    var y: Double = 0.0
-    var z: Double = 0.0
-    var radius: Double = 0.0
-    var maxDeviation: Double = 0.0
-}
-
-threadlocal var pluginMeshSubmissions: Array<PluginMeshSubmission> = []
-
-/** Reads the reply after the foreign entry has called back into Studio. */
-func currentPluginReply(): String = pluginReply
-
-/** The project a plugin's files are relative to: the one Studio has open. */
-func pluginProject(): String = azsEnvironment("AZORA_STUDIO_PROJECT")
-
-/** Appends AZON [text] to the answer of the request being served. */
-func studioPluginReply(text: String) {
-    pluginReply = "${pluginReply}${text}"
-}
-
-/**
- * Room for a mesh of [vertices] triangle-list vertices (position and normal,
- * six float32 each) that replaces the plugin's mesh [key]; the plugin writes
- * the vertices there before it returns. Zero vertices removes the mesh.
- */
-func studioPluginMesh(key: Int, vertices: Int): Long = studioPluginObjectMesh(0, key, vertices)
-
-/** Submits a mesh in the local space of a plugin-owned scene object. */
-func studioPluginObjectMesh(object: Int, key: Int, vertices: Int): Long {
-    return studioPluginObjectMeshLod(object,key,0,vertices,0.0,0.0,0.0,0.0,0.0)
-}
-
-func studioPluginObjectMeshLod(object: Int, key: Int, level: Int, vertices: Int,
-                               x: Double, y: Double, z: Double, radius: Double, maxDeviation: Double): Long {
-    if level < 0 || level > 3 || vertices < 0 || vertices > 2000000 then return 0
-    fin bytes: Long = if vertices > 0 then azAlloc((vertices as Long) * 24) else 0
-    if vertices > 0 && bytes == 0 then return 0
-    pluginMeshSubmissions.add(PluginMeshSubmission(key,object,bytes,vertices,level,x,y,z,radius,maxDeviation))
-    return bytes
-}
-
-/** The project file at [relative], "" when there is none. */
-func studioPluginReadFile(relative: String): String {
-    pluginFileText = readProjectFile(pluginProject(), relative)
-    return pluginFileText
-}
-
-/** Writes [text] to the project file at [relative], making its folders. 1 on success. */
-func studioPluginWriteFile(relative: String, text: String): Int {
-    fin slash = lastSlash(relative)
-    if slash > 0 then makeFolders("${pluginProject()}/${substring(relative, 0, slash)}")
-    fin project = azsProjectOpen(pluginProject(), 0)
-    if project == 0 then return 0
-    fin buffer = azsBufferNew(text)
-    fin written = if buffer == 0 then 0 else azsProjectWrite(project, relative, buffer)
-    if buffer != 0 then azsBufferClose(buffer)
-    azsProjectClose(project)
-    return written
-}
-
-func lastSlash(text: String): Int {
-    var at = stringLength(text) - 1
-    while at >= 0 && charAt(text, at) != '/' { at = at - 1 }
-    return at
-}
-
-/** The file at [relative] under the folder [root], "" when there is none. */
-func readProjectFile(root: String, relative: String): String {
-    fin project = azsProjectOpen(root, 0)
-    if project == 0 then return ""
-    fin buffer = azsProjectRead(project, relative)
-    var text = ""
-    if buffer != 0 {
-        fin copied = "${azsBufferText(buffer)} "
-        text = substring(copied, 0, stringLength(copied) - 1)
-        azsBufferClose(buffer)
-    }
-    azsProjectClose(project)
-    return text
-}
 
 // ── Manifests ───────────────────────────────────────────────────────────
 
@@ -306,6 +218,23 @@ impl Studio {
 
 // ── Discovery ───────────────────────────────────────────────────────────
 
+func replacesLegacyEditor(id: String): Bool =
+    id == "azora.flex-landscape" || id == "azora.vehicle-system" || id == "azora.aether-sphere"
+
+func pluginReady(plugin: Plugin&): Bool = plugin.builtIn || plugin.entryAddress != 0
+
+impl Studio {
+    func !.installLandscapeEditor(app: App&, manifest: String) {
+        var tools = readManifest(manifest, "")
+        if tools.id == "" then return
+        tools.builtIn = true
+        tools.state = 2
+        self.plugins.add(take tools)
+        self.addContributions("azora.flex-landscape",manifest)
+        self.callPlugin(app,self.pluginById("azora.flex-landscape"),"{\"op\": \"load\"}")
+    }
+}
+
 impl Studio {
     /**
      * Looks for new, changed and removed packages in the plugins folder.
@@ -329,7 +258,7 @@ impl Studio {
                     !settled -> { }
                     at < 0 -> {
                         var found = readManifest(manifest, folder)
-                        if found.id != "" && self.pluginById(found.id) < 0 {
+                        if found.id != "" && !replacesLegacyEditor(found.id) && self.pluginById(found.id) < 0 {
                             found.stamp = stamp
                             found.state = if supportedPluginAbi(found.abi) && found.entry != "" then 0 else 4
                             found.message = if found.state == 4 then "Requires Studio plugin ABI ${found.abi}" else "Installed"
@@ -365,7 +294,7 @@ impl Studio {
         // A folder that went away takes its plugin with it.
         var at = 0
         while at < self.plugins.size {
-            if !present.contains(self.plugins[at].folder) {
+            if !self.plugins[at].builtIn && !present.contains(self.plugins[at].folder) {
                 self.unloadPlugin(app, at)
                 self.output("Plugin removed: ${self.plugins[at].name}")
                 self.plugins.removeAt(at)
@@ -384,6 +313,10 @@ impl Studio {
         fin package = readManifest(readProjectFile(folder, "plugin.azon"), "")
         if package.id == "" || package.entry == "" {
             self.notify("Choose a plugin folder or its plugin.azon manifest", 3)
+            return
+        }
+        if replacesLegacyEditor(package.id) {
+            self.notify("${package.name} is built into Studio", 1)
             return
         }
         if !supportedPluginAbi(package.abi) {
@@ -561,7 +494,7 @@ impl Studio {
     }
 
     func !.unloadPlugin(app: App&, index: Int) {
-        if self.plugins[index].library == 0 then return
+        if !pluginReady(self.plugins[index]) then return
         self.callPlugin(app, index, "{\"op\": \"unload\"}")
         self.removeContributions(app, self.plugins[index].id)
         closeLibrary(self.plugins[index].library)
@@ -578,10 +511,15 @@ impl Studio {
      * answer: the meshes it submitted, its objects and where its tool's ray hit.
      */
     func !.callPlugin(app: App&, index: Int, request: String): Int {
-        if self.plugins[index].entryAddress == 0 then return -1
+        if index < 0 || !pluginReady(self.plugins[index]) then return -1
         pluginReply = ""
-        fin entry = self.plugins[index].entryAddress as* foreign (String) -> Int
-        fin status = entry(request)
+        var status = 0
+        if self.plugins[index].builtIn {
+            status = flexLandscape(request)
+        } else {
+            fin entry = self.plugins[index].entryAddress as* foreign (String) -> Int
+            status = entry(request)
+        }
         fin id = self.plugins[index].id
         for mesh in pluginMeshSubmissions { self.takeMesh(app, id, mesh) }
         pluginMeshSubmissions.clear()
@@ -691,6 +629,9 @@ impl Studio {
                     storageInsert<Name>(ensureStorage<Name>(self.scene), entity, Name(memberText(fields, "name", "Object ${id}")))
                     storageInsert<Transform>(ensureStorage<Transform>(self.scene), entity, Transform())
                     storageInsert<PluginObject>(ensureStorage<PluginObject>(self.scene), entity, PluginObject(plugin, id, memberText(fields, "kind", "")))
+                    if plugin == "azora.flex-landscape" {
+                        storageInsert<LandscapeCollision>(ensureStorage<LandscapeCollision>(self.scene),entity,LandscapeCollision())
+                    }
                     fin kind = memberText(fields, "kind", "")
                     for contribution in self.pluginComponents {
                         if contribution.plugin == plugin && contribution.objectKind == kind {
@@ -797,9 +738,8 @@ impl Studio {
 impl Studio {
     /** Called once a frame: discovers, builds, loads, and runs queued requests. */
     func !.tickPlugins(app: App!) {
-        if self.pluginsRoot == "" then return
         fin now = azsMonotonicSeconds()
-        if now >= self.pluginScanAt && self.pluginBuilding == "" {
+        if self.pluginsRoot != "" && now >= self.pluginScanAt && self.pluginBuilding == "" {
             self.pluginScanAt = now + 1.0
             self.scanPlugins(app)
         }
@@ -819,7 +759,7 @@ impl Studio {
             self.pluginSave = false
             var index = 0
             while index < self.plugins.size {
-                if self.plugins[index].entryAddress != 0 then self.callPlugin(app, index, "{\"op\": \"save\"}")
+                if pluginReady(self.plugins[index]) then self.callPlugin(app, index, "{\"op\": \"save\"}")
                 index = index + 1
             }
         }
@@ -960,7 +900,7 @@ func pluginShow(studio: Studio!, call: Invocation&) {
 @Command
 func pluginRemove(studio: Studio!, call: Invocation&) {
     fin index = studio.pluginAt(call.text)
-    if index < 0 || studio.plugins[index].state == 1 then return
+    if index < 0 || studio.plugins[index].builtIn || studio.plugins[index].state == 1 then return
     fin home = azsEnvironment("HOME")
     fin to = "${home}/.Trash/${call.text} ${formatDecimal(azsWallSeconds(), 0)}"
     if home != "" && rename(studio.pluginFolder(index), to) == 0 {
@@ -975,7 +915,7 @@ func pluginRemove(studio: Studio!, call: Invocation&) {
 @Command
 func pluginReload(studio: Studio!, call: Invocation&) {
     fin index = studio.pluginAt(call.text)
-    if index < 0 || studio.plugins[index].state == 1 || !supportedPluginAbi(studio.plugins[index].abi) then return
+    if index < 0 || studio.plugins[index].builtIn || studio.plugins[index].state == 1 || !supportedPluginAbi(studio.plugins[index].abi) then return
     studio.plugins[index].state = 0
     studio.plugins[index].message = "Rebuilding"
     studio.changed()
@@ -984,6 +924,7 @@ func pluginReload(studio: Studio!, call: Invocation&) {
 /** Takes up plugin tool [call.arg], or puts it down when it is the one in hand. */
 @Command
 func pluginUseTool(studio: Studio!, call: Invocation&) {
+    studio.foliageBrush.mode = 0
     if call.arg < 0 || call.arg >= studio.pluginTools.size then return
     fin tool = studio.pluginTools[call.arg].clone()
     if studio.pluginTool == tool.id && studio.pluginToolOwner == tool.plugin {

@@ -507,6 +507,10 @@ impl pack PluginsPanel {
                 var index = 0
                 while index < studio.plugins.size {
                     fin plugin = studio.plugins[index].clone()
+                    if plugin.builtIn {
+                        index += 1
+                        continue
+                    }
                     Column(modifier: ::fillMaxWidth().rounded(6.0).fill(studioTheme.raised).padding(all: 6.0),
                         spacing: 3.0, key: "plugin-${plugin.folder}") {
                         Row(modifier: ::fillMaxWidth().height(22.0), spacing: 6.0, key: "header") {

@@ -34,8 +34,10 @@ if [ "$MODE" = launcher ]; then
     bash "$ROOT/tools/build-window.sh" launcher
     export AZORA_STUDIO_EXECUTABLE="${AZORA_STUDIO_EXECUTABLE:-$ROOT/build/studio/azora-studio}"
 elif [ ! -d "$AZORA_STUDIO_PROJECT" ]; then
-    # A Studio needs a project to open; start one from the Engine's ECS template.
+    # Open Dolomites Drive for the development Studio's default project.
+    TEMPLATE=game-ecs
+    if [ "$AZORA_STUDIO_PROJECT" = "$ROOT/build/demo-project" ]; then TEMPLATE=dolomites-drive; fi
     bash "$ROOT/tools/build.sh" >/dev/null
-    AZORA_STUDIO_ACTION=template AZORA_STUDIO_TEMPLATE="$AZORA_ENGINE_HOME/templates/game-ecs" "$ROOT/build/azora-studio-services"
+    AZORA_STUDIO_ACTION=template AZORA_STUDIO_TEMPLATE="$AZORA_ENGINE_HOME/templates/$TEMPLATE" "$ROOT/build/azora-studio-services"
 fi
 exec "$ROOT/build/$MODE/azora-$MODE"
