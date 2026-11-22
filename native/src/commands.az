@@ -451,6 +451,10 @@ func loadRenderPreferences(studio: Studio!, home: String) {
             studio.indirectLighting = memberText(fields, "lighting", "photon") != "standard"
             studio.virtualShadows = memberText(fields, "shadows", "virtual") != "computed"
             studio.upscaling = memberText(fields, "upscaling", "native") == "temporal"
+            fin pauseViewport = memberAt(fields, "pauseViewportDuringPlay")
+            if pauseViewport >= 0 {
+                studio.pauseViewportDuringPlay = serialAsBool(fields[pauseViewport].value) catch true
+            }
         }
         else -> {}
     }
@@ -467,7 +471,7 @@ func saveRenderPreferences(studio: Studio!) {
     fin lighting = if studio.indirectLighting then "photon" else "standard"
     fin shadows = if studio.virtualShadows then "virtual" else "computed"
     fin upscaling = if studio.upscaling then "temporal" else "native"
-    fin buffer = azsBufferNew("{\"lighting\": \"${lighting}\", \"shadows\": \"${shadows}\", \"upscaling\": \"${upscaling}\"}\n")
+    fin buffer = azsBufferNew("{\"lighting\": \"${lighting}\", \"shadows\": \"${shadows}\", \"upscaling\": \"${upscaling}\", \"pauseViewportDuringPlay\": ${studio.pauseViewportDuringPlay}}\n")
     fin written = if buffer == 0 then 0 else azsProjectWrite(project, renderPreferencesFile, buffer)
     if buffer != 0 then azsBufferClose(buffer)
     azsProjectClose(project)
@@ -494,6 +498,13 @@ func preferencesShadows(studio: Studio!, call: Invocation&) {
 @Command
 func preferencesUpscaling(studio: Studio!, call: Invocation&) {
     studio.upscaling = call.text == "temporal"
+    saveRenderPreferences(studio)
+    studio.changed()
+}
+
+@Command
+func preferencesPauseViewport(studio: Studio!, call: Invocation&) {
+    studio.pauseViewportDuringPlay = !studio.pauseViewportDuringPlay
     saveRenderPreferences(studio)
     studio.changed()
 }

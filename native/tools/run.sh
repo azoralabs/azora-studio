@@ -40,4 +40,7 @@ elif [ ! -d "$AZORA_STUDIO_PROJECT" ]; then
     bash "$ROOT/tools/build.sh" >/dev/null
     AZORA_STUDIO_ACTION=template AZORA_STUDIO_TEMPLATE="$AZORA_ENGINE_HOME/templates/$TEMPLATE" "$ROOT/build/azora-studio-services"
 fi
+if [ "$MODE" = studio ] && [ "$AZORA_STUDIO_PROJECT" = "$ROOT/build/demo-project" ]; then
+    bash "$AZORA_ENGINE_HOME/tools/import-standard-materials.sh" "$AZORA_STUDIO_PROJECT"
+fi
 exec "$ROOT/build/$MODE/azora-$MODE"

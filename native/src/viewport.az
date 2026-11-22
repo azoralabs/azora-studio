@@ -568,6 +568,15 @@ func countText(count: Int): String = when {
 
 func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     if rect.width < 4.0 || rect.height < 4.0 then return
+    if studio.pauseViewportDuringPlay && studio.process != 0 && studio.processAction == "play" && !studio.handingOver {
+        fin label = "Viewport paused while the game runs"
+        app.setScissor(rect.x, rect.y, rect.width, rect.height)
+        app.uiTextColored(label, rect.x + (rect.width - app.uiTextWidth(label, 13.0)) * 0.5,
+            rect.y + (rect.height - app.uiTextHeight(13.0)) * 0.5, 13.0,
+            studioTheme.muted.r, studioTheme.muted.g, studioTheme.muted.b)
+        app.clearScissor()
+        return
+    }
     studio.camera.orthographic = !studio.mode3d
     fin colors = gizmoColors()
     fin viewProj = studio.camera.viewProj(rect.aspect())

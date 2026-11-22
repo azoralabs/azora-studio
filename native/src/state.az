@@ -320,6 +320,7 @@ pack Studio {
     var virtualShadows: Bool = true
     /** Temporal upscaling: the 3D view drawn at half resolution per axis and reconstructed. */
     var upscaling: Bool = false
+    var pauseViewportDuringPlay: Bool = true
     var recomputeShadows: Bool = false
     var preferencesRoot: String = ""
     /** 0 select, 1 move, 2 rotate, 3 scale. */

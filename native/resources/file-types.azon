@@ -9,6 +9,8 @@
     "azfusion": {"icon": "palette", "color": "purple"},
     "azscene": {"icon": "box", "color": "purple"},
     "azlayout": {"icon": "layout-template", "color": "teal", "text": true},
+    "aztexture": {"icon": "image", "color": "purple"},
+    "aztex": {"icon": "image", "color": "purple"},
     "png": {"icon": "image", "color": "pink"},
     "jpg": {"icon": "image", "color": "pink"},
     "jpeg": {"icon": "image", "color": "pink"},

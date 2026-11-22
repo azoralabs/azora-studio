@@ -481,6 +481,17 @@ impl pack PreferencesPanel {
                 renderPreference("preferencesUpscaling", "native", "Native Resolution", !studio.upscaling, app)
                 renderPreference("preferencesUpscaling", "temporal", "Temporal Upscaling (½ Resolution)", studio.upscaling, app)
             }
+            Column(modifier: ::width(322.0).padding(all: 8.0), spacing: 3.0, key: "playback") {
+                FieldCaption("Play", key: "heading")
+                Press("preferencesPauseViewport", modifier: ::fillMaxWidth().height(32.0).rounded(5.0).ghost().padding(start: 8.0),
+                    spacing: 8.0, key: "pause-viewport") {
+                    fin tint = if studio.pauseViewportDuringPlay then studioTheme.accent else studioTheme.muted
+                    Row(modifier: ::size(14.0, 14.0).rounded(3.0).border(1.0, tint.r, tint.g, tint.b), key: "checkbox") {
+                        if studio.pauseViewportDuringPlay then Icon("check", tint, size: 14.0, key: "check")
+                    }
+                    Label("Pause viewport while the game runs", app, studioTheme.text, key: "title")
+                }
+            }
         }
     }
 }

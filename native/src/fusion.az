@@ -251,7 +251,7 @@ func setFusionTexture(studio: Studio!, path: String) {
     fin index = studio.fusion.indexOfNode(studio.fusionSelected)
     if index < 0 || studio.fusion.nodes[index].kind != "texture" then return
     if path != "" && !fusionTexturePath(path) {
-        studio.notify("Use a project-relative .aztex texture set", 3)
+        studio.notify("Use a project-relative .aztexture texture set", 3)
         return
     }
     studio.fusion.nodes[index].textureSet = path
@@ -280,7 +280,7 @@ react func (anchor: Anchor!).fusionFields(studio: Studio&, app: App&) {
                     fusionField(studio, node, "Emission")
                 }
                 "texture" -> {
-                    FieldCaption("Texture Set (.aztex)", key: "texture-caption")
+                    FieldCaption("Texture Set (.aztexture)", key: "texture-caption")
                     Row(modifier: ::fillMaxWidth().height(24.0), key: "path") {
                         TextField("FusionTexture", "texture", node.textureSet, studio.focus, key: "value")
                     }
