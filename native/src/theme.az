@@ -17,64 +17,64 @@ pack Theme derives Clone {
     var name: String = "Azora Pastel Dark"
 
     // Surfaces
-    var ground: Rgba = Rgba(0.071, 0.071, 0.078, 1.0)
-    var panel: Rgba = Rgba(0.110, 0.110, 0.122, 1.0)
-    var strip: Rgba = Rgba(0.110, 0.110, 0.122, 1.0)
-    var raised: Rgba = Rgba(0.153, 0.153, 0.169, 1.0)
-    var sunken: Rgba = Rgba(0.082, 0.082, 0.090, 1.0)
-    var hover: Rgba = Rgba(1.0, 1.0, 1.0, 0.05)
-    var hairline: Rgba = Rgba(1.0, 1.0, 1.0, 0.07)
-    var selection: Rgba = Rgba(0.306, 0.576, 0.918, 0.30)
-    var selectionStrong: Rgba = Rgba(0.306, 0.576, 0.918, 0.50)
+    var ground: Rgba = .(0.071, 0.071, 0.078, 1.0)
+    var panel: Rgba = .(0.110, 0.110, 0.122, 1.0)
+    var strip: Rgba = .(0.110, 0.110, 0.122, 1.0)
+    var raised: Rgba = .(0.153, 0.153, 0.169, 1.0)
+    var sunken: Rgba = .(0.082, 0.082, 0.090, 1.0)
+    var hover: Rgba = .(1.0, 1.0, 1.0, 0.05)
+    var hairline: Rgba = .(1.0, 1.0, 1.0, 0.07)
+    var selection: Rgba = .(0.306, 0.576, 0.918, 0.30)
+    var selectionStrong: Rgba = .(0.306, 0.576, 0.918, 0.50)
 
     // Text
-    var text: Rgba = Rgba(0.851, 0.855, 0.855, 1.0)
-    var muted: Rgba = Rgba(0.608, 0.608, 0.608, 1.0)
-    var faint: Rgba = Rgba(0.404, 0.404, 0.404, 1.0)
+    var text: Rgba = .(0.851, 0.855, 0.855, 1.0)
+    var muted: Rgba = .(0.608, 0.608, 0.608, 1.0)
+    var faint: Rgba = .(0.404, 0.404, 0.404, 1.0)
 
     // Accents: the pastel family
-    var accent: Rgba = Rgba(0.357, 0.639, 0.816, 1.0)
-    var brand: Rgba = Rgba(0.820, 0.306, 0.918, 1.0)
-    var pink: Rgba = Rgba(0.820, 0.420, 0.557, 1.0)
-    var teal: Rgba = Rgba(0.373, 0.659, 0.624, 1.0)
-    var blue: Rgba = Rgba(0.357, 0.639, 0.816, 1.0)
-    var orange: Rgba = Rgba(0.831, 0.647, 0.455, 1.0)
-    var green: Rgba = Rgba(0.490, 0.749, 0.541, 1.0)
-    var yellow: Rgba = Rgba(0.902, 0.788, 0.420, 1.0)
-    var red: Rgba = Rgba(0.820, 0.443, 0.475, 1.0)
-    var purple: Rgba = Rgba(0.690, 0.435, 0.659, 1.0)
-    var cyan: Rgba = Rgba(0.404, 0.725, 0.773, 1.0)
+    var accent: Rgba = .(0.357, 0.639, 0.816, 1.0)
+    var brand: Rgba = .(0.820, 0.306, 0.918, 1.0)
+    var pink: Rgba = .(0.820, 0.420, 0.557, 1.0)
+    var teal: Rgba = .(0.373, 0.659, 0.624, 1.0)
+    var blue: Rgba = .(0.357, 0.639, 0.816, 1.0)
+    var orange: Rgba = .(0.831, 0.647, 0.455, 1.0)
+    var green: Rgba = .(0.490, 0.749, 0.541, 1.0)
+    var yellow: Rgba = .(0.902, 0.788, 0.420, 1.0)
+    var red: Rgba = .(0.820, 0.443, 0.475, 1.0)
+    var purple: Rgba = .(0.690, 0.435, 0.659, 1.0)
+    var cyan: Rgba = .(0.404, 0.725, 0.773, 1.0)
 
     // The source editor (AZLS roles)
-    var codeBackground: Rgba = Rgba(0.102, 0.102, 0.102, 1.0)
-    var codeText: Rgba = Rgba(0.851, 0.855, 0.855, 1.0)
-    var codeGutter: Rgba = Rgba(0.298, 0.298, 0.298, 1.0)
-    var codeGutterActive: Rgba = Rgba(0.608, 0.608, 0.608, 1.0)
-    var codeLine: Rgba = Rgba(1.0, 1.0, 1.0, 0.03)
-    var codeSelection: Rgba = Rgba(0.306, 0.576, 0.918, 0.33)
-    var caret: Rgba = Rgba(0.820, 0.306, 0.918, 1.0)
-    var keyword: Rgba = Rgba(0.820, 0.420, 0.557, 1.0)
-    var type: Rgba = Rgba(0.373, 0.659, 0.624, 1.0)
-    var function: Rgba = Rgba(0.357, 0.639, 0.816, 1.0)
-    var string: Rgba = Rgba(0.490, 0.749, 0.541, 1.0)
-    var number: Rgba = Rgba(0.404, 0.725, 0.773, 1.0)
-    var comment: Rgba = Rgba(0.404, 0.404, 0.404, 1.0)
-    var decorator: Rgba = Rgba(0.902, 0.788, 0.420, 1.0)
-    var macro: Rgba = Rgba(0.690, 0.435, 0.659, 1.0)
-    var generic: Rgba = Rgba(0.831, 0.647, 0.455, 1.0)
-    var parameter: Rgba = Rgba(0.663, 0.718, 0.776, 1.0)
-    var punctuation: Rgba = Rgba(0.620, 0.643, 0.698, 1.0)
-    var error: Rgba = Rgba(1.0, 0.400, 0.478, 1.0)
-    var warning: Rgba = Rgba(0.902, 0.788, 0.420, 1.0)
-    var info: Rgba = Rgba(0.357, 0.639, 0.816, 1.0)
+    var codeBackground: Rgba = .(0.102, 0.102, 0.102, 1.0)
+    var codeText: Rgba = .(0.851, 0.855, 0.855, 1.0)
+    var codeGutter: Rgba = .(0.298, 0.298, 0.298, 1.0)
+    var codeGutterActive: Rgba = .(0.608, 0.608, 0.608, 1.0)
+    var codeLine: Rgba = .(1.0, 1.0, 1.0, 0.03)
+    var codeSelection: Rgba = .(0.306, 0.576, 0.918, 0.33)
+    var caret: Rgba = .(0.820, 0.306, 0.918, 1.0)
+    var keyword: Rgba = .(0.820, 0.420, 0.557, 1.0)
+    var type: Rgba = .(0.373, 0.659, 0.624, 1.0)
+    var function: Rgba = .(0.357, 0.639, 0.816, 1.0)
+    var string: Rgba = .(0.490, 0.749, 0.541, 1.0)
+    var number: Rgba = .(0.404, 0.725, 0.773, 1.0)
+    var comment: Rgba = .(0.404, 0.404, 0.404, 1.0)
+    var decorator: Rgba = .(0.902, 0.788, 0.420, 1.0)
+    var macro: Rgba = .(0.690, 0.435, 0.659, 1.0)
+    var generic: Rgba = .(0.831, 0.647, 0.455, 1.0)
+    var parameter: Rgba = .(0.663, 0.718, 0.776, 1.0)
+    var punctuation: Rgba = .(0.620, 0.643, 0.698, 1.0)
+    var error: Rgba = .(1.0, 0.400, 0.478, 1.0)
+    var warning: Rgba = .(0.902, 0.788, 0.420, 1.0)
+    var info: Rgba = .(0.357, 0.639, 0.816, 1.0)
 
     // The scene viewport
-    var axisX: Rgba = Rgba(0.820, 0.443, 0.475, 1.0)
-    var axisY: Rgba = Rgba(0.490, 0.749, 0.541, 1.0)
-    var axisZ: Rgba = Rgba(0.357, 0.639, 0.816, 1.0)
-    var viewport: Rgba = Rgba(0.118, 0.122, 0.133, 1.0)
-    var gridMinor: Rgba = Rgba(1.0, 1.0, 1.0, 0.04)
-    var gridMajor: Rgba = Rgba(1.0, 1.0, 1.0, 0.085)
+    var axisX: Rgba = .(0.820, 0.443, 0.475, 1.0)
+    var axisY: Rgba = .(0.490, 0.749, 0.541, 1.0)
+    var axisZ: Rgba = .(0.357, 0.639, 0.816, 1.0)
+    var viewport: Rgba = .(0.118, 0.122, 0.133, 1.0)
+    var gridMinor: Rgba = .(1.0, 1.0, 1.0, 0.04)
+    var gridMajor: Rgba = .(1.0, 1.0, 1.0, 0.085)
 
     // Metrics
     var gap: Double = 4.0
@@ -90,7 +90,7 @@ pack Theme derives Clone {
 }
 
 /** The theme in force. Set once, by [loadTheme], before the first frame. */
-fin studioTheme: Theme = Theme()
+fin studioTheme: Theme = .()
 
 func hexDigit(code: Int): Int {
     return when {
@@ -105,23 +105,21 @@ func hexDigit(code: Int): Int {
 func hexColor(text: String, fallback: Rgba): Rgba {
     fin length = stringLength(text)
     if (length != 7 && length != 9) || charAt(text, 0) != '#' then return fallback
-    var channels: Array<Double> = Array<Double>()
+    var channels: Array<Double> = []
     var index = 1
     while index < length {
         fin high = hexDigit(charAt(text, index) as Int)
         fin low = hexDigit(charAt(text, index + 1) as Int)
         if high < 0 || low < 0 then return fallback
         channels.add(((high * 16 + low) as Double) / 255.0)
-        index = index + 2
+        index += 2
     }
-    return Rgba(channels[0], channels[1], channels[2], if channels.size > 3 { channels[3] } else { 1.0 })
+    return .(channels[0], channels[1], channels[2], if channels.size > 3 then channels[3] else 1.0)
 }
 
 func themeMember(fields: List<SerialField>&, name: String): Int {
-    var index = 0
-    while index < fields.size {
-        if fields[index].name == name then return index
-        index = index + 1
+    for i: Int in 0..<fields.size {
+        if fields[i].name == name then return i
     }
     return -1
 }
@@ -135,7 +133,7 @@ func themeMember(fields: List<SerialField>&, name: String): Int {
 func loadTheme(text: String): Bool {
     fin root = decodeSerialValue(text, serializerOptions()) catch SerialValue.Null
     when root {
-        SerialValue.Object(fields) -> {
+        .Object(fields) -> {
             inline for f in reflect<Theme>.fields {
                 fin at = themeMember(fields, f.name)
                 if at >= 0 {
@@ -168,7 +166,7 @@ func themeColor(name: String, fallback: Rgba): Rgba {
 
 /** The dock drawn in the theme's colours and metrics. */
 func dockStyle(): DockStyle {
-    var style = DockStyle()
+    var style: DockStyle = .()
     style.gap = studioTheme.gap
     style.tabHeight = studioTheme.tabHeight
     style.radius = studioTheme.radius
@@ -190,42 +188,40 @@ func dockStyle(): DockStyle {
 // colour, so the theme file is the only place colours are written.
 
 /** The window behind every panel. */
-func Modifier&.ground(): Modifier { return self.fill(studioTheme.ground) }
+func Modifier&.ground(): Modifier = self.fill(studioTheme.ground)
 
 /** A panel. */
-func Modifier&.surface(): Modifier { return self.fill(studioTheme.panel) }
+func Modifier&.surface(): Modifier = self.fill(studioTheme.panel)
 
 /** A control on a panel. */
-func Modifier&.raised(): Modifier { return self.fill(studioTheme.raised) }
+func Modifier&.raised(): Modifier = self.fill(studioTheme.raised)
 
 /** A well inset into a panel: a field, a list. */
-func Modifier&.sunken(): Modifier { return self.fill(studioTheme.sunken) }
+func Modifier&.sunken(): Modifier = self.fill(studioTheme.sunken)
 
 /** A hairline between regions. */
-func Modifier&.hairline(): Modifier { return self.fill(studioTheme.hairline) }
+func Modifier&.hairline(): Modifier = self.fill(studioTheme.hairline)
 
 /** Lifts a control under the pointer. */
-func Modifier&.hoverable(): Modifier { return self.hoverFill(studioTheme.hover) }
+func Modifier&.hoverable(): Modifier = self.hoverFill(studioTheme.hover)
 
 /** A transparent fill that still lifts under the pointer. */
-func Modifier&.ghost(): Modifier { return self.fill(studioTheme.hover.withAlpha(0.0)).hoverable() }
+func Modifier&.ghost(): Modifier = self.fill(studioTheme.hover.withAlpha(0.0)).hoverable()
 
 /** Selection: the AZLS selection blue. */
-func Modifier&.selected(): Modifier { return self.fill(studioTheme.selection).hoverFill(studioTheme.selectionStrong) }
+func Modifier&.selected(): Modifier = self.fill(studioTheme.selection).hoverFill(studioTheme.selectionStrong)
 
 /** The primary call to action. */
-func Modifier&.accent(): Modifier { return self.fill(studioTheme.accent.withAlpha(0.85)).hoverFill(studioTheme.accent) }
+func Modifier&.accent(): Modifier = self.fill(studioTheme.accent.withAlpha(0.85)).hoverFill(studioTheme.accent)
 
 /** Running something: the pastel green. */
-func Modifier&.go(): Modifier { return self.fill(studioTheme.green.withAlpha(0.22)).hoverFill(studioTheme.green.withAlpha(0.34)) }
+func Modifier&.go(): Modifier = self.fill(studioTheme.green.withAlpha(0.22)).hoverFill(studioTheme.green.withAlpha(0.34))
 
-func Modifier&.bodyText(): Modifier { return self.ink(studioTheme.text) }
+func Modifier&.bodyText(): Modifier = self.ink(studioTheme.text)
 
-func Modifier&.mutedText(): Modifier { return self.ink(studioTheme.muted) }
+func Modifier&.mutedText(): Modifier = self.ink(studioTheme.muted)
 
-func Modifier&.faintText(): Modifier { return self.ink(studioTheme.faint) }
+func Modifier&.faintText(): Modifier = self.ink(studioTheme.faint)
 
 /** A section caption: small, semibold, muted and set flush left. */
-func Modifier&.caption(): Modifier {
-    return self.mutedText().fontSize(11.0).semibold().textAlign(.Start)
-}
+func Modifier&.caption(): Modifier = self.mutedText().fontSize(11.0).semibold().textAlign(.Start)

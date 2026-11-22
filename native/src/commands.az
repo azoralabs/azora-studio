@@ -32,7 +32,7 @@ import studio.os
 func hasProjectPackages(manifest: String): Bool {
     fin root = decodeSerialValue(manifest, serializerOptions()) catch SerialValue.Null
     return when root {
-        SerialValue.Object(fields) -> memberAt(fields, "dependencies") >= 0
+        .Object(fields) -> memberAt(fields, "dependencies") >= 0
         else -> indexOf(manifest, "dependencies:") >= 0
     }
 }
@@ -51,9 +51,7 @@ func runCommand(studio: Studio!, name: String, call: Invocation&): Bool {
 /** The command [key] alone runs while nothing is being typed, or "". */
 func commandForHotkey(key: String): String {
     inline for C in reflect<*>.withAnnot<Command> {
-        if reflect<C>.annotMeta<Command>.hotkey == key && key != "" {
-            return reflect<C>.declName
-        }
+        if reflect<C>.annotMeta<Command>.hotkey == key && key != "" then return reflect<C>.declName
     }
     return ""
 }
@@ -71,41 +69,39 @@ func commandForKey(key: String, shift: Bool): String {
 // ── Entity presets (resources/presets.azon) ─────────────────────────────
 
 func presetMember(fields: List<SerialField>&, name: String): Int {
-    var index = 0
-    while index < fields.size {
-        if fields[index].name == name then return index
-        index = index + 1
+    for i: Int in 0..<fields.size {
+        if fields[i].name == name then return i
     }
     return -1
 }
 
 /** The presets in [text]; none when it is not a presets file. */
 func readPresets(text: String): Array<EntityPresetSlot> {
-    var presets: Array<EntityPresetSlot> = Array<EntityPresetSlot>()
+    var presets: Array<EntityPresetSlot> = []
     fin root = decodeSerialValue(text, serializerOptions()) catch SerialValue.Null
     when root {
-        SerialValue.Object(members) -> {
+        .Object(members) -> {
             fin listAt = presetMember(members, "presets")
             if listAt < 0 then return presets
             when members[listAt].value {
-                SerialValue.Array(items) -> {
+                .Array(items) -> {
                     var index = 0
                     while index < items.size {
                         when items[index] {
-                            SerialValue.Object(fields) -> {
+                            .Object(fields) -> {
                                 fin nameAt = presetMember(fields, "name")
                                 fin iconAt = presetMember(fields, "icon")
                                 fin componentsAt = presetMember(fields, "components")
                                 if nameAt >= 0 && componentsAt >= 0 {
                                     presets.add(EntityPresetSlot(
-                                        serialAsText(fields[nameAt].value) catch "Entity",
-                                        if iconAt >= 0 { serialAsText(fields[iconAt].value) catch "" } else { "" },
+                                        serialAsText(fields[nameAt].value) catch "Entity"
+                                        if iconAt >= 0 then serialAsText(fields[iconAt].value) catch "" else ""
                                         encodeSerialValue(fields[componentsAt].value, serializerOptions()) catch "{}"))
                                 }
                             }
                             else -> { }
                         }
-                        index = index + 1
+                        index++
                     }
                 }
                 else -> { }
@@ -190,14 +186,14 @@ func editRedo(studio: Studio!, call: Invocation&): Unit {
 func editDuplicate(studio: Studio!, call: Invocation&): Unit {
     fin selected = studio.selected()
     if !studio.scene.isAlive(selected) then return
-    if storageHas<PluginObject>(ensureStorage<PluginObject>(studio.scene), selected) {
+    if storageHas<PluginObject>(ensureStorage(studio.scene), selected) {
         studio.message("Create another object from its plugin tab")
         return
     }
     fin copy = spawnFromAzon(studio.scene, studio.snapshot(selected), studio.scene.getParent(selected))
-    if storageHas<Name>(ensureStorage<Name>(studio.scene), copy) {
-        fin name = storageGet<Name>(ensureStorage<Name>(studio.scene), copy).value
-        storageInsert<Name>(ensureStorage<Name>(studio.scene), copy, Name("${name} copy"))
+    if storageHas<Name>(ensureStorage(studio.scene), copy) {
+        fin name = storageGet<Name>(ensureStorage(studio.scene), copy).value
+        storageInsert<Name>(ensureStorage(studio.scene), copy, Name("${name} copy"))
     }
     studio.record(copy, "", -1, "duplicate")
     studio.select(copy)
@@ -207,8 +203,8 @@ func editDuplicate(studio: Studio!, call: Invocation&): Unit {
 func editDelete(studio: Studio!, call: Invocation&): Unit {
     fin selected = studio.selected()
     if !studio.scene.isAlive(selected) then return
-    if storageHas<PluginObject>(ensureStorage<PluginObject>(studio.scene), selected) {
-        pluginDelete(studio, Invocation(selected.id, 0, 0.0, ""))
+    if storageHas<PluginObject>(ensureStorage(studio.scene), selected) {
+        pluginDelete(studio, .(selected.id, 0, 0.0, ""))
         return
     }
     fin name = studio.nameOf(selected)
@@ -220,17 +216,17 @@ func editDelete(studio: Studio!, call: Invocation&): Unit {
         if studio.scene.alive[id] && studio.scene.parents[id] == selected.id {
             fin child = studio.scene.entityAt(id)
             fin childBefore = studio.snapshot(child)
-            if parent >= 0 { studio.scene.setParent(child, studio.scene.entityAt(parent)) } else { studio.scene.removeParent(child) }
+            if parent >= 0 then studio.scene.setParent(child, studio.scene.entityAt(parent)) else studio.scene.removeParent(child)
             studio.record(child, childBefore, selected.id, "reparent")
         }
-        id = id + 1
+        id++
     }
     studio.scene.despawn(selected)
     while studio.history.size > studio.historyAt then studio.history.removeLast()
     studio.history.add(SceneEdit(selected.id, before, "", parent, -1, "delete"))
     studio.historyAt = studio.history.size
     studio.sceneDirty = true
-    studio.select(Entity::invalid)
+    studio.select(::invalid)
     studio.message("Deleted ${name}")
 }
 
@@ -245,7 +241,7 @@ func entityAdd(studio: Studio!, call: Invocation&) {
         return
     }
     fin preset = studio.presets[call.arg].clone()
-    fin entity = spawnFromAzon(studio.scene, preset.components, Entity::invalid)
+    fin entity = spawnFromAzon(studio.scene, preset.components, ::invalid)
     studio.record(entity, "", -1, "add ${preset.name}")
     studio.popup = Popup()
     studio.select(entity)
@@ -254,7 +250,7 @@ func entityAdd(studio: Studio!, call: Invocation&) {
 
 @Command(title: "Clear Selection", menu: "Entity", group: 1, order: 0)
 func entityDeselect(studio: Studio!, call: Invocation&): Unit {
-    studio.select(Entity::invalid)
+    studio.select(::invalid)
 }
 
 @Command
@@ -335,19 +331,19 @@ func viewWireframe(studio: Studio!, call: Invocation&) { studio.viewMode = 2
 func viewFocus(studio: Studio!, call: Invocation&): Unit {
     fin selected = studio.selected()
     if !studio.scene.isAlive(selected) {
-        studio.camera.focus(Vec3(0.0, 0.5, 0.0), 3.0)
+        studio.camera.focus(.(0.0, 0.5, 0.0), 3.0)
         studio.changed()
         return
     }
-    if storageHas<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene), selected) {
-        fin terrain = storageGet<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene), selected).clone()
+    if storageHas<HeightfieldTerrain>(ensureStorage(studio.scene), selected) {
+        fin terrain = storageGet<HeightfieldTerrain>(ensureStorage(studio.scene), selected).clone()
         studio.camera.focus(worldPosition(studio.scene, selected), photonMax(terrain.width, terrain.length)*0.25)
         studio.changed()
         return
     }
     var radius: Double = 1.0
-    if storageHas<Transform>(ensureStorage<Transform>(studio.scene), selected) {
-        fin scale = storageGet<Transform>(ensureStorage<Transform>(studio.scene), selected).scale
+    if storageHas<Transform>(ensureStorage(studio.scene), selected) {
+        fin scale = storageGet<Transform>(ensureStorage(studio.scene), selected).scale
         radius = clampValue((absValue(scale.x) + absValue(scale.y) + absValue(scale.z)) / 3.0, 0.3, 50.0)
     }
     studio.camera.focus(worldPosition(studio.scene, selected), radius)
@@ -363,10 +359,10 @@ func viewTogglePhotons(studio: Studio!, call: Invocation&) {
         return
     }
     fin before = studio.snapshot(light)
-    var field = storageGetOrDefault<PhotonField>(ensureStorage<PhotonField>(studio.scene), light, PhotonField(enabled: false))
+    var field = storageGetOrDefault<PhotonField>(ensureStorage(studio.scene), light, .(enabled: false))
     field.enabled = !field.enabled
     fin enabled = field.enabled
-    storageInsert<PhotonField>(ensureStorage<PhotonField>(studio.scene), light, take field)
+    storageInsert<PhotonField>(ensureStorage(studio.scene), light, take field)
     studio.record(light, before, studio.scene.getParent(light).id, "toggle Photon Field")
     studio.message(if enabled then "Photon Field enabled" else "Photon Field disabled")
 }
@@ -389,7 +385,7 @@ func runPlay(studio: Studio!, call: Invocation&): Unit {
 func runPause(studio: Studio!, call: Invocation&): Unit {
     if !studio.playing then return
     studio.paused = !studio.paused
-    studio.message(if studio.paused { "Scene preview paused" } else { "Scene preview playing" })
+    studio.message(if studio.paused then "Scene preview paused" else "Scene preview playing")
 }
 
 @Command(title: "Stop Scene", menu: "Run", group: 0, order: 2)
@@ -440,7 +436,7 @@ func panelShow(studio: Studio!, call: Invocation&): Unit {
     studio.showPanel = call.text
 }
 
-fin renderPreferencesFile: String = "rendering.azon"
+inline fin renderPreferencesFile: String = "rendering.azon"
 
 func loadRenderPreferences(studio: Studio!, home: String) {
     fin overridePath = azsEnvironment("AZORA_STUDIO_PREFERENCES")
@@ -451,7 +447,7 @@ func loadRenderPreferences(studio: Studio!, home: String) {
     if source == "" then return
     fin document = decodeSerialValue(source, serializerOptions()) catch SerialValue.Null
     when document {
-        SerialValue.Object(fields) -> {
+        .Object(fields) -> {
             studio.indirectLighting = memberText(fields, "lighting", "photon") != "standard"
             studio.virtualShadows = memberText(fields, "shadows", "virtual") != "computed"
             studio.upscaling = memberText(fields, "upscaling", "native") == "temporal"
@@ -519,10 +515,10 @@ func sceneSelect(studio: Studio!, call: Invocation&): Unit {
 @Command
 func sceneToggleExpand(studio: Studio!, call: Invocation&): Unit {
     fin entity = studio.scene.entityAt(call.target)
-    if storageHas<Expanded>(ensureStorage<Expanded>(studio.scene), entity) {
-        storageRemove<Expanded>(ensureStorage<Expanded>(studio.scene), entity)
+    if storageHas<Expanded>(ensureStorage(studio.scene), entity) {
+        storageRemove<Expanded>(ensureStorage(studio.scene), entity)
     } else {
-        storageInsert<Expanded>(ensureStorage<Expanded>(studio.scene), entity, Expanded())
+        storageInsert<Expanded>(ensureStorage(studio.scene), entity, .())
     }
     studio.changed()
 }
@@ -531,10 +527,10 @@ func sceneToggleExpand(studio: Studio!, call: Invocation&): Unit {
 func sceneToggleVisible(studio: Studio!, call: Invocation&): Unit {
     fin entity = studio.scene.entityAt(call.target)
     fin before = studio.snapshot(entity)
-    fin visible = !storageHas<Visibility>(ensureStorage<Visibility>(studio.scene), entity) ||
-        storageGet<Visibility>(ensureStorage<Visibility>(studio.scene), entity).visible
-    storageInsert<Visibility>(ensureStorage<Visibility>(studio.scene), entity, Visibility(!visible))
-    studio.record(entity, before, studio.scene.getParent(entity).id, if visible { "hide" } else { "show" })
+    fin visible = !storageHas<Visibility>(ensureStorage(studio.scene), entity) ||
+        storageGet<Visibility>(ensureStorage(studio.scene), entity).visible
+    storageInsert<Visibility>(ensureStorage(studio.scene), entity, .(!visible))
+    studio.record(entity, before, studio.scene.getParent(entity).id, if visible then "hide" else "show")
 }
 
 // ── Components ──────────────────────────────────────────────────────────
@@ -662,10 +658,10 @@ func createHeightfield(studio: Studio!, call: Invocation&) {
     }
     azFree(image.samples)
     fin entity = studio.scene.spawn()
-    storageInsert<Name>(ensureStorage<Name>(studio.scene), entity, Name("Heightfield"))
-    storageInsert<Transform>(ensureStorage<Transform>(studio.scene), entity, Transform())
-    storageInsert<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene), entity, HeightfieldTerrain(image: path))
-    storageInsert<LandscapeCollision>(ensureStorage<LandscapeCollision>(studio.scene),entity,LandscapeCollision())
+    storageInsert<Name>(ensureStorage(studio.scene), entity, .("Heightfield"))
+    storageInsert<Transform>(ensureStorage(studio.scene), entity, .())
+    storageInsert<HeightfieldTerrain>(ensureStorage(studio.scene), entity, .(image: path))
+    storageInsert<LandscapeCollision>(ensureStorage(studio.scene),entity,.())
     studio.record(entity, "", -1, "create heightfield")
     studio.select(entity)
     studio.showPanel = "ScenePanel"
@@ -693,10 +689,10 @@ func studioOffsetAt(studio: Studio!, row: Int, column: Int): Int {
     fin size = azsBufferSize(source)
     while start < size && current < row {
         if azsBufferByte(source, start) == 10 then current = current + 1
-        start = start + 1
+        start++
     }
     var end = start
-    while end < size && azsBufferByte(source, end) != 10 { end = end + 1 }
+    while end < size && azsBufferByte(source, end) != 10 then end = end + 1
     var offset = start + column
     if offset > end then offset = end
     return offset

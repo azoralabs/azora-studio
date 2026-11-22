@@ -27,22 +27,22 @@ pack ScriptStep derives (Copy, Clone) {
 
 func scriptNumber(script: Long, offset: Int, end: Int): Int {
     var index = offset
-    while index < end && azsBufferByte(script, index) == 32 { index = index + 1 }
+    while index < end && azsBufferByte(script, index) == 32 then index = index + 1
     var negative = false
     if index < end && azsBufferByte(script, index) == 45 { negative = true
-        index = index + 1 }
+        index += 1 }
     var value = 0
     while index < end && azsBufferByte(script, index) >= 48 && azsBufferByte(script, index) <= 57 {
         value = value * 10 + azsBufferByte(script, index) - 48
-        index = index + 1
+        index++
     }
-    return if negative { -value } else { value }
+    return if negative then -value else value
 }
 
 func scriptSkipWord(script: Long, offset: Int, end: Int): Int {
     var index = offset
-    while index < end && azsBufferByte(script, index) == 32 { index = index + 1 }
-    while index < end && azsBufferByte(script, index) != 32 { index = index + 1 }
+    while index < end && azsBufferByte(script, index) == 32 then index = index + 1
+    while index < end && azsBufferByte(script, index) != 32 then index = index + 1
     return index
 }
 
@@ -56,27 +56,27 @@ func scriptWord(script: Long, start: Int, end: Int): String {
 }
 
 func parseScript(script: Long): Array<ScriptStep> {
-    var steps: Array<ScriptStep> = Array<ScriptStep>()
+    var steps: Array<ScriptStep> = []
     if script == 0 then return steps
     fin size = azsBufferSize(script)
     var start = 0
     while start < size {
         var end = start
-        while end < size && azsBufferByte(script, end) != 59 { end = end + 1 }
+        while end < size && azsBufferByte(script, end) != 59 then end = end + 1
         var word = start
-        while word < end && azsBufferByte(script, word) == 32 { word = word + 1 }
+        while word < end && azsBufferByte(script, word) == 32 then word = word + 1
         if word < end {
             fin wordEnd = scriptSkipWord(script, word, end)
             fin name = scriptWord(script, word, wordEnd)
             fin argument = wordEnd
             fin second = scriptSkipWord(script, argument, end)
-            fin textStart = if argument < end { argument + 1 } else { end }
+            fin textStart = if argument < end then argument + 1 else end
             when name {
                 "wait" -> steps.add(ScriptStep(0, scriptNumber(script, argument, end), 0, 0, 0))
                 "command" -> steps.add(ScriptStep(1, 0, 0, textStart, end))
                 "click" -> steps.add(ScriptStep(2, scriptNumber(script, argument, end), scriptNumber(script, second, end), 0, 0))
                 "dclick" -> {
-                    fin click = ScriptStep(2, scriptNumber(script, argument, end), scriptNumber(script, second, end), 0, 0)
+                    fin click: ScriptStep = .(2, scriptNumber(script, argument, end), scriptNumber(script, second, end), 0, 0)
                     steps.add(click)
                     steps.add(click)
                 }
@@ -125,7 +125,7 @@ pack ScriptFrame derives Clone {
  */
 pack ScriptPlayer {
     var script: Long = 0
-    var steps: Array<ScriptStep> = Array<ScriptStep>()
+    var steps: Array<ScriptStep> = []
     var index: Int = 0
     var waitUntil: Int = 0
     var pointing: Bool = false
@@ -141,17 +141,15 @@ impl ScriptPlayer {
     /** The script AZORA_STUDIO_SCRIPT holds, or one with no steps. */
     func open(): ScriptPlayer {
         fin script = azsBufferNew(azsEnvironment("AZORA_STUDIO_SCRIPT"))
-        return ScriptPlayer(script, parseScript(script))
+        return .(script, parseScript(script))
     }
 
     /** This frame's step, if one is due. A screenshot in progress holds the script. */
     func !.next(app: App!, frames: Int): ScriptFrame {
-        var cue = ScriptFrame()
-        if self.index >= self.steps.size || frames < self.waitUntil || self.shooting != 0 {
-            return cue
-        }
+        var cue: ScriptFrame = .()
+        if self.index >= self.steps.size || frames < self.waitUntil || self.shooting != 0 then return cue
         fin step = self.steps[self.index]
-        self.index = self.index + 1
+        self.index++
         when step.kind {
             0 -> { self.waitUntil = frames + step.a }
             1 -> {

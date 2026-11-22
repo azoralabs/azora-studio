@@ -9,9 +9,9 @@ import studio.workspace
 
 react func main() {
     var scene = studioScene()
-    var world = World()
+    var world: World = .()
     var pass = Composition::of(world, "studio-probe")
-    var view = WorkspaceView()
+    var view: WorkspaceView = .()
     describeWorkspace(pass, scene, view)
     fin first = pass.findChild(pass.root, "workspace")
     fin version = pass.version
@@ -24,7 +24,7 @@ react func main() {
     var probeX: Double = 0.0
     while probeX < 1280.0 {
         if pass.hit(probeX, 26.0) == 1 then saveHit = true
-        probeX = probeX + 4.0
+        probeX += 4.0
     }
     assert saveHit panic "toolbar save must be an Engine action node"
     assert surfaceRect(pass, 203).width > 600.0 panic "the console must span the bottom dock"

@@ -29,7 +29,7 @@ bridge .C {
 }
 
 /** `dlopen` flags: resolve every symbol now, keep them to this library. */
-fin loadNowLocal: Int = 6
+inline fin loadNowLocal: Int = 6
 
 // ── Libraries ───────────────────────────────────────────────────────────
 
@@ -68,11 +68,7 @@ func spawn(program: String, directory: String, args: Array<String>&, log: String
     started.log = log
     fin argv = azAlloc(((args.size + 2) as Long) * 8)
     azPoke64(argv, 0, program as Long)
-    var index = 0
-    while index < args.size {
-        azPoke64(argv, ((index + 1) as Long) * 8, args[index] as Long)
-        index = index + 1
-    }
+    for i: Int in 0..<args.size then azPoke64(argv, ((i + 1) as Long) * 8, args[i] as Long)
     azPoke64(argv, ((args.size + 1) as Long) * 8, 0)
     fin actions = azAlloc(16)
     posixSpawnFileActionsInit(actions)
@@ -118,7 +114,7 @@ impl Spawned {
 // ── Folders ─────────────────────────────────────────────────────────────
 
 /** `dirent.d_type` for a directory, and where `d_name` starts (Darwin). */
-fin directoryEntry: Int = 4
+inline fin directoryEntry: Int = 4
 
 /** The folders directly inside [path], hidden ones left out. */
 func listFolders(path: String): Array<String> {
@@ -140,7 +136,7 @@ func makeFolders(path: String) {
     var at = 1
     while at <= stringLength(path) {
         if at == stringLength(path) || charAt(path, at) == '/' then mkdir(substring(path, 0, at), 493)
-        at = at + 1
+        at++
     }
 }
 

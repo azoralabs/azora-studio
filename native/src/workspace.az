@@ -33,77 +33,72 @@ pack WorkspaceView {
     var lineCount: Int = 1
     /** The bottom dock's page: 0 console, 1 problems. */
     var dockTab: Int = 0
-    var problems: Array<Diagnostic> = Array<Diagnostic>()
+    var problems: Array<Diagnostic> = []
     /** The source changed since the problems were reported, so their spans may have moved. */
     var problemsStale: Bool = false
     var inspected: Bool = false
     /** Host buffers holding the problems' text, released with them. */
-    var problemText: Array<Long> = Array<Long>()
+    var problemText: Array<Long> = []
 }
 
 impl WorkspaceView {
     dtor .() {
         if self.console != 0 then azsBufferClose(self.console)
         if self.projectLabel != 0 then azsBufferClose(self.projectLabel)
-        while self.problemText.size > 0 { azsBufferClose(self.problemText.removeLast()) }
+        while self.problemText.size > 0 then azsBufferClose(self.problemText.removeLast())
     }
     func !.message(value: String) { self.notify(value, 0) }
     func !.notify(value: String, kind: Int) {
         self.status = value
         self.statusKind = kind
-        self.revision = self.revision + 1
+        self.revision++
     }
     func !.output(value: String) {
         fin next = azsBufferNew(value)
         if next == 0 then return
         if self.console != 0 then azsBufferClose(self.console)
         self.console = next
-        self.revision = self.revision + 1
+        self.revision++
     }
     /** Names the project after the last component of [root]. */
     func !.nameProject(root: String) {
         fin path = azsBufferNew(root)
         if path == 0 then return
         var end = azsBufferSize(path)
-        while end > 1 && azsBufferByte(path, end - 1) == 47 { end = end - 1 }
+        while end > 1 && azsBufferByte(path, end - 1) == 47 then end = end - 1
         var start = end
-        while start > 0 && azsBufferByte(path, start - 1) != 47 { start = start - 1 }
+        while start > 0 && azsBufferByte(path, start - 1) != 47 then start = start - 1
         fin label = azsBufferSlice(path, start, end)
         azsBufferClose(path)
         if label == 0 then return
         if self.projectLabel != 0 then azsBufferClose(self.projectLabel)
         self.projectLabel = label
-        self.revision = self.revision + 1
+        self.revision++
     }
-    func &.projectName(): String {
-        if self.projectLabel == 0 then return "project"
-        return azsBufferText(self.projectLabel)
-    }
-    func &.hasSelection(): Bool { return self.anchor >= 0 && self.anchor != self.cursor }
-    func &.selectionStart(): Int { return if self.anchor >= 0 && self.anchor < self.cursor { self.anchor } else { self.cursor } }
-    func &.selectionEnd(): Int { return if self.anchor > self.cursor { self.anchor } else { self.cursor } }
+    func &.projectName(): String = if self.projectLabel == 0 then "project" else azsBufferText(self.projectLabel)
+    func &.hasSelection(): Bool = self.anchor >= 0 && self.anchor != self.cursor
+    func &.selectionStart(): Int = if self.anchor >= 0 && self.anchor < self.cursor then self.anchor else self.cursor
+    func &.selectionEnd(): Int = if self.anchor > self.cursor then self.anchor else self.cursor
     func !.showDock(page: Int) {
         if self.dockTab == page then return
         self.dockTab = page
-        self.revision = self.revision + 1
+        self.revision++
     }
     /** Replaces the problems with an inspect snapshot's, for [file]. */
     func !.inspect(snapshot: String, file: String) {
-        var text: Array<Long> = Array<Long>()
+        var text: Array<Long> = []
         var found = parseDiagnostics(snapshot, file, text)
         self.problems = take found
-        while self.problemText.size > 0 { azsBufferClose(self.problemText.removeLast()) }
+        while self.problemText.size > 0 then azsBufferClose(self.problemText.removeLast())
         self.problemText = take text
         self.problemsStale = false
         self.inspected = true
-        self.revision = self.revision + 1
+        self.revision++
     }
     func &.errorCount(): Int {
         var count = 0
-        var index = 0
-        while index < self.problems.size {
-            if self.problems[index].severity == 0 then count = count + 1
-            index = index + 1
+        for i: Int in 0..<self.problems.size {
+            if self.problems[i].severity == 0 then count = count + 1
         }
         return count
     }
@@ -115,7 +110,7 @@ impl WorkspaceView {
         self.line = line
         self.column = column
         self.lineCount = lineCount
-        self.revision = self.revision + 1
+        self.revision++
     }
 }
 
@@ -231,9 +226,9 @@ impl pack SceneHierarchy {
             PanelHeader("HIERARCHY", "3 entities")
             Column(modifier: ::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0), spacing: 2.0, key: "entities") {
                 for id in 0..<3 {
-                    fin name = if id == 0 { "Cube" } else if id == 1 { "Camera" } else { "Light" }
+                    fin name = if id == 0 then "Cube" else if id == 1 then "Camera" else "Light"
                     ListItem(name, 100 + id, selected == id, kindRed(id), kindGreen(id), kindBlue(id),
-                        round: if id == 0 { 2.5 } else { 5.0 }, key: name)
+                        round: if id == 0 then 2.5 else 5.0, key: name)
                 }
             }
         }
@@ -271,7 +266,7 @@ impl pack DockTab {
 impl pack SceneViewport {
     react ctor (anchor: Anchor!).(): Entity {
         fin node = Shape(modifier: ::fillMaxSize().weight(1.0).rounded(8.0).sunken(), group: 201, key: "canvas")
-        storageInsert<Action>(store<Action>(anchor.pass), node, Action(201))
+        storageInsert<Action>(store(anchor.pass), node, .(201))
         return node
     }
 }
@@ -279,7 +274,7 @@ impl pack SceneViewport {
 impl pack SourceEditor {
     react ctor (anchor: Anchor!).(): Entity {
         fin node = Shape(modifier: ::fillMaxSize().weight(1.0).rounded(8.0).sunken(), group: 202, key: "source")
-        storageInsert<Action>(store<Action>(anchor.pass), node, Action(202))
+        storageInsert<Action>(store(anchor.pass), node, .(202))
         return node
     }
 }
@@ -287,16 +282,16 @@ impl pack SourceEditor {
 impl pack CenterDock {
     react ctor (anchor: Anchor!).(view: WorkspaceView&, scene: StudioScene&): Entity {
         fin detail = if view.tab == 0 {
-            if scene.playing { if scene.paused { "Preview paused" } else { "Preview playing" } } else { "2D scene · ECS world" }
+            if scene.playing then if scene.paused then "Preview paused" else "Preview playing" else "2D scene · ECS world"
         } else { "Azora · UTF-8 · ${view.lineCount} lines" }
         return Column(modifier: ::weight(1.0).fillMaxHeight().card().padding(start: 6.0, end: 6.0, bottom: 6.0), key: "center") {
             Row(modifier: ::fillMaxWidth().height(42.0).padding(start: 2.0, end: 8.0), spacing: 4.0, verticalAlignment: .Center, key: "tabs") {
                 DockTab("Scene", 12, view.tab == 0, "scene-tab")
-                DockTab(if view.sourceDirty { "main.az  ●" } else { "main.az" }, 13, view.tab == 1, "source-tab")
+                DockTab(if view.sourceDirty then "main.az  ●" else "main.az", 13, view.tab == 1, "source-tab")
                 Spacer()
                 Text(detail, modifier: ::width(240.0).fontSize(12.0).faintText().textAlign(.End))
             }
-            if view.tab == 0 { SceneViewport() } else { SourceEditor() }
+            if view.tab == 0 then SceneViewport() else SourceEditor()
         }
     }
 }
@@ -320,7 +315,7 @@ impl pack PropertyInspector {
         return Column(modifier: ::width(292.0).fillMaxHeight().card(), key: "inspector") {
             PanelHeader("INSPECTOR")
             Row(modifier: ::fillMaxWidth().height(52.0).padding(start: 14.0, end: 12.0), spacing: 12.0, verticalAlignment: .Center, key: "identity") {
-                Shape(modifier: ::size(28.0, 28.0).rounded(if kind == 0 { 7.0 } else { 14.0 }).background(kindRed(kind), kindGreen(kind), kindBlue(kind)))
+                Shape(modifier: ::size(28.0, 28.0).rounded(if kind == 0 then 7.0 else 14.0).background(kindRed(kind), kindGreen(kind), kindBlue(kind)))
                 Column(modifier: ::weight(1.0).height(40.0), key: "names") {
                     Text(scene.selectedName(), modifier: ::fillMaxWidth().height(22.0).fontSize(15.0).semibold().textAlign(.Start))
                     Text("Entity ${kind}  ·  ${kindName(kind)}", modifier: ::fillMaxWidth().height(18.0).fontSize(11.0).mutedText().textAlign(.Start))
@@ -333,8 +328,8 @@ impl pack PropertyInspector {
             PropertyRow("Scale", "${value.scale} %", 24, 25, "scale")
             Text("SCENE FILE", modifier: ::fillMaxWidth().height(40.0).padding(start: 14.0).caption(), key: "file")
             Row(modifier: ::fillMaxWidth().height(24.0).padding(start: 14.0, end: 12.0), spacing: 8.0, verticalAlignment: .Center, key: "saved") {
-                Shape(modifier: ::size(8.0, 8.0).rounded(4.0).background(if scene.dirty { 1.0 } else { 0.306 }, if scene.dirty { 0.549 } else { 0.788 }, if scene.dirty { 0.0 } else { 0.384 }))
-                Text(if scene.dirty { "Unsaved changes" } else { "All changes saved" }, modifier: ::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start))
+                Shape(modifier: ::size(8.0, 8.0).rounded(4.0).background(if scene.dirty then 1.0 else 0.306, if scene.dirty then 0.549 else { 0.788 }, if scene.dirty then 0.0 else { 0.384 }))
+                Text(if scene.dirty then "Unsaved changes" else "All changes saved", modifier: ::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start))
             }
             Spacer()
             Text("Click an entity to select it · ⌘S saves", modifier: ::fillMaxWidth().height(34.0).padding(start: 14.0).fontSize(11.0).faintText().textAlign(.Start), key: "hint")
@@ -345,14 +340,14 @@ impl pack PropertyInspector {
 /** One reported problem: severity, position, code and message; clicking it opens the source there. */
 impl pack ProblemRow {
     react ctor (anchor: Anchor!).(problem: Diagnostic&, action: Int, stale: Bool, key: String): Entity {
-        fin r: Double = if problem.severity == 0 { 0.902 } else if problem.severity == 1 { 1.0 } else { 0.306 }
-        fin g: Double = if problem.severity == 0 { 0.290 } else if problem.severity == 1 { 0.757 } else { 0.576 }
-        fin b: Double = if problem.severity == 0 { 0.227 } else if problem.severity == 1 { 0.027 } else { 0.918 }
+        fin r: Double = if problem.severity == 0 then 0.902 else if problem.severity == 1 then 1.0 else 0.306
+        fin g: Double = if problem.severity == 0 then 0.290 else if problem.severity == 1 then 0.757 else 0.576
+        fin b: Double = if problem.severity == 0 then 0.227 else if problem.severity == 1 then 0.027 else 0.918
         return Button(modifier: ::fillMaxWidth().height(26.0).rounded(6.0).padding(start: 10.0, end: 10.0).ghost(), :action, :key) {
             Shape(modifier: ::size(8.0, 8.0).rounded(4.0).background(r, g, b))
             Text("${problem.line + 1}:${problem.startByte + 1}", modifier: ::width(76.0).padding(start: 10.0).monospace().fontSize(12.0).mutedText().textAlign(.Start))
             Text(problem.code, modifier: ::width(110.0).monospace().fontSize(11.0).faintText().textAlign(.Start))
-            Text(problem.message, modifier: if stale { ::weight(1.0).fontSize(12.0).mutedText().textAlign(.Start) } else { Modifier::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start) })
+            Text(problem.message, modifier: if stale then ::weight(1.0).fontSize(12.0).mutedText().textAlign(.Start) else Modifier::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start))
         }
     }
 }
@@ -360,7 +355,7 @@ impl pack ProblemRow {
 impl pack ConsolePanel {
     react ctor (anchor: Anchor!).(view: WorkspaceView&): Entity {
         fin count = view.problems.size
-        fin problemsLabel = if count == 0 { "Problems" } else { "Problems  ${count}" }
+        fin problemsLabel = if count == 0 then "Problems" else { "Problems  ${count}" }
         fin summary = if view.dockTab == 1 {
             if !view.inspected { "Inspect runs the native compiler's semantic check" }
             else if count == 0 { "No problems in src/main.az" }
@@ -369,8 +364,8 @@ impl pack ConsolePanel {
         } else { view.status }
         return Column(modifier: ::fillMaxSize().card().padding(start: 6.0, end: 6.0, bottom: 6.0), key: "console") {
             Row(modifier: ::fillMaxWidth().height(38.0).padding(start: 8.0, end: 8.0), spacing: 4.0, verticalAlignment: .Center, key: "console-tabs") {
-                Button(modifier: if view.dockTab == 0 { ::width(92.0).height(26.0).rounded(6.0).raised() } else { ::width(92.0).height(26.0).rounded(6.0).ghost() }, action: 30, key: "console-tab") {
-                    Text("Console", modifier: if view.dockTab == 0 { ::fontSize(12.0) } else { ::fontSize(12.0).mutedText() })
+                Button(modifier: if view.dockTab == 0 then ::width(92.0).height(26.0).rounded(6.0).raised() else ::width(92.0).height(26.0).rounded(6.0).ghost(), action: 30, key: "console-tab") {
+                    Text("Console", modifier: if view.dockTab == 0 then ::fontSize(12.0) else ::fontSize(12.0).mutedText())
                 }
                 Button(
                     modifier: when {
@@ -399,7 +394,7 @@ impl pack ConsolePanel {
                     var index = 0
                     while index < count && index < 5 {
                         ProblemRow(view.problems[index], 300 + index, view.problemsStale, "problem-${index}")
-                        index = index + 1
+                        index++
                     }
                     if count > 5 {
                         Text("and ${count - 5} more", modifier: ::fillMaxWidth().height(22.0).padding(start: 28.0).fontSize(11.0).faintText().textAlign(.Start), key: "more")
@@ -412,9 +407,9 @@ impl pack ConsolePanel {
 
 impl pack StatusBar {
     react ctor (anchor: Anchor!).(view: WorkspaceView&): Entity {
-        fin r: Double = if view.statusKind == 3 { 0.902 } else if view.statusKind == 1 { 1.0 } else { 0.306 }
-        fin g: Double = if view.statusKind == 3 { 0.290 } else if view.statusKind == 1 { 0.757 } else { 0.788 }
-        fin b: Double = if view.statusKind == 3 { 0.227 } else if view.statusKind == 1 { 0.027 } else { 0.384 }
+        fin r: Double = if view.statusKind == 3 then 0.902 else if view.statusKind == 1 then 1.0 else 0.306
+        fin g: Double = if view.statusKind == 3 then 0.290 else if view.statusKind == 1 then 0.757 else 0.788
+        fin b: Double = if view.statusKind == 3 then 0.227 else if view.statusKind == 1 then 0.027 else 0.384
         fin position = if view.tab == 1 { "Ln ${view.line}, Col ${view.column}" } else { "" }
         return Row(modifier: ::fillMaxWidth().height(26.0).padding(start: 14.0, end: 14.0).surface(), spacing: 10.0, verticalAlignment: .Center, key: "statusbar") {
             Shape(modifier: ::size(8.0, 8.0).rounded(4.0).background(r, g, b))
@@ -440,13 +435,13 @@ react func describeWorkspace(pass: Composition!, scene: StudioScene&, view: Work
                 ToolButton("Redo", 3)
                 ToolButton("Reopen", 4, 70.0)
                 Divider()
-                ToolButton(if scene.playing { "↻ Restart" } else { "▶ Play" }, 6, 86.0, 2)
-                ToolButton(if scene.paused { "Resume" } else { "Pause" }, 7, 72.0)
+                ToolButton(if scene.playing then "↻ Restart" else "▶ Play", 6, 86.0, 2)
+                ToolButton(if scene.paused then "Resume" else "Pause", 7, 72.0)
                 ToolButton("Stop", 8)
                 Divider()
                 ToolButton("Build", 5)
                 ToolButton("Inspect", 9, 72.0)
-                ToolButton(if view.busy { "Cancel" } else { "Run app" }, if view.busy { 10 } else { 17 }, 84.0, 1)
+                ToolButton(if view.busy then "Cancel" else "Run app", if view.busy then 10 else { 17 }, 84.0, 1)
                 Spacer()
                 Shape(modifier: ::width(254.0).height(1.0).background(0.0, 0.0, 0.0, 0.0))
             }
@@ -469,9 +464,9 @@ react func describeWorkspace(pass: Composition!, scene: StudioScene&, view: Work
 }
 
 func surfaceRect(pass: Composition!, group: Int): Rect {
-    return for i in 0..<storageLength<TagI>(store<TagI>(pass)) {
-        fin entity = storageEntityAt<TagI>(store<TagI>(pass), i)
-        fin tag = storageGet<TagI>(store<TagI>(pass), entity)
-        if tag.index == group then break storageGet<Rect>(store<Rect>(pass), entity).clone()
+    return for i in 0..<storageLength<TagI>(store(pass)) {
+        fin entity = storageEntityAt<TagI>(store(pass), i)
+        fin tag = storageGet<TagI>(store(pass), entity)
+        if tag.index == group then break storageGet<Rect>(store(pass), entity).clone()
     } else .()
 }

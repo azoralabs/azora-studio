@@ -34,7 +34,7 @@ func graphColor(type: Int): Rgba = if type == 2 then Rgba(0.94, 0.69, 0.29, 1.0)
 func graphRect(node: FusionNode&, camera: NodeCamera&, view: ViewRect&): ViewRect {
     fin top = camera.screen(view, node.x, node.y)
     fin height = 42.0 + ((if fusionPinCount(node.kind) == 0 then 1 else fusionPinCount(node.kind)) as Double) * 20.0
-    return ViewRect(top.x, top.y, graphNodeWidth * camera.zoom, height * camera.zoom)
+    return .(top.x, top.y, graphNodeWidth * camera.zoom, height * camera.zoom)
 }
 
 func graphSocket(node: FusionNode&, pin: Int, camera: NodeCamera&, view: ViewRect&): NodePoint {
@@ -43,7 +43,7 @@ func graphSocket(node: FusionNode&, pin: Int, camera: NodeCamera&, view: ViewRec
 
 func graphViewport(rect: ViewRect&): ViewRect {
     fin preview = if rect.width > 685.0 then 195.0 else 0.0
-    return ViewRect(rect.x, rect.y, rect.width - preview, rect.height)
+    return .(rect.x, rect.y, rect.width - preview, rect.height)
 }
 
 func drawFusionPreview(app: App!, studio: Studio!, rect: ViewRect&) {
@@ -58,8 +58,8 @@ func drawFusionPreview(app: App!, studio: Studio!, rect: ViewRect&) {
     if index < 0 || !endsWith(studio.fusionDiagnostic, "Preview ready") then return
     fin pipe = app.gpu.fusion.items[index].pipeline.handle
     if pipe == 0 then return
-    fin preview = ViewRect(x + 5.0, rect.y + 32.0, width - 10.0, height)
-    var camera = EditorCamera()
+    fin preview: ViewRect = .(x + 5.0, rect.y + 32.0, width - 10.0, height)
+    var camera: EditorCamera = .()
     camera.target = Vec3(0.0, 0.0, 0.0)
     camera.distance = 1.5
     app.setMaterialEye(camera.position())
@@ -73,7 +73,7 @@ func drawFusionPreview(app: App!, studio: Studio!, rect: ViewRect&) {
 func drawFusionGraph(app: App!, studio: Studio!, bounds: ViewRect&) {
     fin view = graphViewport(bounds)
     fin camera = graphCamera(studio)
-    fin style = NodeStyle()
+    fin style: NodeStyle = .()
     app.setScissor(view.x, view.y, view.width, view.height)
     drawNodeGrid(app, view, camera, style)
     for node in studio.fusion.nodes {
@@ -81,13 +81,13 @@ func drawFusionGraph(app: App!, studio: Studio!, bounds: ViewRect&) {
         while pin < fusionPinCount(node.kind) {
             fin source = studio.fusion.indexOfNode(fusionInput(node, pin))
             if source >= 0 then drawNodeLink(app, graphSocket(studio.fusion.nodes[source], -1, camera, view), graphSocket(node, pin, camera, view), graphColor(if pin == 2 then 2 else 1))
-            pin = pin + 1
+            pin++
         }
     }
     fin pending = studio.fusion.indexOfNode(studio.fusionPin)
     if pending >= 0 && view.contains(studio.pointerX, studio.pointerY) {
         fin source = studio.fusion.nodes[pending].clone()
-        drawNodeLink(app, graphSocket(source, -1, camera, view), NodePoint(studio.pointerX, studio.pointerY), graphColor(fusionType(source.kind)))
+        drawNodeLink(app, graphSocket(source, -1, camera, view), .(studio.pointerX, studio.pointerY), graphColor(fusionType(source.kind)))
     }
     for node in studio.fusion.nodes {
         fin rect = graphRect(node, camera, view)
@@ -101,7 +101,7 @@ func drawFusionGraph(app: App!, studio: Studio!, bounds: ViewRect&) {
                 fin at = graphSocket(node, pin, camera, view)
                 drawNodeSocket(app, at, graphColor(if pin == 2 then 2 else 1), fusionInput(node, pin) > 0, camera.zoom)
                 app.uiTextColored(fusionPinLabel(node.kind, pin), at.x + 10.0 * camera.zoom, at.y - 6.0 * camera.zoom, 11.0 * camera.zoom, style.text.r, style.text.g, style.text.b)
-                pin = pin + 1
+                pin++
             }
             if node.kind == "slab" || node.kind == "texture" {
                 app.uiRoundRect(rect.x + 10.0 * camera.zoom, rect.y + 34.0 * camera.zoom, 16.0 * camera.zoom, 16.0 * camera.zoom,
@@ -175,7 +175,7 @@ func fusionGraphPointer(studio: Studio!, bounds: ViewRect&, input: FrameInput&):
                     return true
                 }
             }
-            pin = pin + 1
+            pin++
         }
         if input.pressed && fusionType(node.kind) > 0 && graphSocket(node, -1, camera, view).near(input.x, input.y, 10.0) {
             studio.fusionPin = node.id
@@ -190,7 +190,7 @@ func fusionGraphPointer(studio: Studio!, bounds: ViewRect&, input: FrameInput&):
             studio.changed()
             return true
         }
-        index = index - 1
+        index--
     }
     if input.rightPressed || input.middlePressed {
         studio.viewDrag = 9
@@ -358,9 +358,7 @@ impl pack MaterialFusionPanel {
 
     func draw(app: App!, studio: Studio!, rect: ViewRect&) { drawFusionGraph(app, studio, rect) }
 
-    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
-        return fusionGraphPointer(studio, rect, input)
-    }
+    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool = fusionGraphPointer(studio, rect, input)
 }
 
 func writeFusionAsset(studio: Studio!, path: String, document: FusionGraph&): Bool {
@@ -444,7 +442,7 @@ func fusionCreate(studio: Studio!, call: Invocation&) {
     var existing = azsProjectRead(studio.editor.project, path)
     while existing != 0 {
         azsBufferClose(existing)
-        index = index + 1
+        index++
         path = "Materials/Material-${index}.azfusion"
         existing = azsProjectRead(studio.editor.project, path)
     }
@@ -470,7 +468,7 @@ func fusionPreview(studio: Studio!, call: Invocation&) {
 func fusionAssign(studio: Studio!, call: Invocation&) {
     if studio.fusionPath == "" then return
     fin selected = studio.selected()
-    if !studio.scene.isAlive(selected) || (!storageHas<Mesh3d>(ensureStorage<Mesh3d>(studio.scene), selected) && !storageHas<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene), selected)) {
+    if !studio.scene.isAlive(selected) || (!storageHas<Mesh3d>(ensureStorage(studio.scene), selected) && !storageHas<HeightfieldTerrain>(ensureStorage(studio.scene), selected)) {
         studio.notify("Select a mesh in the Scene Tree", 1)
         return
     }
@@ -481,7 +479,7 @@ func fusionAssign(studio: Studio!, call: Invocation&) {
     }
     if !saveFusionAsset(studio) then return
     fin before = studio.snapshot(selected)
-    storageInsert<FusionMaterial>(ensureStorage<FusionMaterial>(studio.scene), selected, FusionMaterial(studio.fusionPath))
+    storageInsert<FusionMaterial>(ensureStorage(studio.scene), selected, .(studio.fusionPath))
     studio.record(selected, before, studio.scene.getParent(selected).id, "assign Material Fusion")
     studio.fusionReload = studio.fusionPath
     studio.message("Assigned ${studio.fusionPath}")

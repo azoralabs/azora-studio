@@ -20,7 +20,7 @@ import studio.worldtools
 @Command(title: "Foliage Paint…", menu: "World", group: 0, order: 3)
 func showFoliage(studio: Studio!, call: Invocation&) {
     studio.showPanel = "FoliagePanel"
-    if studio.foliageBrush.mode == 0 then useFoliageBrush(studio,Invocation(arg: 1))
+    if studio.foliageBrush.mode == 0 then useFoliageBrush(studio,.(arg: 1))
 }
 
 @Command
@@ -104,34 +104,30 @@ func foliagePointer(app: App!, studio: Studio!, ray: Ray&, begin: Bool, dragging
     fin distance = sqrt(dx*dx+dz*dz)
     fin spacing = studio.foliageBrush.radius*0.5
     if !begin && distance < spacing then return
-    fin source = storageGet<HeightfieldTerrain>(ensureStorage<HeightfieldTerrain>(studio.scene),hit.landscape)
+    fin source = storageGet<HeightfieldTerrain>(ensureStorage(studio.scene),hit.landscape)
     fin inv = mat4Inverse(heightfieldMatrix(studio.scene,hit.landscape,source))
-    var paint = storageGetOrDefault<FoliagePaint>(ensureStorage<FoliagePaint>(studio.scene),hit.landscape,FoliagePaint())
+    var paint = storageGetOrDefault<FoliagePaint>(ensureStorage(studio.scene),hit.landscape,.())
     paint.enabled = true
     fin grass = studio.foliageBrush.mode == 1 || studio.foliageBrush.mode == 3
     fin erase = studio.foliageBrush.mode >= 3
     fin density = if erase then 0.0 else studio.foliageBrush.strength*(if grass then 4.0 else 0.2)
     fin steps = if begin then 1 else foliageClamp(ceil(distance/spacing) as Double,1.0,16.0) as Int
-    var i = 1
-    while i <= steps {
+    for i: Int in 1..steps {
         fin t = (i as Double)/(steps as Double)
         fin y = last.y+(hit.position.y-last.y)*t
-        fin at = mat4Point(inv,Vec3(last.x+dx*t,y,last.z+dz*t))
+        fin at = mat4Point(inv,.(last.x+dx*t,y,last.z+dz*t))
         fin stamp = FoliageStamp(if grass then grassFoliage else firFoliage,foliageClamp(at.x,-0.5,0.5),
             foliageClamp(at.z,-0.5,0.5),studio.foliageBrush.radius,density,if grass then paint.grassHeight else 12.0)
         paint.strokes += foliageStampText(stamp)
-        i += 1
     }
     studio.foliageBrush.last = hit.position.clone()
-    storageInsert<FoliagePaint>(ensureStorage<FoliagePaint>(studio.scene),hit.landscape,take paint)
+    storageInsert<FoliagePaint>(ensureStorage(studio.scene),hit.landscape,take paint)
     studio.sceneDirty = true
 }
 
 func finishFoliageStroke(studio: Studio!) {
     fin ground = studio.foliageBrush.landscape
-    if studio.scene.isAlive(ground) {
-        studio.record(ground,studio.foliageBrush.before,studio.scene.getParent(ground).id,"paint foliage")
-    }
+    if studio.scene.isAlive(ground) then studio.record(ground,studio.foliageBrush.before,studio.scene.getParent(ground).id,"paint foliage")
     studio.foliageBrush.landscape = Entity::invalid
     studio.foliageBrush.before = ""
 }
@@ -139,6 +135,6 @@ func finishFoliageStroke(studio: Studio!) {
 func drawFoliageBrush(app: App!, studio: Studio&, view: Mat4&, rect: ViewRect&) {
     if studio.foliageBrush.mode == 0 || !studio.foliageBrush.hover then return
     fin tint = if studio.foliageBrush.mode < 3 then studioTheme.green else studioTheme.red
-    app.worldCircle(view,rect,studio.foliageBrush.point,Vec3(1.0,0.0,0.0),Vec3(0.0,0.0,1.0),
+    app.worldCircle(view,rect,studio.foliageBrush.point,.(1.0,0.0,0.0),.(0.0,0.0,1.0),
         studio.foliageBrush.radius,1.6,tint)
 }

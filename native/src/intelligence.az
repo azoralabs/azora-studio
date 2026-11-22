@@ -23,8 +23,7 @@ func declarationWidth(source: Long, offset: Int): Int {
     if a == 108 && b == 101 && c == 116 then width = 3
     if a == 118 && b == 97 && c == 114 then width = 3
     if a == 102 && b == 105 && c == 110 then width = 3
-    if width > 0 && identifierByte(azsBufferByte(source, offset + width)) then return 0
-    return width
+    return if width > 0 && identifierByte(azsBufferByte(source, offset + width)) then 0 else width
 }
 
 func inspectSource(source: Long): Int {
@@ -69,48 +68,46 @@ func inspectSource(source: Long): Int {
             if value == 40 || value == 91 || value == 123 {
                 if depth == 256 {
                     azsDiagnostic(offset, 1, line, column, "structural nesting exceeds 256")
-                    errors = errors + 1
+                    errors++
                 } else { azsBufferSetByte(stack, depth, value)
-        depth = depth + 1 }
+        depth += 1 }
             } else if value == 41 || value == 93 || value == 125 {
                 var expected = value - 2
                 if value == 41 then expected = 40
                 if depth == 0 {
                     azsDiagnostic(offset, 1, line, column, "unexpected closing delimiter")
-                    errors = errors + 1
+                    errors++
                 } else if azsBufferByte(stack, depth - 1) != expected {
                     azsDiagnostic(offset, 1, line, column, "mismatched closing delimiter")
-                    errors = errors + 1
-                    depth = depth - 1
+                    errors++
+                    depth--
                 } else { depth = depth - 1 }
             }
             if identifierByte(value) && !beforeIdentifier {
                 if declaration {
                     var end: Int = offset + 1
-                    while identifierByte(azsBufferByte(source, end)) { end = end + 1 }
+                    while identifierByte(azsBufferByte(source, end)) then end = end + 1
                     azsSymbol(offset, end - offset, line, column)
                     declaration = false
                 } else if declarationWidth(source, offset) > 0 { declaration = true }
             }
             // Computed member declarations and generics are not approximated as
             // semantic definitions. A punctuation boundary abandons this hint.
-            if declaration && value != 32 && value != 9 && !identifierByte(value) {
-                declaration = false
-            }
+            if declaration && value != 32 && value != 9 && !identifierByte(value) then declaration = false
             beforeIdentifier = identifierByte(value)
         }
         if value == 10 { line = line + 1
         column = 1
         beforeIdentifier = false }
         else { column = column + skip }
-        offset = offset + skip
+        offset += skip
     }
     if quote != 0 { azsDiagnostic(size, 0, line, column, "unterminated literal")
-        errors = errors + 1 }
+        errors += 1 }
     if blockDepth > 0 { azsDiagnostic(size, 0, line, column, "unterminated block comment")
-        errors = errors + 1 }
+        errors += 1 }
     if depth > 0 { azsDiagnostic(size, 0, line, column, "unclosed delimiter")
-        errors = errors + 1 }
+        errors += 1 }
     azsBufferClose(stack)
     return errors
 }

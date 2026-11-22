@@ -94,7 +94,7 @@ impl pack Press {
     ): Entity {
         fin id: String = if key == "" then anchor.pass.positionalKey(anchor.parent, "press") else key
         fin node = anchor.pass.row(anchor.parent, id, modifier, if center then .Center else .Start, .Center, spacing)
-        storageInsert<Pressable>(store<Pressable>(anchor.pass), node, Pressable(command, target, arg, text, double))
+        storageInsert<Pressable>(store(anchor.pass), node, .(command, target, arg, text, double))
         using anchor.inside(node) then children()
         return node
     }

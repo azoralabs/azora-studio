@@ -77,7 +77,7 @@ func studioPluginWriteFile(relative: String, text: String): Int {
 
 func lastSlash(text: String): Int {
     var at = stringLength(text) - 1
-    while at >= 0 && charAt(text, at) != '/' { at = at - 1 }
+    while at >= 0 && charAt(text, at) != '/' then at = at - 1
     return at
 }
 

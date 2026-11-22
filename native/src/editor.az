@@ -81,9 +81,7 @@ func panelDocument(panel: String): String = when {
 /** How many edits undo can walk back. */
 inline fin editorHistoryLimit: Int = 256
 
-func editorOf(project: Long, source: Long): Editor {
-    return Editor(project, source, [], [], false)
-}
+func editorOf(project: Long, source: Long): Editor = .(project, source, [], [], false)
 
 func closeBuffers(buffers: Array<Long>!): Unit {
     while buffers.size > 0 then azsBufferClose(buffers.removeLast())
@@ -91,7 +89,7 @@ func closeBuffers(buffers: Array<Long>!): Unit {
 
 /** Moves every buffer of [from], in order, onto the end of [to]. */
 func moveBuffers(from: Array<Long>!, to: Array<Long>!): Unit {
-    for buffer in from { to.add(buffer) }
+    for buffer in from then to.add(buffer)
     while from.size > 0 then from.removeLast()
 }
 

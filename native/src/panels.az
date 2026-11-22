@@ -39,7 +39,7 @@ pack PanelSurface derives Clone {
 impl pack Surface {
     react ctor (anchor: Anchor!).(panel: String, color: Rgba, key: String = "surface"): Entity {
         fin node = Shape(modifier: ::fillMaxWidth().weight(1.0).fill(color), :key)
-        storageInsert<PanelSurface>(store<PanelSurface>(anchor.pass), node, PanelSurface(panel))
+        storageInsert<PanelSurface>(store(anchor.pass), node, .(panel))
         return node
     }
 }
@@ -70,36 +70,36 @@ func fieldLabel(name: String): String {
         } else {
             label = "${label}${substring(name, index, index + 1)}"
         }
-        index = index + 1
+        index++
     }
     return label
 }
 
 /** The icon a scene-tree row shows for [entity]: its most telling component's. */
 func entityIcon(studio: Studio&, entity: Entity): String {
-    if storageHas<PluginObject>(storageOf<PluginObject>(studio.scene), entity) {
-        fin object = storageGet<PluginObject>(storageOf<PluginObject>(studio.scene), entity).clone()
+    if storageHas<PluginObject>(storageOf(studio.scene), entity) {
+        fin object = storageGet<PluginObject>(storageOf(studio.scene), entity).clone()
         for kind in studio.pluginKinds {
             if kind.plugin == object.plugin && kind.kind == object.kind then return kind.icon
         }
         return "puzzle"
     }
     return when {
-        storageHas<Camera3d>(storageOf<Camera3d>(studio.scene), entity) -> "video"
-        storageHas<Light3d>(storageOf<Light3d>(studio.scene), entity) -> "sun"
-        storageHas<HeightfieldTerrain>(storageOf<HeightfieldTerrain>(studio.scene), entity) -> "mountain"
-        storageHas<Mesh3d>(storageOf<Mesh3d>(studio.scene), entity) -> "box"
-        storageHas<Sprite>(storageOf<Sprite>(studio.scene), entity) -> "image"
+        storageHas<Camera3d>(storageOf(studio.scene), entity) -> "video"
+        storageHas<Light3d>(storageOf(studio.scene), entity) -> "sun"
+        storageHas<HeightfieldTerrain>(storageOf(studio.scene), entity) -> "mountain"
+        storageHas<Mesh3d>(storageOf(studio.scene), entity) -> "box"
+        storageHas<Sprite>(storageOf(studio.scene), entity) -> "image"
         else -> "circle-dashed"
     }
 }
 
 func entityTint(studio: Studio&, entity: Entity): Rgba {
-    if storageHas<Camera3d>(storageOf<Camera3d>(studio.scene), entity) then return studioTheme.teal
-    if storageHas<Light3d>(storageOf<Light3d>(studio.scene), entity) then return studioTheme.yellow
-    if storageHas<Mesh3d>(storageOf<Mesh3d>(studio.scene), entity) {
-        if storageHas<StandardMaterial>(storageOf<StandardMaterial>(studio.scene), entity) {
-            return storageGet<StandardMaterial>(storageOf<StandardMaterial>(studio.scene), entity).color
+    if storageHas<Camera3d>(storageOf(studio.scene), entity) then return studioTheme.teal
+    if storageHas<Light3d>(storageOf(studio.scene), entity) then return studioTheme.yellow
+    if storageHas<Mesh3d>(storageOf(studio.scene), entity) {
+        if storageHas<StandardMaterial>(storageOf(studio.scene), entity) {
+            return storageGet<StandardMaterial>(storageOf(studio.scene), entity).color
         }
         return studioTheme.blue
     }
@@ -107,32 +107,26 @@ func entityTint(studio: Studio&, entity: Entity): Rgba {
 }
 
 func entityName(studio: Studio&, entity: Entity): String {
-    if storageHas<Name>(storageOf<Name>(studio.scene), entity) {
-        return storageGet<Name>(storageOf<Name>(studio.scene), entity).value
-    }
+    if storageHas<Name>(storageOf(studio.scene), entity) then return storageGet<Name>(storageOf(studio.scene), entity).value
     return "Entity ${entity.id}"
 }
 
-func isSelected(studio: Studio&, entity: Entity): Bool {
-    return storageHas<Selected>(storageOf<Selected>(studio.scene), entity)
-}
+func isSelected(studio: Studio&, entity: Entity): Bool = storageHas<Selected>(storageOf(studio.scene), entity)
 
 func selectedEntity(studio: Studio&): Entity {
     var index = 0
-    while index < storageLength<Selected>(storageOf<Selected>(studio.scene)) {
-        fin entity = storageEntityAt<Selected>(storageOf<Selected>(studio.scene), index)
+    while index < storageLength<Selected>(storageOf(studio.scene)) {
+        fin entity = storageEntityAt<Selected>(storageOf(studio.scene), index)
         if studio.scene.isAlive(entity) then return entity
-        index = index + 1
+        index++
     }
-    return Entity::invalid
+    return ::invalid
 }
 
 /** Whether [entity] has a live child. */
 func hasChildren(studio: Studio&, entity: Entity): Bool {
-    var id = 0
-    while id < studio.scene.entityCount {
+    for id: Int in 0..<studio.scene.entityCount {
         if studio.scene.alive[id] && studio.scene.parents[id] == entity.id then return true
-        id = id + 1
     }
     return false
 }
@@ -143,24 +137,24 @@ func hasChildren(studio: Studio&, entity: Entity): Bool {
 react func (anchor: Anchor!).treeRows(studio: Studio&, app: App&, entity: Entity, depth: Int) {
     fin selected = isSelected(studio, entity)
     fin children = hasChildren(studio, entity)
-    fin open = storageHas<Expanded>(storageOf<Expanded>(studio.scene), entity)
-    fin visible = !storageHas<Visibility>(storageOf<Visibility>(studio.scene), entity) ||
-        storageGet<Visibility>(storageOf<Visibility>(studio.scene), entity).visible
+    fin open = storageHas<Expanded>(storageOf(studio.scene), entity)
+    fin visible = !storageHas<Visibility>(storageOf(studio.scene), entity) ||
+        storageGet<Visibility>(storageOf(studio.scene), entity).visible
     fin base = Modifier::fillMaxWidth().height(studioTheme.rowHeight).rounded(5.0).padding(start: 4.0 + (depth as Double) * 14.0, end: 6.0)
-    Press("sceneSelect", modifier: if selected { base.selected() } else { base.ghost() }, target: entity.id, spacing: 4.0, key: "row-${entity.id}") {
+    Press("sceneSelect", modifier: if selected then base.selected() else base.ghost(), target: entity.id, spacing: 4.0, key: "row-${entity.id}") {
         if children {
             Press("sceneToggleExpand", modifier: ::size(16.0, 16.0).rounded(4.0).ghost(), target: entity.id, center: true, key: "chevron") {
-                Icon(if open { "chevron-down" } else { "chevron-right" }, studioTheme.muted, size: studioTheme.iconSmall, key: "mark")
+                Icon(if open then "chevron-down" else "chevron-right", studioTheme.muted, size: studioTheme.iconSmall, key: "mark")
             }
         } else {
             Gap(16.0, key: "chevron")
         }
         Icon(entityIcon(studio, entity), entityTint(studio, entity), size: studioTheme.iconSize, key: "glyph")
         Row(modifier: ::weight(1.0).fillMaxHeight().clip(), key: "name-slot") {
-            Text(entityName(studio, entity), modifier: ::fillMaxSize().fontSize(12.0).ink(if visible { studioTheme.text } else { studioTheme.faint }).textAlign(.Start), key: "name")
+            Text(entityName(studio, entity), modifier: ::fillMaxSize().fontSize(12.0).ink(if visible then studioTheme.text else studioTheme.faint).textAlign(.Start), key: "name")
         }
         Press("sceneToggleVisible", modifier: ::size(20.0, 20.0).rounded(4.0).ghost(), target: entity.id, center: true, key: "eye") {
-            Icon(if visible { "eye" } else { "eye-off" }, if visible { studioTheme.muted } else { studioTheme.faint }, size: studioTheme.iconSmall, key: "mark")
+            Icon(if visible then "eye" else "eye-off", if visible then studioTheme.muted else { studioTheme.faint }, size: studioTheme.iconSmall, key: "mark")
         }
     }
     if children && open {
@@ -169,7 +163,7 @@ react func (anchor: Anchor!).treeRows(studio: Studio&, app: App&, entity: Entity
             if studio.scene.alive[id] && studio.scene.parents[id] == entity.id {
                 anchor.treeRows(studio, app, studio.scene.entityAt(id), depth + 1)
             }
-            id = id + 1
+            id++
         }
     }
 }
@@ -193,7 +187,7 @@ impl pack SceneTreePanel {
                     if studio.scene.alive[id] && !studio.scene.resourceMarks[id] && studio.scene.parents[id] < 0 {
                         treeRows(studio, app, studio.scene.entityAt(id), 0)
                     }
-                    id = id + 1
+                    id++
                 }
             }
         }
@@ -205,7 +199,7 @@ impl pack SceneTreePanel {
 /** A labelled single-value row: caption on the left, editor on the right. */
 impl pack FieldLine {
     react ctor (anchor: Anchor!).(label: String, key: String = "", children: inline react Anchor!.() -> Unit): Entity {
-        fin node = anchor.pass.row(anchor.parent, if key == "" { anchor.pass.positionalKey(anchor.parent, "line") } else { key },
+        fin node = anchor.pass.row(anchor.parent, if key == "" then anchor.pass.positionalKey(anchor.parent, "line") else key,
             Modifier::fillMaxWidth().height(26.0), .Start, .Center, 6.0)
         using anchor.inside(node) {
             Text(label, modifier: ::width(96.0).fontSize(11.5).mutedText().textAlign(.Start), key: "caption")
@@ -219,16 +213,16 @@ impl pack FieldLine {
 react func (anchor: Anchor!).componentCards(studio: Studio&, app: App&, entity: Entity) {
     inline for C in reflect<*>.withAnnot<Inspectable> {
         inline if reflect<C>.annotMeta<Inspectable>.visible {
-            if storageHas<C>(storageOf<C>(studio.scene), entity) {
-                fin value = storageGet<C>(storageOf<C>(studio.scene), entity).clone()
+            if storageHas<C>(storageOf(studio.scene), entity) {
+                fin value = storageGet<C>(storageOf(studio.scene), entity).clone()
                 fin name = reflect<C>.declName
                 fin declared = reflect<C>.annotMeta<Inspectable>.title
-                fin title = if stringLength(declared) > 0 { declared } else { name }
+                fin title = if stringLength(declared) > 0 then declared else name
                 fin open = !studio.collapsed.contains(name)
-                Column(modifier: ::fillMaxWidth().fill(studioTheme.raised.withAlpha(0.55)).rounded(7.0).padding(start: 8.0, end: 8.0, bottom: if open { 8.0 } else { 0.0 }),
+                Column(modifier: ::fillMaxWidth().fill(studioTheme.raised.withAlpha(0.55)).rounded(7.0).padding(start: 8.0, end: 8.0, bottom: if open then 8.0 else 0.0),
                     spacing: 2.0, key: "card-${name}") {
                     Press("componentToggle", modifier: ::fillMaxWidth().height(30.0), text: name, spacing: 6.0, key: "head") {
-                        Icon(if open { "chevron-down" } else { "chevron-right" }, studioTheme.muted, size: studioTheme.iconSmall, key: "chevron")
+                        Icon(if open then "chevron-down" else "chevron-right", studioTheme.muted, size: studioTheme.iconSmall, key: "chevron")
                         Icon(reflect<C>.annotMeta<Inspectable>.icon, studioTheme.accent, size: studioTheme.iconSize, key: "icon")
                         Label(title, app, studioTheme.text, bold: true, key: "title")
                         Spacer(key: "fill")
@@ -355,7 +349,7 @@ impl pack AssetsPanel {
         return Column(modifier: ::fillMaxSize(), key: "assets") {
             PanelBar {
                 Press("assetsOpen", modifier: ::height(24.0).rounded(5.0).ghost().padding(start: 6.0, end: 6.0), text: "", key: "home") {
-                    Label(studio.projectName(), app, if studio.assetsPath == "" { studioTheme.text } else { studioTheme.muted }, bold: studio.assetsPath == "", key: "name")
+                    Label(studio.projectName(), app, if studio.assetsPath == "" then studioTheme.text else studioTheme.muted, bold: studio.assetsPath == "", key: "name")
                 }
                 var start = 0
                 var index = 0
@@ -367,11 +361,11 @@ impl pack AssetsPanel {
                         fin last = index == length
                         Text("/", modifier: ::width(10.0).fontSize(12.0).faintText(), key: "sep-${index}")
                         Press("assetsOpen", modifier: ::height(24.0).rounded(5.0).ghost().padding(start: 6.0, end: 6.0), text: substring(path, 0, index), key: "crumb-${index}") {
-                            Label(segment, app, if last { studioTheme.text } else { studioTheme.muted }, bold: last, key: "name")
+                            Label(segment, app, if last then studioTheme.text else studioTheme.muted, bold: last, key: "name")
                         }
                         start = index + 1
                     }
-                    index = index + 1
+                    index++
                 }
                 Spacer(key: "fill")
                 BarButton("fusionCreate", app, icon: "plus", label: "Material", key: "new-material")
@@ -386,16 +380,16 @@ impl pack AssetsPanel {
                     fin entry = studio.assets[index]
                     fin folder = charAt(entry, 0) == 'd'
                     fin name = substring(entry, 2, stringLength(entry))
-                    fin target = if studio.assetsPath == "" { name } else { "${studio.assetsPath}/${name}" }
+                    fin target = if studio.assetsPath == "" then name else { "${studio.assetsPath}/${name}" }
                     fin kind = studio.fileKind(name, folder)
-                    Press(if folder { "assetsOpen" } else { "assetsSelect" }, modifier: ::size(84.0, 82.0).rounded(7.0).ghost(), text: target,
-                        double: if folder { "" } else { "assetsEdit" }, key: "tile-${name}") {
+                    Press(if folder then "assetsOpen" else "assetsSelect", modifier: ::size(84.0, 82.0).rounded(7.0).ghost(), text: target,
+                        double: if folder then "" else "assetsEdit", key: "tile-${name}") {
                         Column(modifier: ::fillMaxSize().padding(top: 8.0), horizontalAlignment: .Center, spacing: 6.0, key: "stack") {
                             Icon(kind.icon, themeColor(kind.color, studioTheme.muted), size: studioTheme.iconLarge, key: "icon")
                             Text(name, modifier: ::fillMaxWidth().height(18.0).padding(start: 4.0, end: 4.0).fontSize(11.5).bodyText(), key: "name")
                         }
                     }
-                    index = index + 1
+                    index++
                 }
             }
         }
@@ -418,22 +412,20 @@ impl pack ProblemsPanel {
         fin count = studio.problems.size
         return Column(modifier: ::fillMaxSize(), key: "problems") {
             PanelBar {
-                Label(if !studio.inspected { "Not checked yet" } else if count == 0 { "No problems in src/main.az" } else if studio.problemsStale { "Edited since the last check · ⌘S re-checks" } else { "Click a problem to open it" },
+                Label(if !studio.inspected then "Not checked yet" else if count == 0 then "No problems in src/main.az" else if studio.problemsStale then "Edited since the last check · ⌘S re-checks" else "Click a problem to open it",
                     app, studioTheme.muted, key: "summary")
                 Spacer(key: "fill")
                 BarButton("toolInspect", app, icon: "refresh-cw", label: "Check", key: "check")
             }
             ScrollColumn(modifier: ::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0, bottom: 6.0), spacing: 1.0, key: "rows") {
-                var index = 0
-                while index < count {
-                    fin problem = studio.problems[index].clone()
-                    Press("problemOpen", modifier: ::fillMaxWidth().height(24.0).rounded(5.0).ghost().padding(start: 8.0, end: 8.0), arg: index, spacing: 8.0, key: "problem-${index}") {
+                for i: Int in 0..<count {
+                    fin problem = studio.problems[i].clone()
+                    Press("problemOpen", modifier: ::fillMaxWidth().height(24.0).rounded(5.0).ghost().padding(start: 8.0, end: 8.0), arg: i, spacing: 8.0, key: "problem-${i}") {
                         Shape(modifier: ::size(8.0, 8.0).rounded(4.0).fill(severityColor(problem.severity)), key: "dot")
                         Label("${problem.line + 1}:${problem.startByte + 1}", app, studioTheme.muted, mono: true, size: 11.5, key: "where")
                         Label(problem.code, app, studioTheme.faint, mono: true, size: 11.0, key: "code")
-                        Text(problem.message, modifier: ::weight(1.0).fontSize(12.0).ink(if studio.problemsStale { studioTheme.muted } else { studioTheme.text }).textAlign(.Start), key: "message")
+                        Text(problem.message, modifier: ::weight(1.0).fontSize(12.0).ink(if studio.problemsStale then studioTheme.muted else studioTheme.text).textAlign(.Start), key: "message")
                     }
-                    index = index + 1
                 }
             }
         }
@@ -508,7 +500,7 @@ impl pack PluginsPanel {
                 while index < studio.plugins.size {
                     fin plugin = studio.plugins[index].clone()
                     if plugin.builtIn {
-                        index += 1
+                        index++
                         continue
                     }
                     Column(modifier: ::fillMaxWidth().rounded(6.0).fill(studioTheme.raised).padding(all: 6.0),
@@ -540,7 +532,7 @@ impl pack PluginsPanel {
                             }
                         }
                     }
-                    index = index + 1
+                    index++
                 }
             }
         }
@@ -562,7 +554,7 @@ react func (anchor: Anchor!).pluginFields(studio: Studio&, app: App&, plugin: St
                 }
             }
         }
-        index = index + 1
+        index++
     }
 }
 
@@ -592,31 +584,27 @@ react func (anchor: Anchor!).pluginPanel(studio: Studio&, app: App&, plugin: Str
                     Label("New ${item.label}", app, studioTheme.text, key: "label")
                 }
             }
-            index = index + 1
+            index++
         }
-        if !studio.pluginHasComponents(plugin) {
-            pluginEditing(studio, app, plugin)
-        }
+        if !studio.pluginHasComponents(plugin) then pluginEditing(studio, app, plugin)
     }
 }
 
 /** Editable tools on the selected entity's contributed component. */
 react func (anchor: Anchor!).pluginComponent(studio: Studio&, app: App&, entity: Entity) {
-    if !storageHas<PluginObject>(storageOf<PluginObject>(studio.scene), entity) then return
-    fin object = storageGet<PluginObject>(storageOf<PluginObject>(studio.scene), entity).clone()
+    if !storageHas<PluginObject>(storageOf(studio.scene), entity) then return
+    fin object = storageGet<PluginObject>(storageOf(studio.scene), entity).clone()
     for kind in studio.pluginKinds {
         if kind.plugin == object.plugin && kind.kind == object.kind && kind.component != "" {
             fin key = "plugin-component-${kind.plugin}:${kind.kind}"
             fin open = !studio.collapsed.contains(key)
             Column(modifier: ::fillMaxWidth().fill(studioTheme.raised.withAlpha(0.55)).rounded(7.0).padding(all: 8.0), spacing: 4.0, :key) {
                 Press("componentToggle", modifier: ::fillMaxWidth().height(26.0).ghost(), text: key, spacing: 6.0, key: "head") {
-                    Icon(if open { "chevron-down" } else { "chevron-right" }, studioTheme.muted, size: studioTheme.iconSmall, key: "arrow")
+                    Icon(if open then "chevron-down" else "chevron-right", studioTheme.muted, size: studioTheme.iconSmall, key: "arrow")
                     Icon(kind.icon, studioTheme.accent, size: studioTheme.iconSmall, key: "icon")
                     Label(kind.component, app, studioTheme.text, bold: true, key: "label")
                 }
-                if open {
-                    pluginEditing(studio, app, object.plugin)
-                }
+                if open then pluginEditing(studio, app, object.plugin)
             }
         }
     }
@@ -633,13 +621,13 @@ react func (anchor: Anchor!).pluginEditing(studio: Studio&, app: App&, plugin: S
             if item.plugin == plugin {
                 fin active = studio.pluginTool == item.id && studio.pluginToolOwner == plugin
                 fin base = Modifier::fillMaxWidth().height(26.0).rounded(6.0).padding(start: 8.0, end: 8.0).clip()
-                Press("pluginUseTool", modifier: if active { base.selected() } else { base.ghost() },
+                Press("pluginUseTool", modifier: if active then base.selected() else base.ghost(),
                     arg: index, spacing: 8.0, key: "tool-${item.id}") {
                     Icon(item.icon, if active then studioTheme.accent else studioTheme.muted, size: studioTheme.iconSize, key: "icon")
                     Label(item.label, app, if active then studioTheme.text else studioTheme.muted, key: "label")
                 }
             }
-            index = index + 1
+            index++
         }
         for section in sections {
             if section != "Create" {

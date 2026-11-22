@@ -37,7 +37,7 @@ import engine.landscape
 // which this executable exports by name (build-window.sh `--export`). The SDK
 // a plugin compiles against declares them: resources/sdk/sdk.az.
 
-fin pluginAbi: Int = 2
+inline fin pluginAbi: Int = 2
 
 func supportedPluginAbi(abi: Int): Bool = abi >= 1 && abi <= pluginAbi
 
@@ -46,10 +46,8 @@ func supportedPluginAbi(abi: Int): Bool = abi >= 1 && abi <= pluginAbi
 // ── Manifests ───────────────────────────────────────────────────────────
 
 func memberAt(fields: List<SerialField>&, name: String): Int {
-    var index = 0
-    while index < fields.size {
-        if fields[index].name == name then return index
-        index = index + 1
+    for i: Int in 0..<fields.size {
+        if fields[i].name == name then return i
     }
     return -1
 }
@@ -76,7 +74,7 @@ func packageId(id: String): Bool {
     while index < stringLength(id) {
         fin c = charAt(id, index)
         if !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9') && c != '.' && c != '-' && c != '_' then return false
-        index = index + 1
+        index++
     }
     return true
 }
@@ -87,7 +85,7 @@ func readManifest(text: String, folder: String): Plugin {
     plugin.folder = folder
     fin root = decodeSerialValue(text, serializerOptions()) catch SerialValue.Null
     when root {
-        SerialValue.Object(fields) -> {
+        .Object(fields) -> {
             if memberText(fields, "format", "") != "azora-studio-plugin" then return plugin
             plugin.id = memberText(fields, "id", "")
             if !packageId(plugin.id) then plugin.id = ""
@@ -101,7 +99,7 @@ func readManifest(text: String, folder: String): Plugin {
             fin tintAt = memberAt(fields, "tint")
             if tintAt >= 0 {
                 when fields[tintAt].value {
-                    SerialValue.Object(rgb) -> plugin.tint = .(memberReal(rgb, "r", 0.62), memberReal(rgb, "g", 0.66), memberReal(rgb, "b", 0.6), 1.0)
+                    .Object(rgb) -> plugin.tint = .(memberReal(rgb, "r", 0.62), memberReal(rgb, "g", 0.66), memberReal(rgb, "b", 0.6), 1.0)
                     else -> { }
                 }
             }
@@ -115,18 +113,16 @@ func readManifest(text: String, folder: String): Plugin {
 func listedObjects(text: String, name: String, visit: inline (List<SerialField>&) -> Unit) {
     fin root = decodeSerialValue(text, serializerOptions()) catch SerialValue.Null
     when root {
-        SerialValue.Object(fields) -> {
+        .Object(fields) -> {
             fin at = memberAt(fields, name)
             if at < 0 then return
             when fields[at].value {
-                SerialValue.Array(items) -> {
-                    var index = 0
-                    while index < items.size {
-                        when items[index] {
-                            SerialValue.Object(entry) -> visit(entry)
+                .Array(items) -> {
+                    for i: Int in 0..<items.size {
+                        when items[i] {
+                            .Object(entry) -> visit(entry)
                             else -> { }
                         }
-                        index = index + 1
                     }
                 }
                 else -> { }
@@ -139,19 +135,15 @@ func listedObjects(text: String, name: String, visit: inline (List<SerialField>&
 impl Studio {
     /** The index of the plugin installed in [folder], or -1. */
     func &.pluginAt(folder: String): Int {
-        var index = 0
-        while index < self.plugins.size {
-            if self.plugins[index].folder == folder then return index
-            index = index + 1
+        for i: Int in 0..<self.plugins.size {
+            if self.plugins[i].folder == folder then return i
         }
         return -1
     }
 
     func &.pluginById(id: String): Int {
-        var index = 0
-        while index < self.plugins.size {
-            if self.plugins[index].id == id then return index
-            index = index + 1
+        for i: Int in 0..<self.plugins.size {
+            if self.plugins[i].id == id then return i
         }
         return -1
     }
@@ -205,7 +197,7 @@ impl Studio {
                 releasePluginMesh(self.pluginMeshes[index])
                 self.pluginMeshes.removeAt(index)
             } else {
-                index = index + 1
+                index++
             }
         }
         if self.pluginToolOwner == id {
@@ -274,7 +266,7 @@ impl Studio {
                             self.plugins[at].stamp = stamp
                             self.plugins[at].message = "The package ID changed. Reinstall it to use the new ID."
                             self.changed()
-                            index = index + 1
+                            index++
                             continue
                         }
                         updated.library = self.plugins[at].library
@@ -289,7 +281,7 @@ impl Studio {
                     else -> { }
                 }
             }
-            index = index + 1
+            index++
         }
         // A folder that went away takes its plugin with it.
         var at = 0
@@ -300,7 +292,7 @@ impl Studio {
                 self.plugins.removeAt(at)
                 self.changed()
             } else {
-                at = at + 1
+                at++
             }
         }
         self.pluginScanned = true
@@ -370,7 +362,7 @@ impl Studio {
     func !.advancePluginBuild(app: App!) {
         if self.pluginBuilding == "" {
             var index = 0
-            while index < self.plugins.size && self.plugins[index].state != 0 { index = index + 1 }
+            while index < self.plugins.size && self.plugins[index].state != 0 then index = index + 1
             if index < self.plugins.size then self.startPluginCompile(index)
             return
         }
@@ -412,7 +404,7 @@ impl Studio {
             self.changed()
             return
         }
-        self.plugins[index].builds = self.plugins[index].builds + 1
+        self.plugins[index].builds++
         fin folder = self.pluginFolder(index)
         fin staged = "${folder}/build/staged-${self.plugins[index].builds}"
         makeFolders(staged)
@@ -521,7 +513,7 @@ impl Studio {
             status = entry(request)
         }
         fin id = self.plugins[index].id
-        for mesh in pluginMeshSubmissions { self.takeMesh(app, id, mesh) }
+        for mesh in pluginMeshSubmissions then self.takeMesh(app, id, mesh)
         pluginMeshSubmissions.clear()
         fin reply = currentPluginReply()
         if self.tracing && !startsWith(request, "{\"op\": \"tool\"") && !startsWith(request, "{\"op\": \"pick\"") {
@@ -537,7 +529,7 @@ impl Studio {
         var index = 0
         while index < self.pluginMeshes.size && !(self.pluginMeshes[index].plugin == plugin &&
               self.pluginMeshes[index].object == update.object && self.pluginMeshes[index].key == update.key) {
-            index += 1
+            index++
         }
         fin size = (update.count as Long) * 24
         fin buffer = if update.bytes == 0 then 0 else send3(app.gpu.device, sel("newBufferWithBytes:length:options:"), update.bytes,size,0)
@@ -548,7 +540,7 @@ impl Studio {
                 self.pluginMeshes.removeAt(index)
             }
             if buffer != 0 {
-                var item = PluginMesh(plugin, update.key, update.object, update.x, update.y, update.z, update.radius)
+                var item: PluginMesh = .(plugin, update.key, update.object, update.x, update.y, update.z, update.radius)
                 item.levels.add(PluginMeshLevel(buffer,update.count,0.0))
                 self.pluginMeshes.add(take item)
             }
@@ -566,7 +558,7 @@ impl Studio {
         if reply == "" then return
         fin root = decodeSerialValue(reply, serializerOptions()) catch SerialValue.Null
         when root {
-            SerialValue.Object(fields) -> {
+            .Object(fields) -> {
                 fin message = memberText(fields, "message", "")
                 if message != "" then self.notify(message, 0)
                 fin failure = memberText(fields, "error", "")
@@ -574,14 +566,12 @@ impl Studio {
                     self.notify(failure, 3)
                     self.output("${plugin}: ${failure}")
                 }
-                if memberAt(fields, "objects") >= 0 {
-                    self.syncPluginObjects(plugin, reply, memberInt(fields, "selected", 0))
-                }
+                if memberAt(fields, "objects") >= 0 then self.syncPluginObjects(plugin, reply, memberInt(fields, "selected", 0))
                 fin hitAt = memberAt(fields, "hit")
                 if hitAt >= 0 {
                     var hit: PluginHit = .()
                     when fields[hitAt].value {
-                        SerialValue.Object(at) -> {
+                        .Object(at) -> {
                             hit.valid = true
                             hit.x = memberReal(at, "x", 0.0)
                             hit.y = memberReal(at, "y", 0.0)
@@ -611,9 +601,9 @@ impl Studio {
         while index < storageLength<PluginObject>(objects) {
             fin entity = storageEntityAt<PluginObject>(objects, index)
             if self.scene.isAlive(entity) && objects.values[index].plugin == plugin && objects.values[index].id == object then return entity
-            index = index + 1
+            index++
         }
-        return Entity::invalid
+        return ::invalid
     }
 
     /** Reconciles the plugin's object list with the scene, preserving entity edits on reload. */
@@ -626,11 +616,11 @@ impl Studio {
                 var entity = self.pluginEntity(plugin, id)
                 if !self.scene.isAlive(entity) {
                     entity = self.scene.spawn()
-                    storageInsert<Name>(ensureStorage<Name>(self.scene), entity, Name(memberText(fields, "name", "Object ${id}")))
-                    storageInsert<Transform>(ensureStorage<Transform>(self.scene), entity, Transform())
-                    storageInsert<PluginObject>(ensureStorage<PluginObject>(self.scene), entity, PluginObject(plugin, id, memberText(fields, "kind", "")))
+                    storageInsert<Name>(ensureStorage(self.scene), entity, .(memberText(fields, "name", "Object ${id}")))
+                    storageInsert<Transform>(ensureStorage(self.scene), entity, .())
+                    storageInsert<PluginObject>(ensureStorage(self.scene), entity, .(plugin, id, memberText(fields, "kind", "")))
                     if plugin == "azora.flex-landscape" {
-                        storageInsert<LandscapeCollision>(ensureStorage<LandscapeCollision>(self.scene),entity,LandscapeCollision())
+                        storageInsert<LandscapeCollision>(ensureStorage(self.scene),entity,.())
                     }
                     fin kind = memberText(fields, "kind", "")
                     for contribution in self.pluginComponents {
@@ -644,14 +634,14 @@ impl Studio {
             }
         }
         var index = 0
-        while index < storageLength<PluginObject>(ensureStorage<PluginObject>(self.scene)) {
-            fin entity = storageEntityAt<PluginObject>(ensureStorage<PluginObject>(self.scene), index)
-            fin object = storageValueAt<PluginObject>(ensureStorage<PluginObject>(self.scene), index).clone()
+        while index < storageLength<PluginObject>(ensureStorage(self.scene)) {
+            fin entity = storageEntityAt<PluginObject>(ensureStorage(self.scene), index)
+            fin object = storageValueAt<PluginObject>(ensureStorage(self.scene), index).clone()
             if object.plugin == plugin && !ids.contains(object.id) {
                 self.scene.despawn(entity)
                 self.sceneDirty = true
             } else {
-                index = index + 1
+                index++
             }
         }
         self.changed()
@@ -665,10 +655,8 @@ impl Studio {
     }
 
     func &.pluginParam(plugin: String, param: String): Int {
-        var index = 0
-        while index < self.pluginParams.size {
-            if self.pluginParams[index].plugin == plugin && self.pluginParams[index].id == param then return index
-            index = index + 1
+        for i: Int in 0..<self.pluginParams.size {
+            if self.pluginParams[i].plugin == plugin && self.pluginParams[i].id == param then return i
         }
         return -1
     }
@@ -703,7 +691,7 @@ impl Studio {
                 fin entry = "${azonText(self.pluginParams[index].id)}: ${formatDecimal(self.pluginParams[index].value, 4)}"
                 members = if members == "" then entry else "${members}, ${entry}"
             }
-            index = index + 1
+            index++
         }
         return "{${members}}"
     }
@@ -728,7 +716,7 @@ impl Studio {
             self.pluginHit.nx = model.m00 * p.nx + model.m01 * p.ny + model.m02 * p.nz
             self.pluginHit.ny = model.m10 * p.nx + model.m11 * p.ny + model.m12 * p.nz
             self.pluginHit.nz = model.m20 * p.nx + model.m21 * p.ny + model.m22 * p.nz
-            self.pluginHit.radius = p.radius * v3length(Vec3(model.m00, model.m10, model.m20))
+            self.pluginHit.radius = p.radius * v3length(.(model.m00, model.m10, model.m20))
         }
     }
 }
@@ -760,7 +748,7 @@ impl Studio {
             var index = 0
             while index < self.plugins.size {
                 if pluginReady(self.plugins[index]) then self.callPlugin(app, index, "{\"op\": \"save\"}")
-                index = index + 1
+                index++
             }
         }
     }
@@ -792,7 +780,7 @@ impl App {
         var cachedPlugin = ""
         var cachedObject = -1
         var model = mat4Identity()
-        var tint = Rgba(0.62, 0.66, 0.6, 1.0)
+        var tint: Rgba = .(0.62, 0.66, 0.6, 1.0)
         var visibleObject = true
         var scale: Double = 1.0
         var triangles = 0
@@ -807,8 +795,8 @@ impl App {
                 if visibleObject {
                     model = if item.object == 0 then mat4Identity() else worldMatrix(studio.scene, entity)
                     tint = if owner < 0 then Rgba(0.62, 0.66, 0.6, 1.0) else studio.plugins[owner].tint.clone()
-                    scale = photonMax(v3length(Vec3(model.m00,model.m10,model.m20)),
-                        photonMax(v3length(Vec3(model.m01,model.m11,model.m21)),v3length(Vec3(model.m02,model.m12,model.m22))))
+                    scale = photonMax(v3length(.(model.m00,model.m10,model.m20)),
+                        photonMax(v3length(.(model.m01,model.m11,model.m21)),v3length(.(model.m02,model.m12,model.m22))))
                 }
             }
             if visibleObject {
@@ -817,7 +805,7 @@ impl App {
                 if item.radius > 0.0 && studio.mode3d {
                     fin radius = item.radius * scale
                     fin delta = v3sub(Vec3(model.m00*item.x+model.m01*item.y+model.m02*item.z+model.m03,
-                        model.m10*item.x+model.m11*item.y+model.m12*item.z+model.m13,
+                        model.m10*item.x+model.m11*item.y+model.m12*item.z+model.m13
                         model.m20*item.x+model.m21*item.y+model.m22*item.z+model.m23),eye)
                     fin depth = v3dot(delta,forward)
                     visible = depth+radius >= studio.camera.near && depth-radius <= studio.camera.far &&
@@ -826,16 +814,16 @@ impl App {
                     fin nearest = photonMax(depth-radius,0.001)
                     while detail+1 < item.levels.size &&
                         item.levels[detail+1].maxDeviation*scale*pixels <= 3.0*nearest*lens {
-                        detail += 1
+                        detail++
                     }
                 }
                 if visible {
                     fin level = item.levels[detail].&
-                    self.drawMesh(Mesh(level.buffer,level.count),model,tint.r,tint.g,tint.b)
+                    self.drawMesh(.(level.buffer,level.count),model,tint.r,tint.g,tint.b)
                     triangles += level.count/3
                 }
             }
-            index += 1
+            index++
         }
         studio.pluginTriangles = triangles
     }
@@ -846,21 +834,19 @@ impl App {
         fin hit = studio.pluginHit
         if hit.radius <= 0.0 then return
         fin radius = hit.radius
-        fin centre = Vec3(hit.x, hit.y, hit.z)
-        fin normal = v3unit(Vec3(hit.nx, hit.ny, hit.nz))
+        fin centre: Vec3 = .(hit.x, hit.y, hit.z)
+        fin normal = v3unit(.(hit.nx, hit.ny, hit.nz))
         // Two directions across the surface at the hit.
         fin helper = if normal.y < 0.9 && normal.y > -0.9 then Vec3(0.0, 1.0, 0.0) else Vec3(1.0, 0.0, 0.0)
         fin across = v3unit(v3cross(normal, helper))
         fin along = v3cross(normal, across)
         fin segments = 48
-        var step = 0
-        while step < segments {
+        for step: Int in 0..<segments {
             fin a = 6.283185307179586 * (step as Double) / (segments as Double)
             fin b = 6.283185307179586 * ((step + 1) as Double) / (segments as Double)
             fin p = v3add(centre, v3add(v3scale(across, cos(a) * radius), v3scale(along, sin(a) * radius)))
             fin q = v3add(centre, v3add(v3scale(across, cos(b) * radius), v3scale(along, sin(b) * radius)))
             self.worldLine(viewProj, rect, p, q, 2.0, color)
-            step = step + 1
         }
         self.worldLine(viewProj, rect, centre, v3add(centre, v3scale(normal, radius * 0.5)), 1.5, color)
     }
@@ -881,9 +867,7 @@ func pluginInstall(studio: Studio!, call: Invocation&) {
     send1(panel, sel("setPrompt:"), nsString("Install"))
     send1(panel, sel("setCanChooseDirectories:"), 1)
     send1(panel, sel("setCanChooseFiles:"), 1)
-    if send0(panel, sel("runModal")) == 1 {
-        studio.pluginInstallPath = nsStringText(send0(send0(panel, sel("URL")), sel("path")))
-    }
+    if send0(panel, sel("runModal")) == 1 then studio.pluginInstallPath = nsStringText(send0(send0(panel, sel("URL")), sel("path")))
 }
 
 /** Restores a plugin's own tab from the Plugins panel. */
@@ -945,7 +929,7 @@ func pluginUseTool(studio: Studio!, call: Invocation&) {
 func pluginStep(studio: Studio!, call: Invocation&) {
     if call.arg < 0 || call.arg >= studio.pluginParams.size then return
     fin param = studio.pluginParams[call.arg].clone()
-    fin moved = param.value + (if call.target == 1 then param.step else 0.0 - param.step)
+    fin moved = param.value + (if call.target == 1 then param.step else -param.step)
     studio.setPluginNumber(call.arg, moved)
 }
 
@@ -961,8 +945,8 @@ func pluginCreate(studio: Studio!, call: Invocation&) {
 @Command
 func pluginDelete(studio: Studio!, call: Invocation&) {
     fin entity = studio.scene.entityAt(call.target)
-    if !storageHas<PluginObject>(ensureStorage<PluginObject>(studio.scene), entity) then return
-    fin object = storageGet<PluginObject>(ensureStorage<PluginObject>(studio.scene), entity).clone()
+    if !storageHas<PluginObject>(ensureStorage(studio.scene), entity) then return
+    fin object = storageGet<PluginObject>(ensureStorage(studio.scene), entity).clone()
     fin owner = studio.pluginById(object.plugin)
     if owner < 0 || studio.plugins[owner].entryAddress == 0 {
         studio.notify("Load the object's plugin before deleting it", 1)

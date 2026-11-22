@@ -25,14 +25,14 @@ import studio.plugins
 
 func newWorldEntity(studio: Studio!, name: String, position: Vec3&): Entity {
     fin entity = studio.scene.spawn()
-    storageInsert<Name>(ensureStorage<Name>(studio.scene),entity,Name(name))
-    storageInsert<Transform>(ensureStorage<Transform>(studio.scene),entity,Transform(translation: position.clone()))
+    storageInsert<Name>(ensureStorage(studio.scene),entity,.(name))
+    storageInsert<Transform>(ensureStorage(studio.scene),entity,.(translation: position.clone()))
     return entity
 }
 
 @Command(title: "Sculpted Landscape…", menu: "World", group: 0, order: 0)
 func showLandscapeEditor(studio: Studio!, call: Invocation&) {
-    pluginShow(studio,Invocation(0,0,0.0,"azora.flex-landscape"))
+    pluginShow(studio,.(0,0,0.0,"azora.flex-landscape"))
 }
 
 @Command(title: "Landscape from Heightmap…", menu: "World", group: 0, order: 1)
@@ -43,12 +43,12 @@ func heightmapEditor(studio: Studio!, call: Invocation&) {
 
 @Command(title: "Add Atmosphere and Weather", menu: "World", group: 1, order: 0)
 func addAtmosphere(studio: Studio!, call: Invocation&) {
-    fin entity = newWorldEntity(studio,"Atmosphere",Vec3(0.0,0.0,0.0))
-    storageInsert<AetherSky>(ensureStorage<AetherSky>(studio.scene),entity,AetherSky(altitude: 0.0))
-    storageInsert<AetherClouds>(ensureStorage<AetherClouds>(studio.scene),entity,AetherClouds())
-    storageInsert<AetherWeather>(ensureStorage<AetherWeather>(studio.scene),entity,AetherWeather())
-    storageInsert<AetherAudio>(ensureStorage<AetherAudio>(studio.scene),entity,AetherAudio())
-    storageInsert<Light3d>(ensureStorage<Light3d>(studio.scene),entity,Light3d())
+    fin entity = newWorldEntity(studio,"Atmosphere",.(0.0,0.0,0.0))
+    storageInsert<AetherSky>(ensureStorage(studio.scene),entity,.(altitude: 0.0))
+    storageInsert<AetherClouds>(ensureStorage(studio.scene),entity,.())
+    storageInsert<AetherWeather>(ensureStorage(studio.scene),entity,.())
+    storageInsert<AetherAudio>(ensureStorage(studio.scene),entity,.())
+    storageInsert<Light3d>(ensureStorage(studio.scene),entity,.())
     studio.record(entity,"",-1,"add atmosphere")
     studio.select(entity)
 }
@@ -58,9 +58,9 @@ func nextWeather(studio: Studio!, call: Invocation&) {
     fin entity = atmosphereEntity(studio.scene)
     if !studio.scene.isAlive(entity) then return
     fin before = studio.snapshot(entity)
-    var weather = storageGetOrDefault<AetherWeather>(ensureStorage<AetherWeather>(studio.scene),entity,AetherWeather())
+    var weather = storageGetOrDefault<AetherWeather>(ensureStorage(studio.scene),entity,.())
     weather.preset = presetName(nextPreset(presetNamed(weather.preset)))
-    storageInsert<AetherWeather>(ensureStorage<AetherWeather>(studio.scene),entity,take weather)
+    storageInsert<AetherWeather>(ensureStorage(studio.scene),entity,take weather)
     studio.record(entity,before,studio.scene.getParent(entity).id,"change weather preset")
     studio.select(entity)
 }
@@ -80,16 +80,16 @@ func placeForestGrove(studio: Studio!, call: Invocation&) {
 func setRoadMaterial(studio: Studio!, road: Entity) {
     fin asset = "Materials/asphalt.azmaterial"
     if readProjectFile(studio.root,asset) != "" {
-        storageInsert<FusionMaterial>(ensureStorage<FusionMaterial>(studio.scene),road,FusionMaterial(asset: asset))
+        storageInsert<FusionMaterial>(ensureStorage(studio.scene),road,.(asset: asset))
     }
 }
 
 @Command(title: "New Spline Road", menu: "World", group: 3, order: 0)
 func addSplineRoad(studio: Studio!, call: Invocation&) {
-    fin entity = newWorldEntity(studio,"Spline Road",Vec3(0.0,0.0,0.0))
-    storageInsert<SplineRoad>(ensureStorage<SplineRoad>(studio.scene),entity,SplineRoad())
+    fin entity = newWorldEntity(studio,"Spline Road",.(0.0,0.0,0.0))
+    storageInsert<SplineRoad>(ensureStorage(studio.scene),entity,.())
     setRoadMaterial(studio,entity)
-    storageInsert<Expanded>(ensureStorage<Expanded>(studio.scene),entity,Expanded())
+    storageInsert<Expanded>(ensureStorage(studio.scene),entity,.())
     studio.record(entity,"",-1,"add spline road")
     studio.select(entity)
     studio.roadPlacement = 0
@@ -99,8 +99,8 @@ func addSplineRoad(studio: Studio!, call: Invocation&) {
 @Command(title: "Place Road Points", menu: "World", group: 3, order: 1)
 func placeRoadPoints(studio: Studio!, call: Invocation&) {
     var entity = studio.selected()
-    if storageHas<RoadPoint>(ensureStorage<RoadPoint>(studio.scene),entity) then entity = studio.scene.getParent(entity)
-    if !storageHas<SplineRoad>(ensureStorage<SplineRoad>(studio.scene),entity) {
+    if storageHas<RoadPoint>(ensureStorage(studio.scene),entity) then entity = studio.scene.getParent(entity)
+    if !storageHas<SplineRoad>(ensureStorage(studio.scene),entity) {
         studio.notify("Select a spline road or one of its points",1)
         return
     }
@@ -133,11 +133,11 @@ pack RoadPlacementHit {
     var distance: Double = 1.0e9
     var found: Bool = false
     var position: Vec3 = .(0.0,0.0,0.0)
-    var landscape: Entity = Entity::invalid
+    var landscape: Entity = ::invalid
 }
 
 func terrainPlacement(app: App!, studio: Studio!, ray: Ray&, volumesToo: Bool = true): RoadPlacementHit {
-    var best = RoadPlacementHit()
+    var best: RoadPlacementHit = .()
     fin terrains = ensureStorage<HeightfieldTerrain>(studio.scene)
     var i = 0
     while i < storageLength<HeightfieldTerrain>(terrains) {
@@ -157,7 +157,7 @@ func terrainPlacement(app: App!, studio: Studio!, ray: Ray&, volumesToo: Bool = 
                 }
             }
         }
-        i += 1
+        i++
     }
     if !volumesToo then return take best
     fin volumes = ensureStorage<PluginObject>(studio.scene)
@@ -167,13 +167,11 @@ func terrainPlacement(app: App!, studio: Studio!, ray: Ray&, volumesToo: Bool = 
         fin resource = volumes.values[i].&
         if resource.plugin == "azora.flex-landscape" && studio.scene.isAlive(entity) && visibleInWorld(studio.scene,entity) {
             fin inv = mat4Inverse(worldMatrix(studio.scene,entity))
-            fin local = Ray(mat4Point(inv,ray.origin),mat4Direction(inv,ray.direction))
+            fin local: Ray = .(mat4Point(inv,ray.origin),mat4Direction(inv,ray.direction))
             fin t = studio.pluginPick(app,resource.plugin,resource.id,local)
-            if t >= 0.0 && t < best.distance {
-                best = RoadPlacementHit(t,true,v3add(ray.origin,v3scale(ray.direction,t)))
-            }
+            if t >= 0.0 && t < best.distance then best = RoadPlacementHit(t,true,v3add(ray.origin,v3scale(ray.direction,t)))
         }
-        i += 1
+        i++
     }
     return take best
 }
@@ -210,7 +208,7 @@ func junctionSnap(world: World!, p: Vec3&): Vec3 {
                 }
             }
         }
-        i += 1
+        i++
     }
     return take snap
 }
@@ -235,7 +233,7 @@ func placeOnTerrain(app: App!, studio: Studio!, ray: Ray&) {
         fin local = mat4Point(mat4Inverse(worldMatrix(studio.scene,parent)),position)
         fin point = newWorldEntity(studio,"Road Point ${order+1}",local)
         studio.scene.setParent(point,parent)
-        storageInsert<RoadPoint>(ensureStorage<RoadPoint>(studio.scene),point,RoadPoint(order))
+        storageInsert<RoadPoint>(ensureStorage(studio.scene),point,.(order))
         studio.record(point,"",-1,"add road point")
         studio.select(point)
         return
@@ -243,18 +241,18 @@ func placeOnTerrain(app: App!, studio: Studio!, ray: Ray&) {
     studio.roadPlacement = 0
     if mode == 5 {
         fin surface = roadSurfaceAt(app.gpu.roads.network,hit.position.x,hit.position.z)
-        fin position = Vec3(hit.position.x,if surface.found then surface.height else hit.position.y,hit.position.z)
+        fin position: Vec3 = .(hit.position.x,if surface.found then surface.height else hit.position.y,hit.position.z)
         fin entity = newWorldEntity(studio,"Vehicle Start",position)
-        storageInsert<PlayerStart>(ensureStorage<PlayerStart>(studio.scene),entity,PlayerStart())
-        storageInsert<PlayerController>(ensureStorage<PlayerController>(studio.scene),entity,PlayerController())
-        storageInsert<VehicleSetup>(ensureStorage<VehicleSetup>(studio.scene),entity,VehicleSetup())
+        storageInsert<PlayerStart>(ensureStorage(studio.scene),entity,.())
+        storageInsert<PlayerController>(ensureStorage(studio.scene),entity,.())
+        storageInsert<VehicleSetup>(ensureStorage(studio.scene),entity,.())
         studio.record(entity,"",-1,"add vehicle start")
         studio.select(entity)
         return
     }
     if mode == 6 {
         fin grove = newWorldEntity(studio,"Forest Grove",hit.position)
-        storageInsert<ForestGrove>(ensureStorage<ForestGrove>(studio.scene),grove,ForestGrove(seed: grove.id+1021))
+        storageInsert<ForestGrove>(ensureStorage(studio.scene),grove,.(seed: grove.id+1021))
         studio.record(grove,"",-1,"add forest grove")
         studio.select(grove)
         return
@@ -275,7 +273,7 @@ func placeOnTerrain(app: App!, studio: Studio!, ray: Ray&) {
 func drawPhysicalSky(app: App!, studio: Studio!, rect: ViewRect&, elapsed: Double): Bool {
     fin owner = atmosphereEntity(studio.scene)
     if !studio.mode3d || !studio.scene.isAlive(owner) {
-        if studio.atmosphereOwner.isValid then publishSceneEnvironment(studio.scene,SceneEnvironment())
+        if studio.atmosphereOwner.isValid then publishSceneEnvironment(studio.scene,.())
         studio.atmosphereOwner = Entity::invalid
         return false
     }
@@ -292,18 +290,18 @@ func drawPhysicalSky(app: App!, studio: Studio!, rect: ViewRect&, elapsed: Doubl
     fin right = studio.camera.right()
     fin forward = studio.camera.forward()
     fin up = studio.camera.up()
-    if storageHas<AetherWeather>(ensureStorage<AetherWeather>(studio.scene),owner) {
+    if storageHas<AetherWeather>(ensureStorage(studio.scene),owner) {
         previewWeather(studio.scene,owner,studio.atmosphereState,elapsed,app.deltaTime(),eye,right)
     } else {
-        storageRemove<AtmosphereConditions>(ensureStorage<AtmosphereConditions>(studio.scene),owner)
+        storageRemove<AtmosphereConditions>(ensureStorage(studio.scene),owner)
     }
     prepareAtmosphere(studio.scene,owner,studio.atmosphere,elapsed,eye)
-    fin sky = storageGet<AetherSky>(ensureStorage<AetherSky>(studio.scene),owner)
+    fin sky = storageGet<AetherSky>(ensureStorage(studio.scene),owner)
     fin width = app.width() as Double
     fin height = app.height() as Double
     fin view = SceneView(eyeX: eye.x,eyeY: eye.y,eyeZ: eye.z,forwardX: forward.x,forwardY: forward.y,forwardZ: forward.z,
-        rightX: right.x,rightY: right.y,rightZ: right.z,upX: up.x,upY: up.y,upZ: up.z,
-        tangent: tan(studio.camera.fov*degreesToRadians*0.5),aspect: rect.aspect(),time: elapsed,
+        rightX: right.x,rightY: right.y,rightZ: right.z,upX: up.x,upY: up.y,upZ: up.z
+        tangent: tan(studio.camera.fov*degreesToRadians*0.5),aspect: rect.aspect(),time: elapsed
         width: rect.width as Int,height: rect.height as Int)
     writeAetherView(studio.atmosphere.uniforms,view,sky)
     fin current = studio.camera.viewProj(rect.aspect())

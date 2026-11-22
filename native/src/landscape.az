@@ -25,7 +25,7 @@ threadlocal var hasPreviousStamp: Bool = false
 func flexLandscape(request: String): Int {
     fin root = decodeSerialValue(request, serializerOptions()) catch SerialValue.Null
     return when root {
-        SerialValue.Object(fields) -> handle(fields)
+        .Object(fields) -> handle(fields)
         else -> {
             studioPluginReply("{\"error\": \"Landscape could not read the request\"}")
             1
@@ -55,16 +55,13 @@ func load(): Int {
     while index < landscapes.size {
         meshAll(landscapes[index].field, landscapes[index].id)
         if landscapes[index].id >= nextId then nextId = landscapes[index].id + 1
-        index = index + 1
+        index++
     }
     studioPluginReply("{\"objects\": ${objectsText()}}")
     return 0
 }
 
-func unload(): Int {
-    if dirty then return saveBuiltInLandscape()
-    return 0
-}
+func unload(): Int = if dirty then saveBuiltInLandscape() else 0
 
 func saveBuiltInLandscape(): Int {
     if !dirty then return 0
@@ -88,7 +85,7 @@ func create(fields: List<SerialField>&): Int {
         return 1
     }
     fin id = nextId
-    nextId = nextId + 1
+    nextId++
     var made: Landscape = .()
     made.id = id
     made.name = "Landscape ${id}"
@@ -111,7 +108,7 @@ func remove(id: Int): Int {
             studioPluginReply("{\"objects\": ${objectsText()}, \"message\": \"Deleted Landscape ${id}\"}")
             return 0
         }
-        index = index + 1
+        index++
     }
     return 1
 }
@@ -122,7 +119,7 @@ func objectsText(): String {
     while index < landscapes.size {
         fin entry = "{\"id\": ${landscapes[index].id}, \"name\": ${quoted(landscapes[index].name)}, \"kind\": \"FlexLandscape\"}"
         text = if text == "" then entry else "${text}, ${entry}"
-        index = index + 1
+        index++
     }
     return "[${text}]"
 }
@@ -136,10 +133,8 @@ pack Aim derives Clone {
 }
 
 func landscapeAt(id: Int): Int {
-    var index = 0
-    while index < landscapes.size {
-        if landscapes[index].id == id then return index
-        index = index + 1
+    for i: Int in 0..<landscapes.size {
+        if landscapes[i].id == id then return i
     }
     return -1
 }
@@ -162,7 +157,7 @@ func aim(origin: Point&, direction: Point&, object: Int): Aim {
             best.index = index
             best.hit = hit
         }
-        index = index + 1
+        index++
     }
     return best
 }
@@ -189,11 +184,9 @@ func caveCentre(origin: Point&, direction: Point&, depth: Double, fallback: Poin
     if magnitude(dot) > 0.001 {
         fin t = ((planePoint.x - origin.x) * planeNormal.x + (planePoint.y - origin.y) * planeNormal.y +
             (planePoint.z - origin.z) * planeNormal.z) / dot
-        if t >= 0.0 && t < 1000.0 {
-            target = .(origin.x + t * direction.x, origin.y + t * direction.y, origin.z + t * direction.z)
-        }
+        if t >= 0.0 && t < 1000.0 then target = .(origin.x + t * direction.x, origin.y + t * direction.y, origin.z + t * direction.z)
     }
-    return Point(target.x - planeNormal.x * depth, target.y - planeNormal.y * depth, target.z - planeNormal.z * depth)
+    return .(target.x - planeNormal.x * depth, target.y - planeNormal.y * depth, target.z - planeNormal.z * depth)
 }
 
 func tool(fields: List<SerialField>&): Int {
@@ -237,14 +230,12 @@ func tool(fields: List<SerialField>&): Int {
             fin spacing = higher(landscapes[index].field.cell * 0.75, strokeRadius * 0.22)
             fin steps = if hasPreviousStamp && distance < strokeRadius * 6.0 then clampInt(ceil(distance / spacing), 1, 16) else 1
             var reach: Reach = .()
-            var step = 1
-            while step <= steps {
+            for step: Int in 1..steps {
                 fin t = (step as Double) / (steps as Double)
                 fin stamp = if steps == 1 then centre else Point(previousStamp.x + dx * t, previousStamp.y + dy * t, previousStamp.z + dz * t)
                 fin amount = strength * 9.0 * (if steps > 1 then higher(0.013, elapsed / (steps as Double)) else elapsed)
                 fin box = landscapes[index].field.brush(name, stamp, strokeRadius, amount, falloff, edgeBlend, planePoint, planeNormal)
                 reach.include(box)
-                step = step + 1
             }
             previousStamp = centre
             hasPreviousStamp = true
@@ -261,7 +252,7 @@ func tool(fields: List<SerialField>&): Int {
     return 0
 }
 
-fin indexFile: String = "Landscapes/landscapes.azon"
+inline fin indexFile: String = "Landscapes/landscapes.azon"
 
 /** Writes every landscape and the index naming them. Answers how many it wrote. */
 func saveLandscapes(landscapes: Array<Landscape>&, nextId: Int): Int {
@@ -271,7 +262,7 @@ func saveLandscapes(landscapes: Array<Landscape>&, nextId: Int): Int {
     while index < landscapes.size {
         if studioPluginWriteFile(landscapeFile(landscapes[index].id), landscapeText(landscapes[index])) == 1 then saved = saved + 1
         ids = if ids == "" then "${landscapes[index].id}" else "${ids}, ${landscapes[index].id}"
-        index = index + 1
+        index++
     }
     if saved != landscapes.size || studioPluginWriteFile(indexFile, "{\"format\": \"flex-landscape-index\", \"nextId\": ${nextId}, \"landscapes\": [${ids}]}\n") != 1 then return -1
     return saved
@@ -280,7 +271,7 @@ func saveLandscapes(landscapes: Array<Landscape>&, nextId: Int): Int {
 func nextLandscapeId(): Int {
     fin root = decodeSerialValue(studioPluginReadFile(indexFile), serializerOptions()) catch SerialValue.Null
     return when root {
-        SerialValue.Object(fields) -> clampInt(intAt(fields, "nextId", 1), 1, 2147483646)
+        .Object(fields) -> clampInt(intAt(fields, "nextId", 1), 1, 2147483646)
         else -> 1
     }
 }
@@ -290,13 +281,13 @@ func loadLandscapes(): Array<Landscape> {
     var landscapes: Array<Landscape> = []
     fin root = decodeSerialValue(studioPluginReadFile(indexFile), serializerOptions()) catch SerialValue.Null
     when root {
-        SerialValue.Object(fields) -> {
+        .Object(fields) -> {
             fin ids = intsAt(fields, "landscapes")
             var index = 0
             while index < ids.size {
                 fin landscape = readLandscape(studioPluginReadFile(landscapeFile(ids[index])))
                 if landscape.id != 0 then landscapes.add(take landscape)
-                index = index + 1
+                index++
             }
         }
         else -> { }
@@ -312,13 +303,11 @@ func submitLandscapeChunk(field: Field&, a: Int, b: Int, c: Int, object: Int, ke
         studioPluginObjectMesh(object,key,0)
         return
     }
-    var index = 0
-    while index < mesh.levels.size {
-        fin level = mesh.levels[index].&
-        fin bytes = studioPluginObjectMeshLod(object,key,index,level.count,mesh.center.x,mesh.center.y,mesh.center.z,
+    for i: Int in 0..<mesh.levels.size {
+        fin level = mesh.levels[i].&
+        fin bytes = studioPluginObjectMeshLod(object,key,i,level.count,mesh.center.x,mesh.center.y,mesh.center.z,
             mesh.radius,level.deviation)
         if bytes != 0 then azCopy(bytes,level.vertices,(level.count as Long)*24)
-        index += 1
     }
 }
 
@@ -331,11 +320,11 @@ func meshAll(field: Field&, landscape: Int) {
             var a = 0
             while a < chunkCount(field.cellsX) {
                 submitLandscapeChunk(field, a, b, c, landscape, chunkIndex(field, a, b, c))
-                a = a + 1
+                a++
             }
-            b = b + 1
+            b++
         }
-        c = c + 1
+        c++
     }
 }
 
@@ -348,26 +337,14 @@ func meshReach(field: Field&, landscape: Int, box: Reach&) {
     fin highA = clampInt((box.highI + 2) / chunkCells, 0, chunkCount(field.cellsX) - 1)
     fin highB = clampInt((box.highJ + 2) / chunkCells, 0, chunkCount(field.cellsY) - 1)
     fin highC = clampInt((box.highK + 2) / chunkCells, 0, chunkCount(field.cellsZ) - 1)
-    var c = lowC
-    while c <= highC {
-        var b = lowB
-        while b <= highB {
-            var a = lowA
-            while a <= highA {
-                submitLandscapeChunk(field, a, b, c, landscape, chunkIndex(field, a, b, c))
-                a = a + 1
-            }
-            b = b + 1
+    for c in lowC..highC {
+        for b in lowB..highB {
+            for a in lowA..highA then submitLandscapeChunk(field, a, b, c, landscape, chunkIndex(field, a, b, c))
         }
-        c = c + 1
     }
 }
 
 /** Takes landscape [landscape]'s meshes out of Studio. */
 func unmeshAll(field: Field&, landscape: Int) {
-    var chunk = 0
-    while chunk < chunkTotal(field) {
-        studioPluginObjectMesh(landscape, chunk, 0)
-        chunk = chunk + 1
-    }
+    for chunk: Int in 0..<chunkTotal(field) then studioPluginObjectMesh(landscape, chunk, 0)
 }

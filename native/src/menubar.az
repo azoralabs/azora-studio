@@ -31,9 +31,9 @@ func studioMenuChosen(target: Long, selector: Long, sender: Long) {
 }
 
 /** `NSEventModifierFlagCommand`, and `…Shift`, `…Option`. */
-fin commandFlag: Long = 1048576
-fin shiftFlag: Long = 131072
-fin optionFlag: Long = 524288
+inline fin commandFlag: Long = 1048576
+inline fin shiftFlag: Long = 131072
+inline fin optionFlag: Long = 524288
 
 /** Every command the menus show, in menu order: what reflection finds, sorted. */
 func menuEntries(): Array<MenuEntry> {
@@ -44,7 +44,7 @@ func menuEntries(): Array<MenuEntry> {
         if menu != "" {
             if !menus.contains(menu) then menus.add(menu)
             found.add(MenuEntry(menu, reflect<C>.annotMeta<Command>.title, reflect<C>.annotMeta<Command>.group,
-                reflect<C>.annotMeta<Command>.order, reflect<C>.annotMeta<Command>.key, reflect<C>.annotMeta<Command>.shift,
+                reflect<C>.annotMeta<Command>.order, reflect<C>.annotMeta<Command>.key, reflect<C>.annotMeta<Command>.shift
                 reflect<C>.declName, ""))
         }
     }
@@ -57,14 +57,14 @@ func menuEntries(): Array<MenuEntry> {
         var at = sorted.size
         while at > 0 && positionOf(menus, sorted[at - 1].menu) * 1000000 + sorted[at - 1].group * 1000 + sorted[at - 1].order > rank { at = at - 1 }
         sorted.insert(at, entry)
-        index = index + 1
+        index++
     }
     return sorted
 }
 
 func positionOf(names: Array<String>&, name: String): Int {
     var at = 0
-    while at < names.size && names[at] != name { at = at + 1 }
+    while at < names.size && names[at] != name then at = at + 1
     return at
 }
 
@@ -96,13 +96,13 @@ impl Studio {
         // The application menu: what every Mac app's first menu holds.
         fin appMenu = newMenu("Azora Studio")
         addSystemItem(appMenu, "About Azora Studio", "orderFrontStandardAboutPanel:", "", 0)
-        self.addEntry(appMenu, target, MenuEntry("", "Preferences…", 0, 0, ",", false, "preferencesShow", ""))
+        self.addEntry(appMenu, target, .("", "Preferences…", 0, 0, ",", false, "preferencesShow", ""))
         addSeparator(appMenu)
         addSystemItem(appMenu, "Hide Azora Studio", "hide:", "h", commandFlag)
         addSystemItem(appMenu, "Hide Others", "hideOtherApplications:", "h", commandFlag + optionFlag)
         addSystemItem(appMenu, "Show All", "unhideAllApplications:", "", 0)
         addSeparator(appMenu)
-        self.addEntry(appMenu, target, MenuEntry("", "Quit Azora Studio", 0, 0, "q", false, "studioQuit", ""))
+        self.addEntry(appMenu, target, .("", "Quit Azora Studio", 0, 0, "q", false, "studioQuit", ""))
         attach(bar, appMenu, "Azora Studio")
 
         var index = 0
@@ -116,7 +116,7 @@ impl Studio {
                     group = self.menuEntries[index].group
                 }
                 self.addItem(menu, target, index)
-                index = index + 1
+                index++
             }
             if name == "Window" then self.addWindowItems(menu, target)
             attach(bar, menu, name)
@@ -132,7 +132,7 @@ impl Studio {
         addSystemItem(menu, "Zoom", "performZoom:", "", 0)
         addSeparator(menu)
         inline for P in reflect<*>.withAnnot<Panel> {
-            self.addEntry(menu, target, MenuEntry("Window", dockPanelTitle(reflect<P>.declName), 0, 0, "", false, "panelShow", reflect<P>.declName))
+            self.addEntry(menu, target, .("Window", dockPanelTitle(reflect<P>.declName), 0, 0, "", false, "panelShow", reflect<P>.declName))
         }
     }
 
@@ -164,7 +164,7 @@ impl Studio {
         while index < menuChosen.size {
             fin tag = menuChosen[index]
             if tag >= 0 && tag < self.menuEntries.size then chosen.add(self.menuEntries[tag].clone())
-            index = index + 1
+            index++
         }
         menuChosen.clear()
         return chosen
@@ -217,7 +217,7 @@ func chooseMenuItem(title: String): Bool {
                 return true
             }
         }
-        top = top + 1
+        top++
     }
     return false
 }
@@ -245,10 +245,10 @@ func menuBarOutline(): String {
                 fin shift = (send0(entry, sel("keyEquivalentModifierMask")) & shiftFlag) != 0
                 line = "${line} ${menuText(send0(entry, sel("title")))}${if key == "" then "" else " [${if shift then "⇧" else ""}⌘${key}]"}"
             }
-            at = at + 1
+            at++
         }
         text = "${text}${line}\n"
-        top = top + 1
+        top++
     }
     return text
 }

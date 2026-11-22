@@ -32,8 +32,7 @@ func execute(): Int {
     fin action = azsEnvironment("AZORA_STUDIO_ACTION")
     var create = 0
     if action == "template" {
-        if createNativeProject(root, azsEnvironment("AZORA_STUDIO_TEMPLATE")) then return 0
-        return reportFailure()
+        return if createNativeProject(root, azsEnvironment("AZORA_STUDIO_TEMPLATE")) then 0 else reportFailure()
     }
     if action == "create" || action == "probe" then create = 1
     fin project = azsProjectOpen(root, create)
@@ -48,9 +47,7 @@ func execute(): Int {
     var status = 0
     if action == "create" {
         fin manifest = azsBufferNew("{\"project\":{\"name\":\"native-project\",\"version\":\"0.1.0\",\"entry\":\"main.az\",\"src\":\"src\",\"targets\":[\"llvm\"]}}\n")
-        if manifest == 0 || azsProjectWrite(project, "azora.azon", manifest) == 0 || !editor.save() {
-            status = reportFailure()
-        }
+        if manifest == 0 || azsProjectWrite(project, "azora.azon", manifest) == 0 || !editor.save() then status = reportFailure()
         if manifest != 0 then azsBufferClose(manifest)
     } else if action == "edit" {
         if !editor.replace(azsEnvironment("AZORA_STUDIO_SOURCE")) || !editor.save() then status = reportFailure()
@@ -62,11 +59,11 @@ func execute(): Int {
         } else { status = inspectSource(editor.source) }
     } else if action == "build" {
         fin nativeTool = azsEnvironment("AZORA_NATIVE_COMPILER")
-        fin tool = if nativeTool != "" { nativeTool } else { azsEnvironment("AZORA_STUDIO_BUILDER") }
+        fin tool = if nativeTool != "" then nativeTool else azsEnvironment("AZORA_STUDIO_BUILDER")
         status = runTool(root, tool, "build")
     } else if action == "play" {
         fin nativeTool = azsEnvironment("AZORA_NATIVE_COMPILER")
-        fin tool = if nativeTool != "" { nativeTool } else { azsEnvironment("AZORA_STUDIO_PLAYER") }
+        fin tool = if nativeTool != "" then nativeTool else azsEnvironment("AZORA_STUDIO_PLAYER")
         status = runTool(root, tool, "play")
     } else if action == "probe" {
         if !editor.save() || !editor.replace("func main() { }\n") || !editor.undo() {

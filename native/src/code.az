@@ -33,45 +33,35 @@ inline fin sourceLineHeight: Double = 20.0
 inline fin sourceTop: Double = 10.0
 inline fin sourceGutter: Double = 58.0
 
-func isContinuation(value: Int): Bool {
-    return value >= 128 && value < 192
-}
+func isContinuation(value: Int): Bool = value >= 128 && value < 192
 
-func isDigitByte(value: Int): Bool {
-    return value >= 48 && value <= 57
-}
+func isDigitByte(value: Int): Bool = value >= 48 && value <= 57
 
-func isWordStart(value: Int): Bool {
-    return (value >= 65 && value <= 90) || (value >= 97 && value <= 122) || value == 95 || value >= 192
-}
+func isWordStart(value: Int): Bool = (value >= 65 && value <= 90) || (value >= 97 && value <= 122) || value == 95 || value >= 192
 
-func isWordPart(value: Int): Bool {
-    return isWordStart(value) || isDigitByte(value) || isContinuation(value)
-}
+func isWordPart(value: Int): Bool = isWordStart(value) || isDigitByte(value) || isContinuation(value)
 
 /** The visual column [offset] reaches, starting from [start] at column 0. */
 func columnsBetween(source: Long, start: Int, offset: Int): Int {
     var column = 0
-    var index = start
-    while index < offset {
-        fin value = azsBufferByte(source, index)
+    for i in start..<offset {
+        fin value = azsBufferByte(source, i)
         if value == 9 { column = column + 4 - column % 4 }
         else if !isContinuation(value) { column = column + 1 }
-        index = index + 1
     }
     return column
 }
 
 func lineStartOf(source: Long, offset: Int): Int {
     var start = offset
-    while start > 0 && azsBufferByte(source, start - 1) != 10 { start = start - 1 }
+    while start > 0 && azsBufferByte(source, start - 1) != 10 then start = start - 1
     return start
 }
 
 func lineEndOf(source: Long, offset: Int): Int {
     var end = offset
     fin size = azsBufferSize(source)
-    while end < size && azsBufferByte(source, end) != 10 { end = end + 1 }
+    while end < size && azsBufferByte(source, end) != 10 then end = end + 1
     return end
 }
 
@@ -83,13 +73,12 @@ func offsetAtColumn(source: Long, start: Int, column: Int): Int {
     while offset < end {
         fin value = azsBufferByte(source, offset)
         var next = offset + 1
-        while next < end && isContinuation(azsBufferByte(source, next)) { next = next + 1 }
-        fin width = if value == 9 { 4 - current % 4 } else { 1 }
+        while next < end && isContinuation(azsBufferByte(source, next)) then next = next + 1
+        fin width = if value == 9 then 4 - current % 4 else 1
         if current + width > column {
-            if column - current >= (width + 1) / 2 then return next
-            return offset
+            return if column - current >= (width + 1) / 2 then next else offset
         }
-        current = current + width
+        current += width
         offset = next
     }
     return end
@@ -100,12 +89,12 @@ func sourceRow(source: Long, cursor: Int): Int {
     var offset = 0
     while offset < cursor && offset < azsBufferSize(source) {
         if azsBufferByte(source, offset) == 10 then row = row + 1
-        offset = offset + 1
+        offset++
     }
     return row
 }
 
-func lineCount(source: Long): Int { return sourceRow(source, azsBufferSize(source)) + 1 }
+func lineCount(source: Long): Int = sourceRow(source, azsBufferSize(source)) + 1
 
 /** The offset of zero-based [row]'s byte [column], clamped to that line. */
 func offsetAt(source: Long, row: Int, column: Int): Int {
@@ -114,12 +103,12 @@ func offsetAt(source: Long, row: Int, column: Int): Int {
     fin size = azsBufferSize(source)
     while start < size && current < row {
         if azsBufferByte(source, start) == 10 then current = current + 1
-        start = start + 1
+        start++
     }
     fin end = lineEndOf(source, start)
     var offset = start + column
     if offset > end then offset = end
-    while offset > start && isContinuation(azsBufferByte(source, offset)) { offset = offset - 1 }
+    while offset > start && isContinuation(azsBufferByte(source, offset)) then offset = offset - 1
     return offset
 }
 
@@ -145,7 +134,7 @@ func drawSourceLine(app: App!, source: Long, start: Int, end: Int, x: Double, y:
         // 0 plain, 1 keyword, 2 type, 3 string, 4 number, 5 comment, 6 punctuation, 7 call, -1 space
         var kind = 6
         if value == 32 || value == 9 {
-            while stop < end && (azsBufferByte(source, stop) == 32 || azsBufferByte(source, stop) == 9) { stop = stop + 1 }
+            while stop < end && (azsBufferByte(source, stop) == 32 || azsBufferByte(source, stop) == 9) then stop = stop + 1
             kind = -1
         } else if value == 47 && stop < end && azsBufferByte(source, stop) == 47 {
             stop = end
@@ -153,16 +142,16 @@ func drawSourceLine(app: App!, source: Long, start: Int, end: Int, x: Double, y:
         } else if value == 34 {
             while stop < end && azsBufferByte(source, stop) != 34 {
                 if azsBufferByte(source, stop) == 92 then stop = stop + 1
-                stop = stop + 1
+                stop++
             }
             if stop < end then stop = stop + 1
             if stop > end then stop = end
             kind = 3
         } else if isDigitByte(value) {
-            while stop < end && (isWordPart(azsBufferByte(source, stop)) || azsBufferByte(source, stop) == 46) { stop = stop + 1 }
+            while stop < end && (isWordPart(azsBufferByte(source, stop)) || azsBufferByte(source, stop) == 46) then stop = stop + 1
             kind = 4
         } else if isWordStart(value) {
-            while stop < end && isWordPart(azsBufferByte(source, stop)) { stop = stop + 1 }
+            while stop < end && isWordPart(azsBufferByte(source, stop)) then stop = stop + 1
             kind = 0
             fin word = azsBufferSlice(source, offset, stop)
             if word != 0 {
@@ -172,7 +161,7 @@ func drawSourceLine(app: App!, source: Long, start: Int, end: Int, x: Double, y:
                 azsBufferClose(word)
             }
         } else {
-            while stop < end && isContinuation(azsBufferByte(source, stop)) { stop = stop + 1 }
+            while stop < end && isContinuation(azsBufferByte(source, stop)) then stop = stop + 1
         }
         if kind >= 0 {
             fin run = azsBufferSlice(source, offset, stop)
@@ -182,17 +171,16 @@ func drawSourceLine(app: App!, source: Long, start: Int, end: Int, x: Double, y:
                 azsBufferClose(run)
             }
         }
-        column = column + columnsBetween(source, offset, stop)
+        column += columnsBetween(source, offset, stop)
         offset = stop
     }
 }
 
 /** Underlines each problem's span on [row] and marks the gutter. */
 func drawProblems(app: App!, source: Long, problems: Array<Diagnostic>&, stale: Bool, row: Int, start: Int, end: Int, textX: Double, y: Double, advance: Double, gutterX: Double) {
-    var index = 0
-    while index < problems.size {
-        if problems[index].line == row {
-            fin severity = problems[index].severity
+    for i: Int in 0..<problems.size {
+        if problems[i].line == row {
+            fin severity = problems[i].severity
             fin tint = when severity {
                 0 -> studioTheme.error
                 1 -> studioTheme.warning
@@ -201,9 +189,9 @@ func drawProblems(app: App!, source: Long, problems: Array<Diagnostic>&, stale: 
             fin r = tint.r
             fin g = tint.g
             fin b = tint.b
-            fin alpha: Double = if stale { 0.35 } else { 0.95 }
-            var from = start + problems[index].startByte
-            var to = if problems[index].endLine == row { start + problems[index].endByte } else { end }
+            fin alpha: Double = if stale then 0.35 else 0.95
+            var from = start + problems[i].startByte
+            var to = if problems[i].endLine == row then start + problems[i].endByte else end
             if from > end then from = end
             if to > end then to = end
             if to <= from then to = from + 1
@@ -214,11 +202,10 @@ func drawProblems(app: App!, source: Long, problems: Array<Diagnostic>&, stale: 
             var dash: Double = 0.0
             while dash < width {
                 app.uiRect(left + dash, y + sourceLineHeight - 3.0, 3.0, 2.0, r, g, b, alpha)
-                dash = dash + 5.0
+                dash += 5.0
             }
             app.uiRoundRect(gutterX + 6.0, y + sourceLineHeight * 0.5 - 3.0, 6.0, 6.0, 3.0, r, g, b, alpha)
         }
-        index = index + 1
     }
 }
 
@@ -245,8 +232,8 @@ func drawSource(app: App!, source: Long, cursor: Int, focused: Bool, rect: Rect&
                 // The selected part of this line, plus its line break when the
                 // selection continues past it.
                 if selectionStart < selectionEnd && selectionStart <= offset && selectionEnd >= start {
-                    fin from = if selectionStart > start { selectionStart } else { start }
-                    fin to = if selectionEnd < offset { selectionEnd } else { offset }
+                    fin from = if selectionStart > start then selectionStart else start
+                    fin to = if selectionEnd < offset then selectionEnd else offset
                     fin left = textX + (columnsBetween(source, start, from) as Double) * advance
                     var width = (columnsBetween(source, from, to) as Double) * advance
                     if selectionEnd > offset then width = width + advance * 0.6
@@ -254,7 +241,7 @@ func drawSource(app: App!, source: Long, cursor: Int, focused: Bool, rect: Rect&
                 }
                 fin number = "${row + 1}"
                 fin numberWidth = app.uiTextWidthFont(number, 12.0, uiFontMonospace)
-                fin shade = if current { studioTheme.codeGutterActive } else { studioTheme.codeGutter }
+                fin shade = if current then studioTheme.codeGutterActive else studioTheme.codeGutter
                 app.uiTextFont(number, rect.x + sourceGutter - 10.0 - numberWidth, y + (sourceLineHeight - textHeight) * 0.5, 12.0, shade.r, shade.g, shade.b, uiFontMonospace)
                 drawSourceLine(app, source, start, offset, textX, y + (sourceLineHeight - textHeight) * 0.5, advance)
                 drawProblems(app, source, problems, stale, row, start, offset, textX, y, advance, rect.x)
@@ -262,12 +249,12 @@ func drawSource(app: App!, source: Long, cursor: Int, focused: Bool, rect: Rect&
                     fin caretX = textX + (columnsBetween(source, start, cursor) as Double) * advance
                     app.uiRect(caretX - 1.0, y + 2.0, 2.0, sourceLineHeight - 4.0, studioTheme.caret.r, studioTheme.caret.g, studioTheme.caret.b, 1.0)
                 }
-                y = y + sourceLineHeight
+                y += sourceLineHeight
             }
             start = offset + 1
-            row = row + 1
+            row++
         }
-        offset = offset + 1
+        offset++
     }
 }
 
@@ -276,13 +263,13 @@ func sourceOffsetAt(app: App&, source: Long, x: Double, y: Double, rect: Rect&, 
     fin advance = app.uiTextWidthFont("0", sourceFontSize, uiFontMonospace)
     var wanted = ((y - rect.y - sourceTop) / sourceLineHeight) as Int
     if wanted < 0 then wanted = 0
-    wanted = wanted + scroll
+    wanted += scroll
     var row = 0
     var start = 0
     fin size = azsBufferSize(source)
     while start < size && row < wanted {
         if azsBufferByte(source, start) == 10 then row = row + 1
-        start = start + 1
+        start++
     }
     var column = ((x - rect.x - sourceGutter - 10.0) / advance + 0.5) as Int
     if column < 0 then column = 0
@@ -299,9 +286,9 @@ func containsWord(source: Long, start: Int, end: Int, word: String): Bool {
     var offset = start
     while !found && offset + length <= end {
         var matched = 0
-        while matched < length && (azsBufferByte(source, offset + matched) | 32) == azsBufferByte(probe, matched) { matched = matched + 1 }
+        while matched < length && (azsBufferByte(source, offset + matched) | 32) == azsBufferByte(probe, matched) then matched = matched + 1
         if matched == length then found = true
-        offset = offset + 1
+        offset++
     }
     azsBufferClose(probe)
     return found
@@ -327,10 +314,10 @@ func drawConsole(app: App!, output: Long, rect: Rect&) {
                     azsBufferClose(line)
                 }
             }
-            y = y + 18.0
+            y += 18.0
             start = offset + 1
         }
-        offset = offset + 1
+        offset++
     }
 }
 
@@ -379,8 +366,7 @@ func clipboardKeys(app: App&, view: Studio!, injected: Int): Bool {
             app.setClipboardText(azsBufferText(copied))
             azsBufferClose(copied)
         }
-        if pressedKey(app, injected, .X) then return deleteSelection(view)
-        return false
+        return if pressedKey(app, injected, .X) then deleteSelection(view) else false
     }
     if pressedKey(app, injected, .V) {
         fin pasted = app.clipboardText()
@@ -388,7 +374,7 @@ func clipboardKeys(app: App&, view: Studio!, injected: Int): Bool {
         deleteSelection(view)
         fin inserted = view.editor.splice(view.cursor, 0, pasted)
         if inserted < 0 then return false
-        view.cursor = view.cursor + inserted
+        view.cursor += inserted
         return true
     }
     return false
@@ -410,11 +396,11 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
         if !extending then view.anchor = -1
     }
     if pressedKey(app, injected, .Left) && view.cursor > 0 {
-        view.cursor = view.cursor - 1
-        while view.cursor > 0 && isContinuation(azsBufferByte(view.editor.source, view.cursor)) { view.cursor = view.cursor - 1 }
+        view.cursor--
+        while view.cursor > 0 && isContinuation(azsBufferByte(view.editor.source, view.cursor)) then view.cursor = view.cursor - 1
     }
     if pressedKey(app, injected, .Right) && view.cursor < azsBufferSize(view.editor.source) {
-        view.cursor = view.cursor + 1
+        view.cursor++
         while view.cursor < azsBufferSize(view.editor.source) && isContinuation(azsBufferByte(view.editor.source, view.cursor)) { view.cursor = view.cursor + 1 }
     }
     if pressedKey(app, injected, .Up) {
@@ -443,13 +429,13 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
     if !moving && view.anchor == view.cursor then view.anchor = -1
     if pressedKey(app, injected, .Backspace) && view.cursor > 0 {
         var start = view.cursor - 1
-        while start > 0 && isContinuation(azsBufferByte(view.editor.source, start)) { start = start - 1 }
+        while start > 0 && isContinuation(azsBufferByte(view.editor.source, start)) then start = start - 1
         if view.editor.splice(start, view.cursor - start, "") >= 0 { view.cursor = start
             changed = true }
     }
     if pressedKey(app, injected, .Delete) && view.cursor < azsBufferSize(view.editor.source) {
         var end = view.cursor + 1
-        while end < azsBufferSize(view.editor.source) && isContinuation(azsBufferByte(view.editor.source, end)) { end = end + 1 }
+        while end < azsBufferSize(view.editor.source) && isContinuation(azsBufferByte(view.editor.source, end)) then end = end + 1
         if view.editor.splice(view.cursor, end - view.cursor, "") >= 0 then changed = true
     }
     if pressedKey(app, injected, .Enter) {
@@ -489,7 +475,7 @@ func editKeys(app: App&, view: Studio!, typed: String, injected: Int, meta: Bool
 /** A text tab: [path]'s place in the project over the surface [panel] draws [path] into. */
 impl pack SourceTab {
     react ctor (_: Anchor!).(panel: String, path: String, studio: Studio&, app: App&): Entity {
-        return Column(modifier: Modifier::fillMaxSize(), key: "code") {
+        return Column(modifier: ::fillMaxSize(), key: "code") {
             PanelBar {
                 Label(replace(path, "/", " / "), app, studioTheme.muted, key: "path")
                 if studio.documentDirty(path) then Shape(modifier: Modifier::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty")
@@ -504,7 +490,7 @@ impl pack SourceTab {
 
 /** Draws open file [path] into [rect]: the edited one with its caret, a parked one as it was left. */
 func drawDocument(app: App!, studio: Studio!, rect: ViewRect&, path: String) {
-    fin area = Rect(rect.x, rect.y, rect.width, rect.height)
+    fin area: Rect = .(rect.x, rect.y, rect.width, rect.height)
     app.setScissor(rect.x, rect.y, rect.width, rect.height)
     if path == studio.editor.path {
         if studio.revealCursor {
@@ -535,7 +521,7 @@ func drawDocument(app: App!, studio: Studio!, rect: ViewRect&, path: String) {
 
 /** The pointer over open file [path]'s surface: a press there makes it the edited file and places the caret. */
 func documentPointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&, path: String): Bool {
-    fin area = Rect(rect.x, rect.y, rect.width, rect.height)
+    fin area: Rect = .(rect.x, rect.y, rect.width, rect.height)
     if studio.viewDrag == 4 {
         if !input.down {
             studio.viewDrag = 0
@@ -548,12 +534,12 @@ func documentPointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameIn
     if !rect.contains(input.x, input.y) then return false
     if input.scrollY != 0.0 {
         if path == studio.editor.path {
-            studio.sourceScroll = studio.sourceScroll + (if input.scrollY > 0.0 then -2 else 2)
+            studio.sourceScroll += (if input.scrollY > 0.0 then -2 else 2)
             if studio.sourceScroll < 0 then studio.sourceScroll = 0
         } else {
             fin at = studio.parkedFile(path)
             if at >= 0 {
-                studio.documents[at].scroll = studio.documents[at].scroll + (if input.scrollY > 0.0 then -2 else 2)
+                studio.documents[at].scroll += (if input.scrollY > 0.0 then -2 else 2)
                 if studio.documents[at].scroll < 0 then studio.documents[at].scroll = 0
             }
         }
@@ -590,7 +576,7 @@ impl CodePanel {
 pack ConsolePanel { }
 impl ConsolePanel {
     react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
-        return Column(modifier: Modifier::fillMaxSize(), key: "console") {
+        return Column(modifier: ::fillMaxSize(), key: "console") {
             PanelBar {
                 Shape(modifier: Modifier::size(8.0, 8.0).rounded(4.0).fill(when studio.statusKind {
                     3 -> studioTheme.error
@@ -609,13 +595,11 @@ impl ConsolePanel {
 
     func draw(app: App!, studio: Studio!, rect: ViewRect&) {
         if studio.console == 0 then return
-        fin area = Rect(rect.x, rect.y, rect.width, rect.height)
+        fin area: Rect = .(rect.x, rect.y, rect.width, rect.height)
         app.setScissor(rect.x, rect.y, rect.width, rect.height)
         drawConsole(app, studio.console, area)
         app.clearScissor()
     }
 
-    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
-        return false
-    }
+    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool = false
 }

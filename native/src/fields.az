@@ -56,13 +56,13 @@ impl pack NumberField {
         fin typing = focus.typing && focus.component == component && focus.field == field && focus.axis == axis
         fin shown = if typing && !focus.replace { "${focus.text}|" } else { formatDecimal(value, 3) }
         fin node = Row(modifier: ::weight(1.0).height(24.0).sunken().rounded(5.0).clip()
-            .outline(1.0, if typing { studioTheme.accent } else { studioTheme.hairline }), verticalAlignment: .Center, :key) {
+            .outline(1.0, if typing then studioTheme.accent else studioTheme.hairline), verticalAlignment: .Center, :key) {
             if badge != "" {
                 Text(badge, modifier: ::width(18.0).fillMaxHeight().fill(badgeColor.withAlpha(0.88)).rounded(4.0).fontSize(10.5).semibold().ink(studioTheme.ground), key: "badge")
             }
             Text(shown, modifier: ::weight(1.0).fillMaxHeight().padding(end: 8.0).fontSize(12.0).ink(studioTheme.text).textAlign(.End).monospace(), key: "value")
         }
-        storageInsert<FieldTarget>(store<FieldTarget>(anchor.pass), node, FieldTarget(component, field, axis, true))
+        storageInsert<FieldTarget>(store(anchor.pass), node, .(component, field, axis, true))
         return node
     }
 }
@@ -78,10 +78,10 @@ impl pack TextField {
     ): Entity {
         fin typing = focus.typing && focus.component == component && focus.field == field
         fin node = Row(modifier: ::weight(1.0).height(24.0).sunken().rounded(5.0).padding(start: 8.0, end: 8.0)
-            .outline(1.0, if typing { studioTheme.accent } else { studioTheme.hairline }), verticalAlignment: .Center, :key) {
+            .outline(1.0, if typing then studioTheme.accent else studioTheme.hairline), verticalAlignment: .Center, :key) {
             Text(if typing { "${focus.text}|" } else { value }, modifier: ::weight(1.0).fillMaxHeight().fontSize(12.0).ink(studioTheme.text).textAlign(.Start), key: "value")
         }
-        storageInsert<FieldTarget>(store<FieldTarget>(anchor.pass), node, FieldTarget(component, field, 0, false))
+        storageInsert<FieldTarget>(store(anchor.pass), node, .(component, field, 0, false))
         return node
     }
 }
