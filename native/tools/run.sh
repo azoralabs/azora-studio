@@ -25,8 +25,14 @@ export AZORA_NATIVE_COMPILER
 export AZORA_STDLIB="${AZORA_STDLIB:-$LANG_HOME/std}"
 export AZORA_ENGINE_HOME="${AZORA_ENGINE_HOME:-$(cd "$ROOT/../../azora-engine" && pwd)}"
 export AZORA_STUDIO_RESOURCES="${AZORA_STUDIO_RESOURCES:-$ROOT/resources}"
-export AZORA_STUDIO_PROJECT="${2:-${AZORA_STUDIO_PROJECT:-$ROOT/build/demo-project}}"
-case "$AZORA_STUDIO_PROJECT" in /*) ;; *) echo "The project must be an absolute path" >&2; exit 1 ;; esac
+if [ "$MODE" = launcher ]; then
+    export AZORA_LAUNCHER_PROJECT="${2:-${AZORA_LAUNCHER_PROJECT:-}}"
+    PROJECT_OVERRIDE="$AZORA_LAUNCHER_PROJECT"
+else
+    export AZORA_STUDIO_PROJECT="${2:-${AZORA_STUDIO_PROJECT:-$ROOT/build/demo-project}}"
+    PROJECT_OVERRIDE="$AZORA_STUDIO_PROJECT"
+fi
+case "$PROJECT_OVERRIDE" in /*|"") ;; *) echo "The project must be an absolute path" >&2; exit 1 ;; esac
 
 [ -f "$AZORA_ENGINE_HOME/runtime/build/libazora_runtime.dylib" ] || bash "$AZORA_ENGINE_HOME/runtime/build.sh"
 bash "$ROOT/tools/build-window.sh" studio

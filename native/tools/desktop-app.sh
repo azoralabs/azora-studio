@@ -62,15 +62,8 @@ if [ ! -x "$AZORA_STUDIO_EXECUTABLE" ] || [ ! -d "$AZORA_STUDIO_PROJECT" ]; then
 fi
 exec "$AZORA_STUDIO_EXECUTABLE" >> "$LOG" 2>&1'
 
-# The Launcher starts a new project from a template, in the first free
-# "Project N" under ~/Azora Projects, then opens Studio on it.
 make_app "Azora Launcher" launcher azora-launcher '
-PROJECTS="$HOME/Azora Projects"
-mkdir -p "$PROJECTS"
-N=1
-while [ -e "$PROJECTS/Project $N" ]; do N=$((N + 1)); done
-export AZORA_STUDIO_PROJECT="$PROJECTS/Project $N"
 if [ ! -x "$ROOT/build/launcher/azora-launcher" ] || [ ! -x "$AZORA_STUDIO_EXECUTABLE" ]; then
-    exec bash "$ROOT/tools/run.sh" launcher "$AZORA_STUDIO_PROJECT" >> "$LOG" 2>&1
+    exec bash "$ROOT/tools/run.sh" launcher >> "$LOG" 2>&1
 fi
 exec "$ROOT/build/launcher/azora-launcher" >> "$LOG" 2>&1'

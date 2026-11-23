@@ -691,7 +691,7 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
         app.setAmbientLight(1.0)
     }
     if studio.viewMode == 2 then send1(app.gpu.enc, sel("setTriangleFillMode:"), 1)
-    app.drawScene(studio.scene, studio.meshes, sculpted: false)
+    app.drawScene(studio.scene, studio.meshes, sculpted: false, elapsed: elapsed)
     app.drawPluginMeshes(studio, rect)
     if studio.viewMode == 2 then send1(app.gpu.enc, sel("setTriangleFillMode:"), 0)
     app.gpu.flatMaterials = false

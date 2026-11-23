@@ -1,9 +1,13 @@
 import std.io
 import std.format
+import std.string
+import std.serializer
+import std.traits
 import engine.platform
 import engine.gpu.draw
 import engine.input
 import engine.io
+import engine.objc
 import engine.core
 import engine.ecs
 import engine.ui.node
@@ -14,65 +18,73 @@ import studio.host
 import studio.editor
 import studio.theme
 
-/** One Engine template the Launcher offers. */
-func templateName(index: Int): String = when index {
-    0 -> "game"
-    1 -> "game-ecs"
-    2 -> "game-sidescroller-2d"
-    3 -> "game-tetris"
-    4 -> "app"
-    else -> "ui-compose"
-}
-func templateTitle(index: Int): String = when index {
-    0 -> "3D game"
-    1 -> "ECS game"
-    2 -> "2D platformer"
-    3 -> "Puzzle"
-    4 -> "Native app"
-    else -> "Compose UI"
-}
-func templateDetail(index: Int): String = when index {
-    0 -> "Camera, mesh and light"
-    1 -> "Systems over an ECS world"
-    2 -> "Tiles, sprites, physics"
-    3 -> "A falling-blocks game"
-    4 -> "A windowed application"
-    else -> "Declarative ECS interface"
-}
-func templateRed(index: Int): Double = when {
-    index < 2 -> 0.306
-    index < 4 -> 0.820
-    else -> 1.0
-}
-func templateGreen(index: Int): Double = when {
-    index < 2 -> 0.576
-    index < 4 -> 0.306
-    else -> 0.757
-}
-func templateBlue(index: Int): Double = when {
-    index < 2 -> 0.918
-    index < 4 -> 0.918
-    else -> 0.027
+/** Metadata is optional for older templates that only ship src/main.az. */
+pack LauncherTemplate derives Clone {
+    var folder: String
+    var title: String
+    var detail: String = ""
+    var color: String = ""
+    var order: Int = 1000
 }
 
-impl pack NavItem {
-    react ctor (anchor: Anchor!).(label: String, selected: Bool): Entity {
-        fin base = Modifier::fillMaxWidth().height(32.0).rounded(7.0).padding(start: 12.0)
-        return Button(modifier: if selected then base.background(0.820, 0.306, 0.918, 0.20) else base.background(0.0, 0.0, 0.0, 0.0).hoverable(), action: 0, key: label) {
-            Text(label, modifier: if selected then Modifier::fontSize(13.0).textAlign(.Start) else Modifier::fontSize(13.0).mutedText().textAlign(.Start))
+func templatesIn(home: String): Array<LauncherTemplate> {
+    var catalogue: Array<LauncherTemplate> = []
+    fin root = "${home}/templates"
+    fin project = azsProjectOpen(root, 0)
+    if project == 0 then return catalogue
+    defer { azsProjectClose(project) }
+    fin listing = azsProjectList(project, "")
+    if listing == 0 then return catalogue
+    defer { azsBufferClose(listing) }
+    for entry in split(azsBufferText(listing), "\n") {
+        if !startsWith(entry, "d ") then continue
+        fin folder = substring(entry, 2, stringLength(entry))
+        fin source = azsProjectRead(project, "${folder}/src/main.az")
+        if source == 0 then continue
+        azsBufferClose(source)
+        var item: LauncherTemplate = .(folder, folder)
+        fin manifest = azsProjectRead(project, "${folder}/template.azon")
+        if manifest != 0 {
+            fin metadata = decodeSerialValue(azsBufferText(manifest), serializerOptions()) catch SerialValue.Null
+            when metadata {
+                .Object(fields) -> {
+                    for field in fields {
+                        when field.name {
+                            "title" -> { item.title = serialAsText(field.value) catch folder }
+                            "description" -> { item.detail = serialAsText(field.value) catch "" }
+                            "color" -> { item.color = serialAsText(field.value) catch "" }
+                            "order" -> { item.order = serialAsInt(field.value) catch 1000 }
+                            else -> { }
+                        }
+                    }
+                }
+                else -> { }
+            }
+            azsBufferClose(manifest)
         }
+        catalogue.add(item.clone())
+        var at = catalogue.size - 1
+        while at > 0 && catalogue[at - 1].order > item.order {
+            catalogue[at] = catalogue[at - 1].clone()
+            at--
+        }
+        catalogue[at] = item.clone()
     }
+    return catalogue
 }
+
+inline fin templatesPerRow: Int = 4
+inline fin templatesPerPage: Int = 8
 
 impl pack TemplateCard {
-    react ctor (anchor: Anchor!).(index: Int, selected: Bool): Entity {
+    react ctor (anchor: Anchor!).(item: LauncherTemplate&, index: Int, selected: Bool): Entity {
         fin base = Modifier::weight(1.0).fillMaxHeight().rounded(10.0).surface().hoverable()
         fin look = if selected then base.border(2.0, 0.820, 0.306, 0.918) else base.border(1.0, 0.173, 0.173, 0.192)
-        return Button(modifier: look, action: 40 + index, key: templateName(index)) {
-            Column(modifier: ::fillMaxSize().padding(all: 12.0), spacing: 4.0, key: "content") {
-                Shape(modifier: ::fillMaxWidth().height(58.0).rounded(7.0).background(templateRed(index), templateGreen(index), templateBlue(index), 0.85))
-                Text(templateTitle(index), modifier: ::fillMaxWidth().height(24.0).fontSize(14.0).semibold().textAlign(.Start))
-                Text(templateDetail(index), modifier: ::fillMaxWidth().height(16.0).fontSize(11.0).mutedText().textAlign(.Start))
+        fin tint = themeColor(item.color, studioTheme.brand)
+        return Button(modifier: look, action: 40 + index, key: item.folder) {
+            Column(modifier: ::fillMaxSize().padding(all: 12.0), spacing: 8.0, key: "content") {
+                Shape(modifier: ::fillMaxWidth().height(58.0).rounded(7.0).background(tint.r, tint.g, tint.b, 0.85))
+                Text(item.title, modifier: ::fillMaxWidth().height(24.0).fontSize(14.0).semibold().textAlign(.Start))
             }
         }
     }
@@ -88,7 +100,7 @@ impl pack LauncherButton {
 }
 
 impl pack ProjectWelcome {
-    react ctor (anchor: Anchor!).(root: String, status: String, selected: Int, studioOpen: Bool): Entity {
+    react ctor (anchor: Anchor!).(root: String, status: String, catalogue: Array<LauncherTemplate>&, selected: Int, page: Int, studioOpen: Bool): Entity {
         return Row(modifier: ::fillMaxSize().ground(), key: "welcome") {
             Column(modifier: ::width(220.0).fillMaxHeight().surface().padding(all: 14.0), spacing: 4.0, key: "sidebar") {
                 Row(modifier: ::fillMaxWidth().height(40.0), spacing: 10.0, verticalAlignment: .Center, key: "brand") {
@@ -97,51 +109,114 @@ impl pack ProjectWelcome {
                 }
                 Text("Engine 0.1 · native toolchain", modifier: ::fillMaxWidth().height(20.0).fontSize(11.0).faintText().textAlign(.Start), key: "version")
                 Shape(modifier: ::fillMaxWidth().height(14.0).background(0.0, 0.0, 0.0, 0.0))
-                NavItem("New project", true)
-                NavItem("Recent", false)
-                NavItem("Learn", false)
                 Shape(modifier: ::weight(1.0).background(0.0, 0.0, 0.0, 0.0))
                 Text(if studioOpen then "Studio is running" else "Studio is closed", modifier: ::fillMaxWidth().height(20.0).fontSize(11.0).faintText().textAlign(.Start), key: "session")
             }
             Column(modifier: ::weight(1.0).fillMaxHeight().padding(all: 28.0), spacing: 14.0, key: "main") {
                 Text("Create a project", modifier: ::fillMaxWidth().height(34.0).fontSize(24.0).semibold().textAlign(.Start), key: "title")
                 Text("Start from an Azora Engine template. Studio opens it as soon as it is created.", modifier: ::fillMaxWidth().height(20.0).fontSize(13.0).mutedText().textAlign(.Start), key: "subtitle")
-                Row(modifier: ::fillMaxWidth().height(140.0), spacing: 12.0, key: "row-1") {
-                    TemplateCard(0, selected == 0)
-                    TemplateCard(1, selected == 1)
-                    TemplateCard(2, selected == 2)
+                for row: Int in 0..<2 {
+                    Row(modifier: ::fillMaxWidth().height(120.0), spacing: 12.0, key: "row-${row}") {
+                        fin first = page * templatesPerPage + row * templatesPerRow
+                        for column: Int in 0..<templatesPerRow {
+                            fin index = first + column
+                            if index < catalogue.size then TemplateCard(catalogue[index].&, index, selected == index)
+                            else Shape(modifier: ::weight(1.0).fillMaxHeight(), key: "space-${column}")
+                        }
+                    }
                 }
-                Row(modifier: ::fillMaxWidth().height(140.0), spacing: 12.0, key: "row-2") {
-                    TemplateCard(3, selected == 3)
-                    TemplateCard(4, selected == 4)
-                    TemplateCard(5, selected == 5)
+                if catalogue.size > templatesPerPage {
+                    Row(modifier: ::fillMaxWidth().height(36.0), spacing: 8.0, verticalAlignment: .Center) {
+                        if page > 0 then LauncherButton("Previous", 3, 100.0, false)
+                        Text("${page + 1} / ${(catalogue.size + templatesPerPage - 1) / templatesPerPage}", modifier: ::width(48.0).mutedText())
+                        if (page + 1) * templatesPerPage < catalogue.size then LauncherButton("Next", 4, 100.0, false)
+                    }
+                }
+                if catalogue.size > 0 {
+                    Text(catalogue[selected].detail, modifier: ::fillMaxWidth().height(18.0).fontSize(12.0).mutedText().textAlign(.Start), key: "description")
                 }
                 Text("LOCATION", modifier: ::fillMaxWidth().height(22.0).caption(), key: "location-caption")
                 Text(root, modifier: ::fillMaxWidth().height(36.0).sunken().rounded(8.0).border(1.0, 0.173, 0.173, 0.192).padding(start: 12.0).monospace().fontSize(12.0).textAlign(.Start), key: "location")
                 Shape(modifier: ::weight(1.0).background(0.0, 0.0, 0.0, 0.0))
                 Row(modifier: ::fillMaxWidth().height(40.0), spacing: 10.0, verticalAlignment: .Center, key: "actions") {
                     Text(status, modifier: ::weight(1.0).fontSize(12.0).mutedText().textAlign(.Start), key: "status")
-                    LauncherButton("Open in Studio", 2, 140.0, false)
-                    LauncherButton("Create project", 1, 150.0, true)
+                    LauncherButton("Open project…  O", 2, 150.0, false)
+                    if catalogue.size > 0 then LauncherButton("Create project  ↵", 1, 150.0, true)
                 }
             }
         }
     }
 }
 
+func projectNameDialog(initial: String): String {
+    fin alert = newObject("NSAlert")
+    defer { send0(alert, sel("release")) }
+    fin field = azSendQuad(send0(cls("NSTextField"), sel("alloc")), sel("initWithFrame:"), 0.0, 0.0, 320.0, 24.0)
+    defer { send0(field, sel("release")) }
+    send1(alert, sel("setMessageText:"), nsString("Name your Azora project"))
+    send1(alert, sel("addButtonWithTitle:"), nsString("Create"))
+    send1(alert, sel("addButtonWithTitle:"), nsString("Cancel"))
+    send1(field, sel("setStringValue:"), nsString(initial))
+    send1(alert, sel("setAccessoryView:"), field)
+    send1(send0(alert, sel("window")), sel("setInitialFirstResponder:"), field)
+    if send0(alert, sel("runModal")) != 1000 then return ""
+    return trim(nsStringText(send0(field, sel("stringValue"))))
+}
+
+func selectProjectFolder(location: String): String {
+    fin panel = send0(cls("NSOpenPanel"), sel("openPanel"))
+    send1(panel, sel("setCanChooseDirectories:"), 1)
+    send1(panel, sel("setCanChooseFiles:"), 0)
+    send1(panel, sel("setPrompt:"), nsString("Open Project"))
+    send1(panel, sel("setDirectoryURL:"), send1(cls("NSURL"), sel("fileURLWithPath:"), nsString(location)))
+    if send0(panel, sel("runModal")) != 1 then return ""
+    return nsStringText(send0(send0(panel, sel("URL")), sel("path")))
+}
+
+func ensureProjectFolder(location: String): Bool {
+    fin files = send0(cls("NSFileManager"), sel("defaultManager"))
+    return send5(files, sel("createDirectoryAtPath:withIntermediateDirectories:attributes:error:"), nsString(location), 1, 0, 0, 0) != 0
+}
+
+func launchProject(root: String): Long {
+    fin project = azsProjectOpen(root, 0)
+    if project == 0 then return 0
+    defer { azsProjectClose(project) }
+    fin source = azsProjectRead(project, "src/main.az")
+    if source == 0 then return 0
+    azsBufferClose(source)
+    if azsSetEnvironment("AZORA_STUDIO_PROJECT", root) == 0 then return 0
+    return azsStudioStart(azsEnvironment("AZORA_STUDIO_EXECUTABLE"))
+}
+
+pack StudioSession derives Clone {
+    var root: String
+    var process: Long
+}
+
+func activateStudio(process: Long) {
+    fin app = send1(cls("NSRunningApplication"), sel("runningApplicationWithProcessIdentifier:"), azsProcessPid(process) as Long)
+    send1(app, sel("activateWithOptions:"), 2)
+}
+
 react func main() {
     if azsAbiVersion() != 1 { println("incompatible Launcher host ABI")
         return }
-    fin root = azsEnvironment("AZORA_STUDIO_PROJECT")
+    fin requested = "${azsEnvironment("AZORA_LAUNCHER_PROJECT")}"
+    fin location = "${azsEnvironment("HOME")}/Documents/Azora"
+    fin engine = azsEnvironment("AZORA_ENGINE_HOME")
+    fin catalogue = templatesIn(engine)
+    var root = if requested != "" then requested else location
     var world: World = .()
     var pass = Composition::of(world, "launcher")
     var app = appInit("Azora", 1040, 640)
     if !app.ok then return
     app.setClearColor(0.078, 0.078, 0.086)
-    var status: String = "Pick a template, then create the project."
+    var status = if catalogue.size == 0 then "No Engine templates found." else "Pick a template, then create the project."
     var selected = 0
+    var page = 0
     var revision: Long = 1
-    var studio: Long = 0
+    var studios: Array<StudioSession> = []
     var frames = 0
     var layoutVersion: Long = -1
     var lastWidth: Double = -1.0
@@ -153,34 +228,67 @@ react func main() {
         frames++
         var action = 0
         if app.mouseClicked(.Left) then action = pass.hit(app.mouseX(), app.mouseY())
-        if action >= 40 && action <= 45 {
+        if app.keyJustPressed(.Enter) || (app.keyDown(.Meta) && app.keyJustPressed(.N)) then action = 1
+        if app.keyJustPressed(.O) then action = 2
+        if action >= 40 && action - 40 < catalogue.size {
             selected = action - 40
-            status = "${templateTitle(selected)} · templates/${templateName(selected)}"
+            status = catalogue[selected].title
             revision++
         }
-        var openStudio = action == 2
-        if action == 1 {
-            fin template = "${azsEnvironment("AZORA_ENGINE_HOME")}/templates/${templateName(selected)}"
-            if createNativeProject(root, template) {
-                status = "Created a ${templateTitle(selected)} project. Opening Studio…"
-                openStudio = true
-            } else { status = azsError() }
+        if action == 3 || action == 4 {
+            page += if action == 3 then -1 else 1
+            selected = page * templatesPerPage
+            status = catalogue[selected].title
             revision++
         }
-        if openStudio && studio == 0 {
-            studio = azsProcessStart(azsEnvironment("AZORA_STUDIO_EXECUTABLE"), root, "", "")
-            if studio == 0 { status = azsError() }
-            else { status = "Studio is open on this project." }
+        var toOpen = ""
+        if action == 2 then toOpen = selectProjectFolder(location)
+        if action == 1 && catalogue.size > 0 {
+            fin name = if requested != "" then "" else projectNameDialog("")
+            if name == "." || name == ".." || indexOf(name, "/") >= 0 || indexOf(name, "\\") >= 0 {
+                status = "Enter a project name without path separators."
+            } else if requested != "" || name != "" {
+                fin target = if requested != "" then requested else "${location}/${name}"
+                if requested == "" && !ensureProjectFolder(location) {
+                    status = "Could not create ${location}. Check Documents access."
+                } else if createNativeProject(target, "${engine}/templates/${catalogue[selected].folder}") {
+                    root = target
+                    toOpen = target
+                } else { status = "${azsError()}" }
+            }
             revision++
         }
-        if studio != 0 && azsProcessPoll(studio) != -1 {
-            println(azsProcessOutput(studio))
-            azsProcessClose(studio)
-            studio = 0
-            status = "Studio closed."
+        var session = studios.size
+        while session > 0 {
+            session--
+            fin studio = studios[session].process
+            fin result = azsProcessPoll(studio)
+            if result != -1 {
+                azsProcessClose(studio)
+                studios.removeAt(session)
+                status = if result == 0 then "Studio closed." else "Studio exited (${result}). See the Launcher log."
+                revision++
+            }
+        }
+        if toOpen != "" {
+            var existing: Long = 0
+            for current in studios { if current.root == toOpen then existing = current.process }
+            if existing != 0 {
+                activateStudio(existing)
+                root = toOpen
+                status = "Project is open in Studio."
+            } else {
+                fin studio = launchProject(toOpen)
+                if studio == 0 { status = "${azsError()}" }
+                else {
+                    studios.add(StudioSession(toOpen, studio))
+                    root = toOpen
+                    status = "Opening project in Studio…"
+                }
+            }
             revision++
         }
-        composeIfChanged(pass, revision) { ProjectWelcome(root, status, selected, studio != 0) }
+        composeIfChanged(pass, revision) { ProjectWelcome(root, status, catalogue, selected, page, studios.size > 0) }
         fin welcome = pass.findChild(pass.root, "welcome")
         fin width = app.width() as Double
         fin height = app.height() as Double
@@ -202,9 +310,7 @@ react func main() {
         app.present()
         if frameLimit > 0 && frames >= frameLimit then app.quit()
     }
-    // The development launcher owns its child; an installed detached session
-    // and project catalogue are separate qualification gates.
-    if studio != 0 then azsProcessClose(studio)
+    for studio in studios then azsProcessClose(studio.process)
     pass.dispose()
     app.shutdown()
     if azsLiveHandles() != 0 { println("native handle leak")

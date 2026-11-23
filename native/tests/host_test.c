@@ -20,9 +20,47 @@ static void complete(int64_t process, int status) {
     } while (result == -1);
     assert(result == status);
 }
+
+static void template_probe(const char *base) {
+    char source[4096], target[4096], asset[4096];
+    snprintf(source, sizeof source, "%s/template", base);
+    snprintf(target, sizeof target, "%s/Project with spaces", base);
+    snprintf(asset, sizeof asset, "%s/template/texture.bin", base);
+    int64_t template = azs_project_open(source, 1); assert(template);
+    const char *scene = "{\"format\":\"azora-scene\",\"version\":2,\"entities\":[]}";
+    int64_t buffer = azs_buffer_new(scene); assert(buffer);
+    assert(azs_project_write(template, "scene.azscene", buffer));
+    assert(!azs_project_from_template(target, source, ""));
+    assert(access(target, F_OK) != 0);
+    assert(azs_project_write(template, "src/main.az", buffer));
+    assert(azs_buffer_close(buffer));
+    assert(azs_project_close(template));
+    const unsigned char texture[] = {0, 127, 255};
+    FILE *file = fopen(asset, "wb"); assert(file);
+    assert(fwrite(texture, 1, sizeof texture, file) == sizeof texture);
+    assert(fclose(file) == 0);
+    assert(azs_project_from_template(target, source, ""));
+    assert(!azs_project_from_template(target, source, ""));
+    int64_t created = azs_project_open(target, 0); assert(created);
+    buffer = azs_project_read(created, "scene.azscene"); assert(buffer);
+    assert(!strcmp(azs_buffer_text(buffer), scene));
+    assert(azs_buffer_close(buffer));
+    buffer = azs_project_read(created, "azora.azon"); assert(buffer);
+    assert(strstr(azs_buffer_text(buffer), "Project with spaces"));
+    assert(azs_buffer_close(buffer));
+    assert(azs_project_close(created));
+    snprintf(asset, sizeof asset, "%s/Project with spaces/texture.bin", base);
+    file = fopen(asset, "rb"); assert(file);
+    unsigned char copied[sizeof texture];
+    assert(fread(copied, 1, sizeof copied, file) == sizeof copied);
+    assert(!memcmp(copied, texture, sizeof texture));
+    assert(fclose(file) == 0);
+}
+
 int main(int argc, char **argv) {
     assert(argc == 3);
     assert(azs_abi_version() == 1);
+    template_probe(argv[1]);
     char root[4096]; snprintf(root, sizeof root, "%s/project", argv[1]);
     int64_t project = azs_project_open(root, 1); assert(project);
     assert(!azs_project_open(root, 1)); // create never overwrites an existing project.

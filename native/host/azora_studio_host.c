@@ -5,8 +5,10 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <ftw.h>
 #include <limits.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +19,11 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <crt_externs.h>
+#else
+extern char **environ;
+#endif
 
 enum { SLOTS = 128, MAX_SOURCE = 16 * 1024 * 1024, MAX_OUTPUT = 1024 * 1024 };
 enum Kind { FREE, PROJECT, BUFFER, PROCESS };
@@ -27,7 +34,7 @@ typedef struct {
     size_t size, capacity;
     int fd;
     pid_t pid;
-    int status, done;
+    int status, done, independent;
 } Slot;
 static Slot slots[SLOTS];
 static char last_error[256];
@@ -153,6 +160,69 @@ int32_t azs_copy_tree(const char *from, const char *to) {
     if (!from || from[0] != '/' || !to || to[0] != '/') { fail("copy needs absolute paths"); return 0; }
     if (!copy_tree(from, to, 0)) { system_fail("copy template"); return 0; }
     return 1;
+}
+
+static int remove_entry(const char *path, const struct stat *info, int type, struct FTW *walk) {
+    (void)info; (void)type; (void)walk;
+    return remove(path);
+}
+
+static int template_manifest(const char *stage, const char *name, const char *configured) {
+    char path[PATH_MAX];
+    if (snprintf(path, sizeof path, "%s/azora.azon", stage) >= (int)sizeof path)
+        return fail("project manifest path is too long");
+    FILE *manifest = fopen(path, configured && *configured ? "w" : "wx");
+    if (!manifest) return errno == EEXIST ? 1 : system_fail("create project manifest");
+    if (configured && *configured) {
+        int written = fputs(configured, manifest) != EOF && fputc('\n', manifest) != EOF;
+        return fclose(manifest) == 0 && written ? 1 : system_fail("write project manifest");
+    }
+    fputs("{\"project\":{\"name\":\"", manifest);
+    for (const unsigned char *p = (const unsigned char *)name; *p; ++p) {
+        if (*p < 32) { fprintf(manifest, "\\u%04x", *p); continue; }
+        if (*p == '"' || *p == '\\') fputc('\\', manifest);
+        fputc(*p, manifest);
+    }
+    fputs("\",\"version\":\"0.1.0\",\"entry\":\"main.az\",\"src\":\"src\",\"targets\":[\"llvm\"]}}\n", manifest);
+    int written = !ferror(manifest);
+    return fclose(manifest) == 0 && written ? 1 : system_fail("write project manifest");
+}
+
+int32_t azs_project_from_template(const char *root, const char *source, const char *manifest) {
+    if (!root || root[0] != '/' || !source || source[0] != '/')
+        return fail("project and template need absolute paths");
+    const char *name = strrchr(root, '/') + 1;
+    if (!*name || !strcmp(name, ".") || !strcmp(name, "..")) return fail("invalid project name");
+    struct stat info;
+    if (lstat(root, &info) == 0) return fail("a file or project already exists at this location");
+    if (errno != ENOENT) return system_fail("check project location");
+
+    char stage[PATH_MAX];
+    if (snprintf(stage, sizeof stage, "%.*s.azora-project-XXXXXX", (int)(name - root), root) >= (int)sizeof stage)
+        return fail("project path is too long");
+    if (!mkdtemp(stage)) return system_fail("prepare project folder");
+    int ok = copy_tree(source, stage, 0);
+    if (!ok) system_fail("copy project template");
+    if (ok) {
+        int64_t project = azs_project_open(stage, 0);
+        int64_t entry = project ? azs_project_read(project, "src/main.az") : 0;
+        if (entry) azs_buffer_close(entry);
+        if (project) azs_project_close(project);
+        ok = entry != 0 && template_manifest(stage, name, manifest);
+    }
+    if (ok) {
+#ifdef __APPLE__
+        ok = renamex_np(stage, root, RENAME_EXCL) == 0;
+#else
+        ok = mkdir(root, 0700) == 0;
+        if (ok && rename(stage, root) < 0) {
+            int error = errno; rmdir(root); errno = error; ok = 0;
+        }
+#endif
+        if (!ok) system_fail("publish project folder");
+    }
+    if (!ok) nftw(stage, remove_entry, 16, FTW_DEPTH | FTW_PHYS);
+    return ok;
 }
 int64_t azs_peak_memory_bytes(void) {
     struct rusage usage;
@@ -490,6 +560,34 @@ int64_t azs_process_start(const char *program, const char *directory, const char
     return start_process(program, directory, first, second, NULL);
 }
 
+/* Studio inherits the Launcher's log and can keep editing after Launcher closes. */
+int64_t azs_studio_start(const char *program) {
+    if (!native_program(program)) return 0;
+    int64_t handle = allocate(PROCESS);
+    if (!handle) return 0;
+    Slot *process = get(handle, PROCESS);
+    char *args[] = {(char *)program, NULL};
+#ifdef __APPLE__
+    char **environment = *_NSGetEnviron();
+#else
+    char **environment = environ;
+#endif
+    int result = posix_spawn(&process->pid, program, NULL, NULL, args, environment);
+    if (result != 0) {
+        release(process);
+        errno = result;
+        system_fail("open Studio");
+        return 0;
+    }
+    process->independent = 1;
+    return handle;
+}
+
+int32_t azs_process_pid(int64_t handle) {
+    Slot *process = get(handle, PROCESS);
+    return process && !process->done ? process->pid : 0;
+}
+
 int64_t azs_engine_process_start(const char *compiler, const char *project, const char *action) {
     if (!native_program(compiler)) return 0;
     if (!action || (strcmp(action, "inspect") && strcmp(action, "build") && strcmp(action, "run"))) {
@@ -507,6 +605,7 @@ int64_t azs_engine_process_start(const char *compiler, const char *project, cons
 }
 
 static void drain(Slot *process) {
+    if (process->fd < 0) return;
     char bytes[4096];
     size_t drained = 0;
     for (;;) {
@@ -538,7 +637,7 @@ int32_t azs_process_poll(int64_t handle) {
 }
 const char *azs_process_output(int64_t handle) {
     Slot *process = get(handle, PROCESS);
-    return process ? process->text : "";
+    return process && process->text ? process->text : "";
 }
 int32_t azs_process_cancel(int64_t handle) {
     Slot *process = get(handle, PROCESS);
@@ -559,7 +658,7 @@ int32_t azs_process_cancel(int64_t handle) {
 int32_t azs_process_close(int64_t handle) {
     Slot *process = get(handle, PROCESS);
     if (!process) return 0;
-    if (!process->done && !azs_process_cancel(handle)) return 0;
+    if (!process->done && !process->independent && !azs_process_cancel(handle)) return 0;
     release(process); return 1;
 }
 void azs_diagnostic(int32_t offset, int32_t length, int32_t line, int32_t column, const char *message) {

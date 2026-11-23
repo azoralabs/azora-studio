@@ -1,17 +1,43 @@
 module studio.editor
 import std.string
+import std.serializer
+import std.container.list
 import studio.host
 
-func createNativeProject(root: String, template: String = ""): Bool {
-    var source: Long = 0
-    if template == "" {
-        source = azsBufferNew("import std.io\nfunc main() { println(\"Azora native project\") }\n")
-    } else {
-        fin sourceProject = azsProjectOpen(template, 0)
-        if sourceProject == 0 then return false
-        source = azsProjectRead(sourceProject, "src/main.az")
-        azsProjectClose(sourceProject)
+/** Copies the template's package configuration and names its project after the destination. */
+func namedManifest(root: String, template: String): String {
+    fin project = azsProjectOpen(template, 0)
+    if project == 0 then return ""
+    defer { azsProjectClose(project) }
+    fin manifest = azsProjectRead(project, "azora.azon")
+    if manifest == 0 then return ""
+    defer { azsBufferClose(manifest) }
+    fin path = split(root, "/")
+    fin name = path[path.size - 1]
+    fin data = decodeSerialValue(azsBufferText(manifest), serializerOptions()) catch SerialValue.Null
+    var fields = arrayListOf<SerialField>()
+    var details = arrayListOf<SerialField>()
+    when data {
+        .Object(members) -> {
+            for member in members {
+                if member.name == "project" {
+                    when member.value {
+                        .Object(original) -> { for field in original { if field.name != "name" then details.add(take field) } }
+                        else -> { }
+                    }
+                } else { fields.add(take member) }
+            }
+        }
+        else -> return ""
     }
+    details.add(SerialField("name", SerialValue.Text(name)))
+    fields.add(SerialField("project", SerialValue.Object(take details)))
+    return encodeSerialValue(SerialValue.Object(take fields), serializerOptions()) catch ""
+}
+
+func createNativeProject(root: String, template: String = ""): Bool {
+    if template != "" then return azsProjectFromTemplate(root, template, namedManifest(root, template)) != 0
+    fin source = azsBufferNew("import std.io\nfunc main() { println(\"Azora native project\") }\n")
     if source == 0 then return false
     fin project = azsProjectOpen(root, 1)
     if project == 0 {

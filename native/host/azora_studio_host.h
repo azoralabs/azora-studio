@@ -18,6 +18,7 @@ int32_t azs_set_environment(const char *name, const char *value);
 /* Copies the directory tree at absolute [from] into [to] (created as needed),
  * skipping hidden entries and build output. Refuses symlinks. 1 on success. */
 int32_t azs_copy_tree(const char *from, const char *to);
+int32_t azs_project_from_template(const char *root, const char *source, const char *manifest);
 int64_t azs_peak_memory_bytes(void);
 const char *azs_error(void);
 int32_t azs_live_handles(void);
@@ -46,6 +47,8 @@ int32_t azs_process_poll(int64_t process);
 const char *azs_process_output(int64_t process);
 int32_t azs_process_cancel(int64_t process);
 int32_t azs_process_close(int64_t process);
+int64_t azs_studio_start(const char *program);
+int32_t azs_process_pid(int64_t process);
 void azs_diagnostic(int32_t offset, int32_t length, int32_t line,
                     int32_t column, const char *message);
 void azs_symbol(int32_t offset, int32_t length, int32_t line, int32_t column);
