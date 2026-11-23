@@ -5,13 +5,14 @@ import std.container.list
 import std.serializer
 import engine.core
 import engine.atmosphere
-import engine.weather.presets
+import engine.weather.state
 import engine.ecs
 import engine.math
 import engine.scene
 import engine.scene.io
 import engine.gizmos
 import engine.gpu
+import engine.platform.embed
 import engine.material.fusion
 import engine.render.scene
 import engine.ui.docking
@@ -261,6 +262,41 @@ pack MenuEntry derives Clone {
     var text: String = ""
 }
 
+/**
+ * Play In Editor: the project's game running in a process of its own and
+ * drawing into the Scene viewport through a shared link (engine.platform.embed).
+ */
+pack PlaySession {
+    var link: EmbedLink = .()
+    var game: Spawned = .()
+    /** A Metal buffer over the link, and a texture per frame slot at [frameWidth] x [frameHeight]. */
+    var buffer: Long = 0
+    var frames: Array<Long> = []
+    var frameWidth: Int = 0
+    var frameHeight: Int = 0
+    /** Whether the game has the keyboard and mouse: from a click in the viewport until Shift+F1 or a click elsewhere. */
+    var focused: Bool = false
+    /** When Stop asked the game to end (seconds); it is ended outright soon after if it does not. */
+    var stopAsked: Double = 0.0
+    /** Where the viewport showed the game, in window points. */
+    var x: Double = 0.0
+    var y: Double = 0.0
+    var width: Double = 0.0
+    var height: Double = 0.0
+    /** The wheel's running totals sent to the game. */
+    var wheelX: Double = 0.0
+    var wheelY: Double = 0.0
+}
+
+impl PlaySession {
+    /** True while a game is being played in the viewport. */
+    prop &.running: Bool = self.link.region != 0
+
+    /** Whether ([px], [py]) lies where the game is shown. */
+    func &.contains(px: Double, py: Double): Bool =
+        px >= self.x && py >= self.y && px < self.x + self.width && py < self.y + self.height
+}
+
 pack Studio {
     var root: String = ""
     var editor: Editor
@@ -284,6 +320,8 @@ pack Studio {
     var inspected: Bool = false
     var busy: Bool = false
     var process: Long = 0
+    /** The running process was cancelled to make way (Play stops a background check): its ending is not reported. */
+    var quietCancel: Bool = false
     var processAction: String = ""
     /** True from Run until the game it started has been handed activation (see [handOverToGame]). */
     var handingOver: Bool = false
@@ -300,10 +338,12 @@ pack Studio {
     var column: Int = 1
     var lineCount: Int = 1
 
-    var camera: EditorCamera = .()
+    var camera: EditorCamera = .(speed: 20.0)
     var gizmo: TransformGizmo = .()
     /** 0 none, 1 looking and flying, 2 panning, 3 dragging a handle, 4 selecting source text, 5 orbiting. */
     var viewDrag: Int = 0
+    /** The wheel changed the camera's speed during a flight; it is saved when the flight ends. */
+    var cameraSpeedChanged: Bool = false
     /** Print pointer handling as it happens (AZORA_STUDIO_TRACE). */
     var tracing: Bool = false
     var gizmoStart: Transform = .()
@@ -319,7 +359,9 @@ pack Studio {
     var indirectLighting: Bool = true
     var virtualShadows: Bool = true
     /** Temporal upscaling: the 3D view drawn at half resolution per axis and reconstructed. */
-    var upscaling: Bool = false
+    var upscaling: Bool = true
+    /** Physics steps per second for the game Studio runs (AZORA_PHYSICS_RATE), 10 to 1000. */
+    var physicsRate: Int = 120
     var pauseViewportDuringPlay: Bool = true
     var recomputeShadows: Bool = false
     var preferencesRoot: String = ""
@@ -328,6 +370,8 @@ pack Studio {
     var playing: Bool = false
     var paused: Bool = false
     var playTime: Double = 0.0
+    /** Play In Editor: the game running in its own process, drawing into the Scene viewport (studio.play). */
+    var play: PlaySession = .()
 
     var focus: FieldFocus = .()
     var popup: Popup = .()

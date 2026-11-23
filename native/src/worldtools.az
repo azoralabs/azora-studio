@@ -41,27 +41,14 @@ func heightmapEditor(studio: Studio!, call: Invocation&) {
     studio.notify("Select a PGM heightmap in Assets and choose Create Landscape from Heightmap",1)
 }
 
-@Command(title: "Add Atmosphere and Weather", menu: "World", group: 1, order: 0)
+/** The sky, its sun and moon light and a cloud layer; the weather's parts (Rain, Snow, Dust, Wind, Thunder) are added as components. */
+@Command(title: "Add Atmosphere", menu: "World", group: 1, order: 0)
 func addAtmosphere(studio: Studio!, call: Invocation&) {
     fin entity = newWorldEntity(studio,"Atmosphere",.(0.0,0.0,0.0))
     storageInsert<AetherSky>(ensureStorage(studio.scene),entity,.(altitude: 0.0))
     storageInsert<AetherClouds>(ensureStorage(studio.scene),entity,.())
-    storageInsert<AetherWeather>(ensureStorage(studio.scene),entity,.())
-    storageInsert<AetherAudio>(ensureStorage(studio.scene),entity,.())
     storageInsert<Light3d>(ensureStorage(studio.scene),entity,.())
     studio.record(entity,"",-1,"add atmosphere")
-    studio.select(entity)
-}
-
-@Command(title: "Next Weather Preset", menu: "World", group: 1, order: 1)
-func nextWeather(studio: Studio!, call: Invocation&) {
-    fin entity = atmosphereEntity(studio.scene)
-    if !studio.scene.isAlive(entity) then return
-    fin before = studio.snapshot(entity)
-    var weather = storageGetOrDefault<AetherWeather>(ensureStorage(studio.scene),entity,.())
-    weather.preset = presetName(nextPreset(presetNamed(weather.preset)))
-    storageInsert<AetherWeather>(ensureStorage(studio.scene),entity,take weather)
-    studio.record(entity,before,studio.scene.getParent(entity).id,"change weather preset")
     studio.select(entity)
 }
 
@@ -290,11 +277,7 @@ func drawPhysicalSky(app: App!, studio: Studio!, rect: ViewRect&, elapsed: Doubl
     fin right = studio.camera.right()
     fin forward = studio.camera.forward()
     fin up = studio.camera.up()
-    if storageHas<AetherWeather>(ensureStorage(studio.scene),owner) {
-        previewWeather(studio.scene,owner,studio.atmosphereState,elapsed,app.deltaTime(),eye,right)
-    } else {
-        storageRemove<AtmosphereConditions>(ensureStorage(studio.scene),owner)
-    }
+    previewWeather(studio.scene,owner,studio.atmosphereState,elapsed,app.deltaTime(),eye,right)
     prepareAtmosphere(studio.scene,owner,studio.atmosphere,elapsed,eye)
     fin sky = storageGet<AetherSky>(ensureStorage(studio.scene),owner)
     fin width = app.width() as Double

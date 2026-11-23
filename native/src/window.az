@@ -46,6 +46,7 @@ import engine.vehicles
 import engine.weather
 import engine.roads
 import studio.menubar
+import studio.play
 
 // The Studio window. Panels are found by reflection, commands are found by
 // reflection, and the layout is ECS state the dock rearranges; this file only
@@ -395,7 +396,10 @@ react func describeStudio(pass: Composition!, studio: Studio&, app: App&, style:
         }
         if studio.popup.kind != "" {
             Column(modifier: ::fillMaxSize().fill(studioTheme.raised).rounded(8.0).outline(1.0, studioTheme.hairline).padding(all: 6.0), spacing: 1.0, key: "popup") {
-                popupRows(studio, app)
+                // Longer than the window (every component there is), it scrolls.
+                ScrollColumn(modifier: ::fillMaxSize(), spacing: 1.0, key: "rows") {
+                    popupRows(studio, app)
+                }
             }
         }
     }
@@ -446,6 +450,10 @@ func commitField(studio: Studio!) {
         }
     } else if focus.component == "SkyTime" {
         if !focus.replace then setViewportSkyHour(studio, focus.text)
+    } else if focus.component == "PhysicsRate" {
+        if !focus.replace then setPhysicsRate(studio, focus.text)
+    } else if focus.component == "CameraSpeed" {
+        if !focus.replace then setViewportCameraSpeed(studio, focus.text)
     } else if studio.scene.isAlive(entity) {
         if focus.numeric {
             fin number = parseNumber(focus.text, fieldNumber(studio.scene, entity, focus.component, focus.field, focus.axis))
@@ -512,23 +520,40 @@ func clearLayout(world: World!) {
  * True once the game was found.
  */
 func handOverToGame(root: String): Bool {
-    fin built = "${menuText(send0(nsString(root), sel("stringByResolvingSymlinksInPath")))}/.azora-build/"
+    fin game = runningGame(root)
+    if game == 0 then return false
+    fin nsapp = send0(cls("NSApplication"), sel("sharedApplication"))
+    if responds(nsapp, "yieldActivationToApplication:") then send1(nsapp, sel("yieldActivationToApplication:"), game)
+    // NSApplicationActivateAllWindows: its window comes forward with it.
+    send1(game, sel("activateWithOptions:"), 1)
+    return true
+}
+
+/**
+ * The running application (an NSRunningApplication) whose executable lies in
+ * [root]'s build folder - the game Studio ran - or 0. The game runs as an app
+ * bundle under `.azora-build/`, launched through LaunchServices, so it is not
+ * Studio's child: it is found by where its executable lives.
+ */
+func runningGame(root: String): Long {
+    // Both paths resolved the same way: resolving drops a leading /private
+    // (/private/tmp is /tmp), so a resolved folder never matched an unresolved executable.
+    fin folder = send0(send1(cls("NSURL"), sel("fileURLWithPath:"), nsString(root)), sel("URLByResolvingSymlinksInPath"))
+    fin built = "${menuText(send0(folder, sel("path")))}/.azora-build/"
     fin apps = send0(send0(cls("NSWorkspace"), sel("sharedWorkspace")), sel("runningApplications"))
     fin count = send0(apps, sel("count"))
-    var index: Long = 0
-    while index < count {
+    for index: Long in 0..<count {
         fin game = send1(apps, sel("objectAtIndex:"), index)
         fin url = send0(game, sel("executableURL"))
-        if url != 0 && startsWith(menuText(send0(url, sel("path"))), built) {
-            fin nsapp = send0(cls("NSApplication"), sel("sharedApplication"))
-            if responds(nsapp, "yieldActivationToApplication:") then send1(nsapp, sel("yieldActivationToApplication:"), game)
-            // NSApplicationActivateAllWindows: its window comes forward with it.
-            send1(game, sel("activateWithOptions:"), 1)
-            return true
-        }
-        index++
+        if url != 0 && startsWith(menuText(send0(send0(url, sel("URLByResolvingSymlinksInPath")), sel("path"))), built) then return game
     }
-    return false
+    return 0
+}
+
+/** Ends the game Studio ran from [root], when one is still running: Cancel stops the run, not only its launcher. */
+func stopGame(root: String) {
+    fin game = runningGame(root)
+    if game != 0 then send0(game, sel("forceTerminate"))
 }
 
 func readText(project: Long, path: String): String {
@@ -717,6 +742,9 @@ react func main() {
         wasDown = input.down && !cue.click
         studio.pointerX = input.x
         studio.pointerY = input.y
+        // Play In Editor: a click outside the game gives Studio the keyboard back; the game gets its input.
+        if studio.play.focused && input.pressed && !studio.play.contains(input.x, input.y) then studio.play.focused = false
+        tickPlaySession(studio, app)
 
         if scriptCommand != "" {
             if !runCommand(studio, scriptCommand, .(0, 0, 0.0, cue.argument)) { studio.notify("No command '${scriptCommand}'", 3) }
@@ -734,7 +762,7 @@ react func main() {
         } else if studio.focus.typing {
             typeIntoField(studio, app, typed, injectedKey)
             typed = ""
-        } else if !studio.sourceFocused && studio.viewDrag != 1 {
+        } else if !studio.sourceFocused && studio.viewDrag != 1 && !studio.play.focused {
             if injectedKey == KeyCode.Escape.value || app.keyPressed(.Escape) {
                 studio.popup = Popup()
                 studio.changed()
@@ -766,6 +794,13 @@ react func main() {
             layer--
         }
         if studio.popup.kind == "" && input.pressed && pass.world.isAlive(front) && dockRaise(pass.world, front) then studio.dock.changed()
+        if studio.popup.kind != "" && input.scrollY != 0.0 {
+            fin scroll = popupPaint.topmost<Scroll>(store(pass), input.x, input.y)
+            if scroll.isValid {
+                pass.scrollBy(scroll, -input.scrollY, storageGet<Rect>(store(pass), scroll).height)
+                studio.changed()
+            }
+        }
         if studio.popup.kind == "" && input.scrollY != 0.0 && studio.viewDrag == 0 {
             fin scroll = dockHit<Scroll>(floatPaint, mainPaint, store(pass), input.x, input.y)
             if scroll.isValid {
@@ -876,10 +911,16 @@ react func main() {
                             formatDecimal(studio.pluginParams[index].value, 4), input.x, 0.0, 0.0, "", true, true)
                     }
                 } else if binding.component == "SkyTime" {
-                    fin sky = viewSkyEntity(studio)
-                    if studio.scene.isAlive(sky) then studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
-                        formatDecimal(storageGet<SkyEnvironment>(ensureStorage(studio.scene), sky).hour, 3)
-                        input.x, 0.0, 0.0, "", true, true)
+                    // The physical sky keeps its hour in AetherSky: reading SkyEnvironment
+                    // there read a component the entity does not have.
+                    if studio.scene.isAlive(viewSkyEntity(studio)) then studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
+                        formatDecimal(viewportSkyHour(studio), 3), input.x, 0.0, 0.0, "", true, true)
+                } else if binding.component == "PhysicsRate" {
+                    studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
+                        "${studio.physicsRate}", input.x, 0.0, 0.0, "", true, true)
+                } else if binding.component == "CameraSpeed" {
+                    studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
+                        formatDecimal(studio.camera.speed, 2), input.x, 0.0, 0.0, "", true, true)
                 } else if binding.component == "FusionTexture" {
                     fin node = studio.fusion.indexOfNode(studio.fusionSelected)
                     if node >= 0 then studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
@@ -930,6 +971,12 @@ react func main() {
                     if studio.viewDrag != 0 then dragPanel = panel
                 }
             }
+        }
+
+        // A speed the wheel set while flying is kept once the flight ends.
+        if studio.cameraSpeedChanged && studio.viewDrag == 0 {
+            studio.cameraSpeedChanged = false
+            saveRenderPreferences(studio)
         }
 
         // ── Text into the source editor.
@@ -998,12 +1045,14 @@ react func main() {
                 fin manifest = readText(project, "azora.azon")
                 if hasProjectPackages(manifest) {
                     // The game Studio runs renders as Preferences say, not only the viewport.
-                    if action == "play" {
+                    if action == "play" || action == "pie" {
                         azsSetEnvironment("AZORA_RENDER_LIGHTING", if studio.indirectLighting then "photon" else "standard")
                         azsSetEnvironment("AZORA_RENDER_SHADOWS", if studio.virtualShadows then "virtual" else "computed")
                         azsSetEnvironment("AZORA_RENDER_UPSCALING", if studio.upscaling then "temporal" else "native")
+                        azsSetEnvironment("AZORA_PHYSICS_RATE", "${studio.physicsRate}")
                     }
-                    studio.process = azsEngineProcessStart(compiler, root, if action == "play" then "run" else action)
+                    // Play In Editor builds the game; Studio then runs it into the viewport itself.
+                    studio.process = azsEngineProcessStart(compiler, root, if action == "play" then "run" else if action == "pie" then "build" else action)
                     studio.handingOver = action == "play" && studio.process != 0
                 } else {
                     studio.process = azsProcessStart(compiler, root, root, action)
@@ -1011,11 +1060,13 @@ react func main() {
                 if studio.process == 0 { studio.notify(azsError(), 3) }
                 else {
                     studio.processAction = action
-                    studio.busy = true
+                    // The background source check is not the user's: Run and Build stay offered (they cancel it).
+                    studio.busy = action != "inspect"
                     if action != "inspect" { studio.output("$ azora ${action}\n") }
                     studio.notify(when action {
                         "inspect" -> "Checking src/main.az…"
                         "play" -> "Building and running the app…"
+                        "pie" -> "Building the game to play in the viewport…"
                         else -> "Building with the native compiler…"
                     }, 1)
                 }
@@ -1027,20 +1078,25 @@ react func main() {
             fin result = azsProcessPoll(studio.process)
             if result != -1 {
                 fin output = azsProcessOutput(studio.process)
-                if studio.processAction == "inspect" && isInspectSnapshot(output) {
+                if studio.quietCancel {
+                    studio.quietCancel = false
+                } else if studio.processAction == "inspect" && isInspectSnapshot(output) {
                     studio.inspect(output, "src/main.az")
                     fin count = studio.problems.size
                     if count == 0 { studio.notify("No problems", 2) }
                     else { studio.notify(if count == 1 then "1 problem in src/main.az" else { "${count} problems in src/main.az" }, if studio.countProblems(0) > 0 then 3 else 1) }
                 } else {
                     studio.output(if output == "" { "$ azora ${studio.processAction}\n(no output)" } else { "$ azora ${studio.processAction}\n${output}" })
-                    if result == 0 { studio.notify(when studio.processAction {
+                    if result == 0 && studio.processAction == "pie" { startPlaySession(studio, app, root) }
+                    else if result == 0 { studio.notify(when studio.processAction {
                         "play" -> "Run finished"
                         "build" -> "Build succeeded"
                         else -> "Check finished"
                     }, 2) }
                     else { studio.notify("${studio.processAction} failed (exit ${result})", 3) }
                 }
+                // A cancelled run kills its launcher; the game it opened goes with it.
+                if studio.processAction == "play" && result != 0 then stopGame(root)
                 azsProcessClose(studio.process)
                 studio.process = 0
                 studio.handingOver = false
@@ -1093,7 +1149,8 @@ react func main() {
             if popupNode.isValid {
                 var x = studio.popup.x
                 var y = studio.popup.y + 6.0
-                fin h = popupHeight(studio, studio.popup.kind)
+                fin wanted = popupHeight(studio, studio.popup.kind)
+                fin h = if wanted > height - 16.0 then height - 16.0 else wanted
                 if x + 280.0 > width then x = width - 288.0
                 if y + h > height then y = height - h - 8.0
                 pass.arrange(popupNode, x, y, 280.0, h)
@@ -1156,6 +1213,7 @@ react func main() {
     }
     app.releasePrimitives(studio.meshes)
     pass.dispose()
+    endPlaySession(studio, -1)
     app.shutdown()
     purge studio
     println("frames ${frames}")

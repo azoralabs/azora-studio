@@ -22,7 +22,6 @@ bridge .C {
     func @foreignName("opendir")(path: String): Long
     func @foreignName("readdir")(directory: Long): Long
     func @foreignName("closedir")(directory: Long): Int
-    func @foreignName("mkdir")(path: String, mode: Int): Int
     func @foreignName("mkdtemp")(pattern: Long): Long
     func @foreignName("removefile")(path: String, state: Long, flags: Int): Int
     func @foreignName("_NSGetEnviron")(): Long
@@ -131,14 +130,6 @@ func listFolders(path: String): Array<String> {
     return folders
 }
 
-/** Creates [path] and every missing parent. */
-func makeFolders(path: String) {
-    var at = 1
-    while at <= stringLength(path) {
-        if at == stringLength(path) || charAt(path, at) == '/' then mkdir(substring(path, 0, at), 493)
-        at++
-    }
-}
 
 /**
  * The newest modification time under [path] in seconds, hidden entries and

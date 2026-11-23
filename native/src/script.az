@@ -196,20 +196,16 @@ impl ScriptPlayer {
     }
 
     /**
-     * Captures [app]'s window as just presented into AZORA_STUDIO_SHOTS/[shot].png
-     * when [shot] names one, and notices when a capture finishes.
+     * Captures [app]'s window as presented next into AZORA_STUDIO_SHOTS/[shot].png
+     * when [shot] names one. The pixels are read back from the GPU (the
+     * engine's AZORA_CAPTURE path), so a capture works with the display asleep
+     * or the window covered, which the window server's screenshot did not.
      */
-    func !.capture(app: App&, root: String, shot: String) {
-        if shot != "" && self.shooting == 0 {
-            fin window = send0(app.win.handle, sel("windowNumber"))
-            self.shooting = azsProcessStart("/usr/sbin/screencapture", root, "-xol${window}", "${azsEnvironment("AZORA_STUDIO_SHOTS")}/${shot}.png")
-            if self.shooting == 0 { println("screenshot failed: ${azsError()}") }
-        }
-        if self.shooting != 0 && azsProcessPoll(self.shooting) != -1 {
-            if azsProcessPoll(self.shooting) != 0 { println("screenshot exited ${azsProcessPoll(self.shooting)}: ${azsProcessOutput(self.shooting)}") }
-            azsProcessClose(self.shooting)
-            self.shooting = 0
-        }
+    func !.capture(app: App!, root: String, shot: String) {
+        if shot == "" then return
+        send1(app.gpu.layer, sel("setFramebufferOnly:"), 0)
+        app.captureFrame = app.framesRun + 1
+        app.capturePath = "${azsEnvironment("AZORA_STUDIO_SHOTS")}/${shot}.png"
     }
 
     func !.close() {

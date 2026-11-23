@@ -15,6 +15,7 @@ import studio.fields
 import engine.atmosphere
 import studio.host
 import engine.render.scene
+import engine.world.partition
 import engine.gizmos
 import engine.ui.node
 import engine.ui.icons
@@ -28,6 +29,7 @@ import studio.plugins
 import studio.worldtools
 import studio.foliagetool
 import engine.roads
+import studio.play
 
 // The scene viewport: the Engine renders the scene into the panel's surface,
 // and the gizmos package draws the grid, the handles and the axis widget over
@@ -60,6 +62,13 @@ impl pack ScenePanel {
                         NumberField("SkyTime", "hour", 0, hour, studio.focus, key: "hour")
                     }
                 }
+                // The camera's flying speed, as Unreal's camera speed: typed here, or
+                // turned with the wheel while the right button flies the view.
+                Icon("video", studioTheme.muted, size: studioTheme.iconSmall, key: "speed-icon")
+                Row(modifier: ::width(58.0).height(26.0), key: "speed") {
+                    NumberField("CameraSpeed", "speed", 0, studio.camera.speed, studio.focus, key: "value")
+                }
+                Text("m/s", modifier: ::width(26.0).fontSize(11.0).mutedText(), key: "speed-unit")
                 BarButton("viewFocus", app, icon: "focus", label: "Focus", key: "focus")
             }
             Surface("ScenePanel", studioTheme.viewport)
@@ -89,6 +98,17 @@ func viewSkyEntity(studio: Studio&): Entity {
         index++
     }
     return ::invalid
+}
+
+/** The hour the viewport's sky shows: the physical sky's, or the simple sky's. */
+func viewportSkyHour(studio: Studio&): Double {
+    fin sky = viewSkyEntity(studio)
+    return when {
+        !studio.scene.isAlive(sky) -> 0.0
+        storageHas<AetherSky>(storageOf(studio.scene), sky) -> storageGet<AetherSky>(storageOf(studio.scene), sky).hour
+        storageHas<SkyEnvironment>(storageOf(studio.scene), sky) -> storageGet<SkyEnvironment>(storageOf(studio.scene), sky).hour
+        else -> 0.0
+    }
 }
 
 func setViewportSkyHour(studio: Studio!, text: String) {
@@ -178,7 +198,8 @@ func pickMesh(app: App!, studio: Studio!, ray: Ray&): Entity {
     var index = 0
     while index < storageLength<Mesh3d>(ensureStorage(studio.scene)) {
         fin entity = storageEntityAt<Mesh3d>(ensureStorage(studio.scene), index)
-        if studio.scene.isAlive(entity) && visibleInWorld(studio.scene, entity) {
+        // What a World Partition streamed in is generated, not part of the scene: it is not picked.
+        if studio.scene.isAlive(entity) && visibleInWorld(studio.scene, entity) && !storageHas<Streamed>(ensureStorage(studio.scene), entity) {
             fin mesh = storageValueAt<Mesh3d>(ensureStorage(studio.scene), index).clone()
             fin local = rayIntoEntity(studio.scene, entity, ray)
             fin half = mesh.size * 0.5
@@ -212,7 +233,7 @@ func pickMesh(app: App!, studio: Studio!, ray: Ray&): Entity {
     index = 0
     while index < storageLength<HeightfieldTerrain>(terrains) {
         fin entity = storageEntityAt<HeightfieldTerrain>(terrains, index)
-        if studio.scene.isAlive(entity) && visibleInWorld(studio.scene, entity) {
+        if studio.scene.isAlive(entity) && visibleInWorld(studio.scene, entity) && !storageHas<Streamed>(ensureStorage(studio.scene), entity) {
             fin terrain = terrains.values[index].clone()
             fin asset = app.sceneTerrainIndex(entity,terrain,heightfieldMatrix(studio.scene,entity,terrain))
             fin data = app.gpu.terrains[asset].image.clone()
@@ -329,6 +350,14 @@ func brushPointer(app: App&, studio: Studio!, phase: String, ray: Ray&, seconds:
  * drag pans and the fly keys slide the view.
  */
 func viewportPointer(app: App!, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
+    // While a game is played here the pointer is the game's: a click gives it the keyboard and mouse.
+    if studio.play.running {
+        if input.pressed && !studio.play.focused {
+            studio.play.focused = true
+            studio.changed()
+        }
+        return true
+    }
     studio.camera.orthographic = !studio.mode3d
     fin selected = studio.selected()
     when studio.viewDrag {
@@ -337,6 +366,13 @@ func viewportPointer(app: App!, studio: Studio!, rect: ViewRect&, input: FrameIn
             // it recomposes nothing.
             if input.rightDown {
                 if studio.mode3d then studio.camera.look(input.dx, input.dy) else studio.camera.pan(input.dx, input.dy, rect)
+                // The wheel while flying sets the speed, as in Unreal; a trackpad's fine steps add up.
+                if input.scrollY != 0.0 && studio.mode3d {
+                    studio.camera.changeSpeed(if input.preciseScroll then input.scrollY / 10.0 else input.scrollY)
+                    studio.cameraSpeedChanged = true
+                    studio.message("Camera speed ${formatDecimal(studio.camera.speed, 1)} m/s")
+                    studio.changed()
+                }
                 studio.camera.fly(input.flyForward, input.flyRight, input.flyUp, input.seconds, input.shift)
                 return true
             }
@@ -498,45 +534,75 @@ func boundsLines(app: App!, studio: Studio!, entity: Entity, viewProj: Mat4&, re
     }
 }
 
-/** A marker for each camera and light: a disc with its glyph, and which way it faces. */
+/**
+ * A marker for each camera and light (a disc with its glyph, and which way it
+ * faces), a dot for each junction and player start, and for the knots of the
+ * road being edited. Only the storages that carry markers are walked, and what
+ * a World Partition streamed in has none.
+ */
 func drawMarkers(app: App!, studio: Studio!, viewProj: Mat4&, rect: ViewRect&) {
-    var id = 0
-    while id < studio.scene.entityCount {
-        fin entity = studio.scene.entityAt(id)
-        fin camera = studio.scene.isAlive(entity) && storageHas<Camera3d>(ensureStorage(studio.scene), entity)
-        fin light = studio.scene.isAlive(entity) && storageHas<Light3d>(ensureStorage(studio.scene), entity) && entity != sceneSkyLight(studio.scene)
-        fin point = studio.scene.isAlive(entity) && storageHas<RoadPoint>(ensureStorage(studio.scene),entity)
-        fin junction = studio.scene.isAlive(entity) && storageHas<RoadJunction>(ensureStorage(studio.scene),entity)
-        fin player = studio.scene.isAlive(entity) && storageHas<PlayerStart>(ensureStorage(studio.scene),entity)
-        if (point && (studio.selected() == entity || studio.selected() == studio.scene.getParent(entity) ||
-            (studio.roadPlacement == 1 && studio.roadTarget == studio.scene.getParent(entity)))) || junction || player {
-            fin at = project(viewProj,rect,worldPosition(studio.scene,entity))
-            if at.visible {
-                fin tint = if player then studioTheme.green else studioTheme.accent
-                app.uiRoundRect(at.x-4.0,at.y-4.0,8.0,8.0,4.0,tint.r,tint.g,tint.b,0.9)
-            }
+    fin streamed = ensureStorage<Streamed>(studio.scene)
+    fin junctions = ensureStorage<RoadJunction>(studio.scene)
+    for i: Int in 0..<storageLength<RoadJunction>(junctions) {
+        fin entity = storageEntityAt<RoadJunction>(junctions, i)
+        if !storageHas<Streamed>(streamed, entity) then markerDot(app, studio, viewProj, rect, entity, studioTheme.accent)
+    }
+    fin starts = ensureStorage<PlayerStart>(studio.scene)
+    for i: Int in 0..<storageLength<PlayerStart>(starts) {
+        fin entity = storageEntityAt<PlayerStart>(starts, i)
+        if !storageHas<Streamed>(streamed, entity) then markerDot(app, studio, viewProj, rect, entity, studioTheme.green)
+    }
+    fin selected = studio.selected()
+    fin points = ensureStorage<RoadPoint>(studio.scene)
+    for i: Int in 0..<storageLength<RoadPoint>(points) {
+        fin entity = storageEntityAt<RoadPoint>(points, i)
+        fin road = studio.scene.getParent(entity)
+        if selected == entity || selected == road || (studio.roadPlacement == 1 && studio.roadTarget == road) {
+            markerDot(app, studio, viewProj, rect, entity, studioTheme.accent)
         }
-        if camera || light {
-            fin position = worldPosition(studio.scene, entity)
-            fin m = worldMatrix(studio.scene, entity)
-            fin facing = v3unit(.(-m.m02, -m.m12, -m.m22))
-            fin tint = if camera then studioTheme.teal else studioTheme.yellow
-            fin selected = storageHas<Selected>(ensureStorage(studio.scene), entity)
-            app.worldLine(viewProj, rect, position, v3add(position, v3scale(facing, if camera then 1.2 else 1.6)), if selected then 2.0 else { 1.5 }, tint.withAlpha(0.85))
-            fin at = project(viewProj, rect, position)
-            if at.visible {
-                app.uiRoundRect(at.x - 11.0, at.y - 11.0, 22.0, 22.0, 11.0, studioTheme.ground.r, studioTheme.ground.g, studioTheme.ground.b, 0.85)
-                app.uiRoundRectStroke(at.x - 11.0, at.y - 11.0, 22.0, 22.0, 11.0, if selected then 2.0 else 1.5, tint.r, tint.g, tint.b, 1.0)
-                app.drawIcon(studio.icons, if camera then "video" else "sun", at.x - studioTheme.iconSmall * 0.5, at.y - studioTheme.iconSmall * 0.5, studioTheme.iconSmall, tint)
-            }
-        }
-        id++
+    }
+    fin cameras = ensureStorage<Camera3d>(studio.scene)
+    for i: Int in 0..<storageLength<Camera3d>(cameras) {
+        fin entity = storageEntityAt<Camera3d>(cameras, i)
+        if !storageHas<Streamed>(streamed, entity) then markerGlyph(app, studio, viewProj, rect, entity, true)
+    }
+    fin sky = sceneSkyLight(studio.scene)
+    fin lights = ensureStorage<Light3d>(studio.scene)
+    for i: Int in 0..<storageLength<Light3d>(lights) {
+        fin entity = storageEntityAt<Light3d>(lights, i)
+        if entity != sky && !storageHas<Streamed>(streamed, entity) then markerGlyph(app, studio, viewProj, rect, entity, false)
+    }
+}
+
+/** A small dot at [entity]. */
+func markerDot(app: App!, studio: Studio!, viewProj: Mat4&, rect: ViewRect&, entity: Entity, tint: Rgba) {
+    if !studio.scene.isAlive(entity) then return
+    fin at = project(viewProj,rect,worldPosition(studio.scene,entity))
+    if at.visible then app.uiRoundRect(at.x-4.0,at.y-4.0,8.0,8.0,4.0,tint.r,tint.g,tint.b,0.9)
+}
+
+/** A camera's or a light's disc with its glyph, and a line the way it faces. */
+func markerGlyph(app: App!, studio: Studio!, viewProj: Mat4&, rect: ViewRect&, entity: Entity, camera: Bool) {
+    if !studio.scene.isAlive(entity) then return
+    fin position = worldPosition(studio.scene, entity)
+    fin m = worldMatrix(studio.scene, entity)
+    fin facing = v3unit(.(-m.m02, -m.m12, -m.m22))
+    fin tint = if camera then studioTheme.teal else studioTheme.yellow
+    fin selected = storageHas<Selected>(ensureStorage(studio.scene), entity)
+    app.worldLine(viewProj, rect, position, v3add(position, v3scale(facing, if camera then 1.2 else 1.6)), if selected then 2.0 else { 1.5 }, tint.withAlpha(0.85))
+    fin at = project(viewProj, rect, position)
+    if at.visible {
+        app.uiRoundRect(at.x - 11.0, at.y - 11.0, 22.0, 22.0, 11.0, studioTheme.ground.r, studioTheme.ground.g, studioTheme.ground.b, 0.85)
+        app.uiRoundRectStroke(at.x - 11.0, at.y - 11.0, 22.0, 22.0, 11.0, if selected then 2.0 else 1.5, tint.r, tint.g, tint.b, 1.0)
+        app.drawIcon(studio.icons, if camera then "video" else "sun", at.x - studioTheme.iconSmall * 0.5, at.y - studioTheme.iconSmall * 0.5, studioTheme.iconSmall, tint)
     }
 }
 
 /** Reuses the authored camera for heightfield scenes so the terrain opens framed. */
 func frameTerrainScene(studio: Studio!) {
-    if storageLength<HeightfieldTerrain>(ensureStorage(studio.scene)) == 0 then return
+    // A World Partition's ground streams in around the camera: it opens where the authored camera looks too.
+    fin streamedWorld = worldPartitionEntity(studio.scene).isValid
+    if storageLength<HeightfieldTerrain>(ensureStorage(studio.scene)) == 0 && !streamedWorld then return
     fin cameras = ensureStorage<Camera3d>(studio.scene)
     var index = 0
     while index < storageLength<Camera3d>(cameras) {
@@ -546,8 +612,12 @@ func frameTerrainScene(studio: Studio!) {
             fin pose = worldMatrix(studio.scene, entity)
             fin forward = v3unit(.(-pose.m02, -pose.m12, -pose.m22))
             fin eye: Vec3 = .(pose.m03, pose.m13, pose.m23)
-            fin terrain = storageValueAt<HeightfieldTerrain>(ensureStorage(studio.scene), 0).clone()
-            studio.camera.distance = (terrain.width + terrain.length) * 0.15
+            if storageLength<HeightfieldTerrain>(ensureStorage(studio.scene)) > 0 {
+                fin terrain = storageValueAt<HeightfieldTerrain>(ensureStorage(studio.scene), 0).clone()
+                studio.camera.distance = (terrain.width + terrain.length) * 0.15
+            } else {
+                studio.camera.distance = streamedViewDistance
+            }
             studio.camera.target = v3add(eye, v3scale(forward, studio.camera.distance))
             studio.camera.pitch = asin(clampValue(forward.y, -1.0, 1.0)) / degreesToRadians
             studio.camera.yaw = atan2(-forward.x, -forward.z) / degreesToRadians
@@ -559,6 +629,9 @@ func frameTerrainScene(studio: Studio!) {
     }
 }
 
+/** How far ahead of a streamed world's authored camera the editor camera orbits when a scene opens, in metres. */
+inline fin streamedViewDistance: Double = 400.0
+
 /** A count as people read it: 980, 48.2k, 1.4M. */
 func countText(count: Int): String = when {
     count >= 1000000 -> "${fixedDecimal((count as Double)/1000000.0,1)}M"
@@ -568,6 +641,13 @@ func countText(count: Int): String = when {
 
 func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     if rect.width < 4.0 || rect.height < 4.0 then return
+    // Play In Editor: the game's frames instead of the editor's view.
+    if studio.play.running {
+        app.setScissor(rect.x, rect.y, rect.width, rect.height)
+        drawPlayFrame(app, studio, rect.x, rect.y, rect.width, rect.height)
+        app.clearScissor()
+        return
+    }
     if studio.pauseViewportDuringPlay && studio.process != 0 && studio.processAction == "play" && !studio.handingOver {
         fin label = "Viewport paused while the game runs"
         app.setScissor(rect.x, rect.y, rect.width, rect.height)
@@ -578,6 +658,9 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
         return
     }
     studio.camera.orthographic = !studio.mode3d
+    // A World Partition streams its cells around the editor's view, as around the player in a game.
+    // A cell that came in or went changes what the Scene Tree lists.
+    if streamWorldAround(studio.scene, studio.root, studio.camera.position()) > 0 then studio.changed()
     fin colors = gizmoColors()
     fin viewProj = studio.camera.viewProj(rect.aspect())
     app.setScissor(rect.x, rect.y, rect.width, rect.height)

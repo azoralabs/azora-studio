@@ -23,6 +23,8 @@ import studio.plugins
 import studio.landscape
 import engine.landscape
 import studio.os
+import engine.io
+import studio.play
 
 // Every action Studio can take, as a `@Command`. A pressed node names one by
 // declaration name; the menu bar lists those with a `menu`, grouped by `group`
@@ -369,39 +371,55 @@ func viewTogglePhotons(studio: Studio!, call: Invocation&) {
 
 // ── Run ─────────────────────────────────────────────────────────────────
 
-@Command(title: "Play Scene", menu: "Run", group: 0, order: 0, key: "p")
+/** Play In Editor: builds the game and plays it in the Scene viewport; on a paused game, carries on. */
+@Command(title: "Play in Viewport", menu: "Run", group: 0, order: 0, key: "p")
 func runPlay(studio: Studio!, call: Invocation&): Unit {
-    if studio.playing && studio.paused {
-        studio.paused = false
-    } else {
-        studio.playing = true
-        studio.paused = false
-        studio.playTime = 0.0
+    if studio.play.running {
+        if studio.paused then studio.paused = false
+        studio.play.focused = true
+        return
     }
-    studio.message("Scene preview playing")
+    if !makeWayForTool(studio) then return
+    if saveSceneDocument(studio) then studio.requestedTool = "pie"
 }
 
-@Command(title: "Pause Scene", menu: "Run", group: 0, order: 1, key: "p", shift: true)
+@Command(title: "Pause Play", menu: "Run", group: 0, order: 1, key: "p", shift: true)
 func runPause(studio: Studio!, call: Invocation&): Unit {
-    if !studio.playing then return
+    if !studio.play.running then return
     studio.paused = !studio.paused
-    studio.message(if studio.paused then "Scene preview paused" else "Scene preview playing")
+    studio.message(if studio.paused then "Play paused" else "Playing")
 }
 
-@Command(title: "Stop Scene", menu: "Run", group: 0, order: 2)
+@Command(title: "Stop Play", menu: "Run", group: 0, order: 2)
 func runStop(studio: Studio!, call: Invocation&): Unit {
-    studio.playing = false
-    studio.paused = false
-    studio.message("Scene preview stopped")
+    if studio.play.running then stopPlaySession(studio)
+    else if studio.process != 0 && studio.processAction == "pie" then azsProcessCancel(studio.process)
 }
 
 @Command(title: "Build", menu: "Run", group: 1, order: 0, key: "b")
 func toolBuild(studio: Studio!, call: Invocation&): Unit {
-    studio.requestedTool = "build"
+    if makeWayForTool(studio) then studio.requestedTool = "build"
+}
+
+/**
+ * Clears the way for a build, a run or Play: the background source check
+ * (which can take minutes) is cancelled without a report; anything else
+ * running is waited for, with a notice. False when it has to be waited for.
+ */
+func makeWayForTool(studio: Studio!): Bool {
+    if studio.process == 0 then return true
+    if studio.processAction == "inspect" {
+        studio.quietCancel = true
+        azsProcessCancel(studio.process)
+        return true
+    }
+    studio.notify("Wait for ${studio.processAction} to finish", 1)
+    return false
 }
 
 @Command(title: "Run App", menu: "Run", group: 1, order: 1, key: "r")
 func toolRun(studio: Studio!, call: Invocation&): Unit {
+    if !makeWayForTool(studio) then return
     if saveSceneDocument(studio) then studio.requestedTool = "play"
 }
 
@@ -450,7 +468,9 @@ func loadRenderPreferences(studio: Studio!, home: String) {
         .Object(fields) -> {
             studio.indirectLighting = memberText(fields, "lighting", "photon") != "standard"
             studio.virtualShadows = memberText(fields, "shadows", "virtual") != "computed"
-            studio.upscaling = memberText(fields, "upscaling", "native") == "temporal"
+            studio.upscaling = memberText(fields, "upscaling", "temporal") == "temporal"
+            studio.camera.speed = memberReal(fields, "cameraSpeed", studio.camera.speed)
+            studio.physicsRate = memberInt(fields, "physicsRate", studio.physicsRate)
             fin pauseViewport = memberAt(fields, "pauseViewportDuringPlay")
             if pauseViewport >= 0 {
                 studio.pauseViewportDuringPlay = serialAsBool(fields[pauseViewport].value) catch true
@@ -458,6 +478,19 @@ func loadRenderPreferences(studio: Studio!, home: String) {
         }
         else -> {}
     }
+}
+
+/** Sets the physics steps per second the game runs at from typed [text] (10 to 1000), and keeps it. */
+func setPhysicsRate(studio: Studio!, text: String) {
+    fin rate = parseNumber(text, studio.physicsRate as Double) as Int
+    studio.physicsRate = if rate < 10 then 10 else if rate > 1000 then 1000 else rate
+    saveRenderPreferences(studio)
+}
+
+/** Sets the editor camera's flying speed from typed [text], in metres per second, and keeps it. */
+func setViewportCameraSpeed(studio: Studio!, text: String) {
+    studio.camera.speed = clampValue(parseNumber(text, studio.camera.speed), cameraSlowest, cameraFastest)
+    saveRenderPreferences(studio)
 }
 
 func saveRenderPreferences(studio: Studio!) {
@@ -471,7 +504,7 @@ func saveRenderPreferences(studio: Studio!) {
     fin lighting = if studio.indirectLighting then "photon" else "standard"
     fin shadows = if studio.virtualShadows then "virtual" else "computed"
     fin upscaling = if studio.upscaling then "temporal" else "native"
-    fin buffer = azsBufferNew("{\"lighting\": \"${lighting}\", \"shadows\": \"${shadows}\", \"upscaling\": \"${upscaling}\", \"pauseViewportDuringPlay\": ${studio.pauseViewportDuringPlay}}\n")
+    fin buffer = azsBufferNew("{\"lighting\": \"${lighting}\", \"shadows\": \"${shadows}\", \"upscaling\": \"${upscaling}\", \"pauseViewportDuringPlay\": ${studio.pauseViewportDuringPlay}, \"cameraSpeed\": ${formatDecimal(studio.camera.speed, 3)}, \"physicsRate\": ${studio.physicsRate}}\n")
     fin written = if buffer == 0 then 0 else azsProjectWrite(project, renderPreferencesFile, buffer)
     if buffer != 0 then azsBufferClose(buffer)
     azsProjectClose(project)

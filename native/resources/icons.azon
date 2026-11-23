@@ -13,6 +13,8 @@
         "users", "heart", "message-circle", "book-open", "house", "clock", "gamepad-2", "car",
         "mountain", "puzzle", "map", "app-window", "swords", "rocket", "sparkles", "lightbulb",
         "shapes", "globe", "component", "cuboid", "axis-3d", "orbit", "monitor-play", "wrench",
-        "circle-dashed", "move-3d", "rotate-cw", "circle-x", "palette", "tag", "refresh-cw"
+        "circle-dashed", "move-3d", "rotate-cw", "circle-x", "palette", "tag", "refresh-cw", "trees",
+        "sprout", "cloud", "cloud-fog", "cloud-rain", "cloud-sun", "droplets", "route", "snowflake", "volume-2",
+        "wind", "zap"
     ]
 }
