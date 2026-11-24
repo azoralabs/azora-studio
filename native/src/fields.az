@@ -74,12 +74,13 @@ impl pack TextField {
         field: String
         value: String
         focus: FieldFocus&
+        placeholder: String = ""
         key: String = ""
     ): Entity {
         fin typing = focus.typing && focus.component == component && focus.field == field
         fin node = Row(modifier: ::weight(1.0).height(24.0).sunken().rounded(5.0).padding(start: 8.0, end: 8.0)
             .outline(1.0, if typing then studioTheme.accent else studioTheme.hairline), verticalAlignment: .Center, :key) {
-            Text(if typing { "${focus.text}|" } else { value }, modifier: ::weight(1.0).fillMaxHeight().fontSize(12.0).ink(studioTheme.text).textAlign(.Start), key: "value")
+            Text(if typing { "${focus.text}|" } else if value == "" { placeholder } else { value }, modifier: ::weight(1.0).fillMaxHeight().fontSize(12.0).ink(studioTheme.text).textAlign(.Start), key: "value")
         }
         storageInsert<FieldTarget>(store(anchor.pass), node, .(component, field, 0, false))
         return node

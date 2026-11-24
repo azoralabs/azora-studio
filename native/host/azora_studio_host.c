@@ -21,7 +21,6 @@
 #include <unistd.h>
 #ifdef __APPLE__
 #include <crt_externs.h>
-#include <mach-o/dyld.h>
 #else
 extern char **environ;
 #endif
@@ -189,7 +188,7 @@ static int template_manifest(const char *stage, const char *name, const char *co
     return fclose(manifest) == 0 && written ? 1 : system_fail("write project manifest");
 }
 
-int32_t azs_project_from_template(const char *root, const char *source, const char *manifest) {
+int32_t azs_project_from_template_with_entry(const char *root, const char *source, const char *manifest, const char *entry_path) {
     if (!root || root[0] != '/' || !source || source[0] != '/')
         return fail("project and template need absolute paths");
     const char *name = strrchr(root, '/') + 1;
@@ -206,7 +205,7 @@ int32_t azs_project_from_template(const char *root, const char *source, const ch
     if (!ok) system_fail("copy project template");
     if (ok) {
         int64_t project = azs_project_open(stage, 0);
-        int64_t entry = project ? azs_project_read(project, "src/main.az") : 0;
+        int64_t entry = project ? azs_project_read(project, entry_path) : 0;
         if (entry) azs_buffer_close(entry);
         if (project) azs_project_close(project);
         ok = entry != 0 && template_manifest(stage, name, manifest);
@@ -224,6 +223,10 @@ int32_t azs_project_from_template(const char *root, const char *source, const ch
     }
     if (!ok) nftw(stage, remove_entry, 16, FTW_DEPTH | FTW_PHYS);
     return ok;
+}
+
+int32_t azs_project_from_template(const char *root, const char *source, const char *manifest) {
+    return azs_project_from_template_with_entry(root, source, manifest, "src/main.az");
 }
 int64_t azs_peak_memory_bytes(void) {
     struct rusage usage;
@@ -439,8 +442,9 @@ int32_t azs_project_write(int64_t handle, const char *relative, int64_t buffer) 
  * relative path walked one segment at a time, refusing symlinks. */
 static int directory_fd(Slot *project, const char *relative) {
     if (!relative || !*relative || !strcmp(relative, ".")) {
-        int root = dup(project->fd);
-        if (root < 0) system_fail("duplicate project directory");
+        /* A duplicated descriptor would share the directory's read position. */
+        int root = openat(project->fd, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+        if (root < 0) system_fail("open project directory");
         return root;
     }
     char name[NAME_MAX + 1]; int parent = parent_fd(project, relative, name);
@@ -589,39 +593,6 @@ static char **studio_environment(void) {
 
 int64_t azs_studio_start(const char *program) {
     return start_studio(program, studio_environment());
-}
-
-int64_t azs_studio_open_scene(const char *project, const char *scene) {
-    char program[PATH_MAX], opened_project[PATH_MAX + 24], opened_scene[PATH_MAX + 24];
-    if (!project || *project != '/' || !scene || !*scene ||
-        snprintf(opened_project, sizeof opened_project, "AZORA_STUDIO_PROJECT=%s", project) >= (int)sizeof opened_project ||
-        snprintf(opened_scene, sizeof opened_scene, "AZORA_STUDIO_SCENE=%s", scene) >= (int)sizeof opened_scene) {
-        return fail("Invalid scene path");
-    }
-#ifdef __APPLE__
-    uint32_t capacity = sizeof program;
-    if (_NSGetExecutablePath(program, &capacity) != 0) return fail("Studio executable path is too long");
-#else
-    ssize_t length = readlink("/proc/self/exe", program, sizeof program - 1);
-    if (length < 0 || length >= (ssize_t)sizeof program - 1) return system_fail("locate Studio executable");
-    program[length] = 0;
-#endif
-    char **current = studio_environment();
-    size_t count = 0;
-    while (current[count]) ++count;
-    char **environment = calloc(count + 3, sizeof *environment);
-    if (!environment) return fail("out of memory");
-    size_t next = 0;
-    for (size_t i = 0; i < count; ++i) {
-        if (strncmp(current[i], "AZORA_STUDIO_PROJECT=", 21) &&
-            strncmp(current[i], "AZORA_STUDIO_SCENE=", 19) &&
-            strncmp(current[i], "AZORA_STUDIO_SCRIPT=", 20)) environment[next++] = current[i];
-    }
-    environment[next++] = opened_project;
-    environment[next] = opened_scene;
-    int64_t handle = start_studio(program, environment);
-    free(environment);
-    return handle;
 }
 
 int32_t azs_process_pid(int64_t handle) {

@@ -5,10 +5,7 @@ import std.container.list
 import studio.host
 
 /** Copies the template's package configuration and names its project after the destination. */
-func namedManifest(root: String, template: String): String {
-    fin project = azsProjectOpen(template, 0)
-    if project == 0 then return ""
-    defer { azsProjectClose(project) }
+func namedManifest(root: String, project: Long): String {
     fin manifest = azsProjectRead(project, "azora.azon")
     if manifest == 0 then return ""
     defer { azsBufferClose(manifest) }
@@ -36,7 +33,13 @@ func namedManifest(root: String, template: String): String {
 }
 
 func createNativeProject(root: String, template: String = ""): Bool {
-    if template != "" then return azsProjectFromTemplate(root, template, namedManifest(root, template)) != 0
+    if template != "" {
+        fin project = azsProjectOpen(template, 0)
+        if project == 0 then return false
+        defer { azsProjectClose(project) }
+        fin files = projectFiles(project)
+        return azsProjectFromTemplateWithEntry(root, template, namedManifest(root, project), files.source) != 0
+    }
     fin source = azsBufferNew("import std.io\nfunc main() { println(\"Azora native project\") }\n")
     if source == 0 then return false
     fin project = azsProjectOpen(root, 1)

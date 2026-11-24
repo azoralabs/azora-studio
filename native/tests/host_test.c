@@ -55,6 +55,21 @@ static void template_probe(const char *base) {
     assert(fread(copied, 1, sizeof copied, file) == sizeof copied);
     assert(!memcmp(copied, texture, sizeof texture));
     assert(fclose(file) == 0);
+
+    template = azs_project_open(source, 0); assert(template);
+    buffer = azs_buffer_new("func start() {}"); assert(buffer);
+    assert(azs_project_make_dir(template, "game"));
+    assert(azs_project_write(template, "game/thirdPerson.az", buffer));
+    assert(azs_buffer_close(buffer));
+    assert(azs_project_close(template));
+    snprintf(target, sizeof target, "%s/Custom entry", base);
+    const char *configured = "{\"project\":{\"entry\":\"thirdPerson.az\",\"src\":\"game\"}}";
+    assert(!azs_project_from_template_with_entry(target, source, configured, "game/missing.az"));
+    assert(azs_project_from_template_with_entry(target, source, configured, "game/thirdPerson.az"));
+    created = azs_project_open(target, 0); assert(created);
+    buffer = azs_project_read(created, "game/thirdPerson.az"); assert(buffer);
+    assert(azs_buffer_close(buffer));
+    assert(azs_project_close(created));
 }
 
 int main(int argc, char **argv) {
@@ -66,6 +81,15 @@ int main(int argc, char **argv) {
     assert(!azs_project_open(root, 1)); // create never overwrites an existing project.
     int64_t buffer = azs_buffer_new("func main() { }\n"); assert(buffer);
     assert(azs_project_write(project, "src/main.az", buffer));
+    int64_t listing = azs_project_list(project, "."); assert(listing);
+    assert(strstr(azs_buffer_text(listing), "d src\n"));
+    assert(azs_buffer_close(listing));
+    listing = azs_project_list(project, "src"); assert(listing);
+    assert(strstr(azs_buffer_text(listing), "f main.az\n"));
+    assert(azs_buffer_close(listing));
+    listing = azs_project_list(project, "."); assert(listing);
+    assert(strstr(azs_buffer_text(listing), "d src\n"));
+    assert(azs_buffer_close(listing));
     int64_t copy = azs_project_read(project, "src/main.az"); assert(copy);
     assert(!strcmp(azs_buffer_text(copy), "func main() { }\n"));
     assert(azs_buffer_byte(copy, -1) == -1);

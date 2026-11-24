@@ -46,6 +46,30 @@ import studio.play
 impl pack ScenePanel {
     react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
         return Column(modifier: ::fillMaxSize(), key: "scene") {
+            if studio.sceneTabs.size > 1 {
+                PanelBar(key: "scene-tabs") {
+                    for index: Int in 0..<studio.sceneTabs.size {
+                        fin tab = studio.sceneTabs[index].&
+                        fin active = tab.path == studio.scenePath
+                        fin dirty = if active then studio.sceneDirty else tab.dirty
+                        fin name = if dirty then "${tab.path} •" else tab.path
+                        fin titleWidth = app.uiTextWidth(name, 12.5) + 17.0
+                        fin closeWidth: Double = if index > 0 then 24.0 else 0.0
+                        Row(modifier: ::size(titleWidth + closeWidth, 26.0).rounded(5.0).fill(if active then studioTheme.raised else studioTheme.ground),
+                            verticalAlignment: .Center, key: "scene-${tab.path}") {
+                            Press("sceneTabSelect", modifier: ::size(titleWidth, 26.0).ghost().padding(start: 8.0, end: 6.0),
+                                text: tab.path, key: "select") {
+                                Label(name, app, if active then studioTheme.text else studioTheme.muted, key: "name")
+                            }
+                            if index > 0 {
+                                Press("sceneTabClose", modifier: ::size(24.0, 24.0).rounded(5.0).ghost(), text: tab.path, center: true, key: "close") {
+                                    Icon("x", studioTheme.muted, size: studioTheme.iconSmall, key: "icon")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             PanelBar {
                 BarButton("toolSelect", app, icon: "mouse-pointer-2", active: studio.tool == 0, key: "select")
                 BarButton("toolMove", app, icon: "move", active: studio.tool == 1, key: "move")
@@ -67,9 +91,7 @@ impl pack ScenePanel {
                 Spacer(key: "fill")
                 fin sky = viewSkyEntity(studio)
                 if sky.isValid {
-                    fin physical = storageHas<AetherSky>(storageOf(studio.scene),sky)
-                    fin hour = if physical then storageGet<AetherSky>(storageOf(studio.scene),sky).hour
-                        else storageGet<SkyEnvironment>(storageOf(studio.scene),sky).hour
+                    fin hour = viewportSkyHour(studio)
                     Text("Hour", modifier: ::width(30.0).fontSize(11.0).mutedText(), key: "sky-label")
                     Row(modifier: ::width(68.0).height(26.0), key: "sky-time") {
                         NumberField("SkyTime", "hour", 0, hour, studio.focus, key: "hour")
@@ -118,7 +140,10 @@ func viewportSkyHour(studio: Studio&): Double {
     fin sky = viewSkyEntity(studio)
     return when {
         !studio.scene.isAlive(sky) -> 0.0
-        storageHas<AetherSky>(storageOf(studio.scene), sky) -> storageGet<AetherSky>(storageOf(studio.scene), sky).hour
+        storageHas<AetherSky>(storageOf(studio.scene), sky) -> {
+            fin atmosphere = storageGet<AetherSky>(storageOf(studio.scene), sky)
+            wrapDegrees(runningHour(atmosphere, studio.editorTime.elapsedSecs - studio.skyTimeOffset) * 15.0) / 15.0
+        }
         storageHas<SkyEnvironment>(storageOf(studio.scene), sky) -> storageGet<SkyEnvironment>(storageOf(studio.scene), sky).hour
         else -> 0.0
     }
@@ -691,6 +716,7 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
         app.clearScissor()
         return
     }
+    if studio.sceneViewReset && studio.editorFrames == 0 then frameTerrainScene(studio)
     studio.camera.orthographic = !studio.mode3d
     // A World Partition streams its cells around the editor's view, as around the player in a game.
     // A cell that came in or went changes what the Scene Tree lists.
@@ -702,6 +728,11 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     fin delta = if studio.viewportSimulations && !firstFrame then clampValue(app.deltaTime(), 0.0, 0.1) else 0.0
     if delta > 0.0 then studio.editorTime.advance(delta)
     fin skyTime = studio.editorTime.elapsedSecs - studio.skyTimeOffset
+    fin minute = (viewportSkyHour(studio) * 60.0) as Int
+    if minute != studio.skyPreviewMinute {
+        studio.skyPreviewMinute = minute
+        studio.changed()
+    }
     fin quality = studio.viewportQuality
     fin lit = studio.viewMode == 0
     fin cinematic = lit && quality == .Ultra
@@ -734,7 +765,8 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     frame.time.editing = true
     frame.paused = !studio.viewportSimulations && !firstFrame
     frame.view.matrices = studio.editorMatrices
-    frame.view.frame = studio.editorFrames
+    frame.view.frame = if studio.sceneViewReset then 0 else studio.editorFrames
+    studio.sceneViewReset = false
     updateSceneView(frame, viewProj, rect)
     studio.editorFrames = frame.view.frame
     if firstFrame then dispatchEditor(studio.systems, .Startup, frame)

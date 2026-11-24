@@ -10,7 +10,7 @@ bridge .C {
     func @foreignName("azs_wall_seconds")(): Double
     func @foreignName("azs_set_environment")(name: String, value: String): Int
     func @foreignName("azs_copy_tree")(from: String, to: String): Int
-    func @foreignName("azs_project_from_template")(root: String, source: String, manifest: String): Int
+    func @foreignName("azs_project_from_template_with_entry")(root: String, source: String, manifest: String, entryPath: String): Int
     func @foreignName("azs_peak_memory_bytes")(): Long
     func @foreignName("azs_error")(): String
     func @foreignName("azs_live_handles")(): Int
@@ -36,7 +36,6 @@ bridge .C {
     func @foreignName("azs_process_pid")(process: Long): Int
     func @foreignName("azs_engine_process_start")(compiler: String, project: String, action: String): Long
     func @foreignName("azs_shader_process_start")(project: String): Long
-    func @foreignName("azs_studio_open_scene")(project: String, scene: String): Long
     func @foreignName("azs_process_poll")(process: Long): Int
     func @foreignName("azs_process_output")(process: Long): String
     func @foreignName("azs_process_cancel")(process: Long): Int

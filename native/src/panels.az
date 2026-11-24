@@ -1,5 +1,6 @@
 module studio.panels
 import std.reflection
+import std.string
 import std.traits
 import engine.core
 import engine.ecs
@@ -259,58 +260,61 @@ react func (anchor: Anchor!).componentCards(studio: Studio&, app: App&, entity: 
                         }
                     }
                     if open {
+                        fin showTimeMultiplier = name != "AetherSky" || fieldFlag(studio.scene, entity, name, "advanceTime")
                         inline for f in reflect<C>.fields {
                             inline if !reflect<f>.hasAnnot<Hidden> {
-                                inline if f.typeName == "Vec3" {
-                                    FieldCaption(fieldLabel(f.name), key: "caption-${f.name}")
-                                    Row(modifier: ::fillMaxWidth().height(24.0), spacing: 4.0, key: "vector-${f.name}") {
-                                        NumberField(name, f.name, 0, value.${f.name}.x, studio.focus, badge: "X", badgeColor: studioTheme.axisX, key: "x")
-                                        NumberField(name, f.name, 1, value.${f.name}.y, studio.focus, badge: "Y", badgeColor: studioTheme.axisY, key: "y")
-                                        NumberField(name, f.name, 2, value.${f.name}.z, studio.focus, badge: "Z", badgeColor: studioTheme.axisZ, key: "z")
+                                if f.name != "timeMultiplier" || showTimeMultiplier {
+                                    inline if f.typeName == "Vec3" {
+                                        FieldCaption(fieldLabel(f.name), key: "caption-${f.name}")
+                                        Row(modifier: ::fillMaxWidth().height(24.0), spacing: 4.0, key: "vector-${f.name}") {
+                                            NumberField(name, f.name, 0, value.${f.name}.x, studio.focus, badge: "X", badgeColor: studioTheme.axisX, key: "x")
+                                            NumberField(name, f.name, 1, value.${f.name}.y, studio.focus, badge: "Y", badgeColor: studioTheme.axisY, key: "y")
+                                            NumberField(name, f.name, 2, value.${f.name}.z, studio.focus, badge: "Z", badgeColor: studioTheme.axisZ, key: "z")
+                                        }
                                     }
-                                }
-                                inline if f.typeName == "Rgba" {
-                                    FieldCaption(fieldLabel(f.name), key: "caption-${f.name}")
-                                    Row(modifier: ::fillMaxWidth().height(24.0), spacing: 4.0, key: "color-${f.name}") {
-                                        Shape(modifier: ::size(24.0, 24.0).fill(value.${f.name}).rounded(5.0).outline(1.0, studioTheme.hairline), key: "swatch")
-                                        NumberField(name, f.name, 0, value.${f.name}.r, studio.focus, badge: "R", badgeColor: studioTheme.axisX, key: "r")
-                                        NumberField(name, f.name, 1, value.${f.name}.g, studio.focus, badge: "G", badgeColor: studioTheme.axisY, key: "g")
-                                        NumberField(name, f.name, 2, value.${f.name}.b, studio.focus, badge: "B", badgeColor: studioTheme.axisZ, key: "b")
+                                    inline if f.typeName == "Rgba" {
+                                        FieldCaption(fieldLabel(f.name), key: "caption-${f.name}")
+                                        Row(modifier: ::fillMaxWidth().height(24.0), spacing: 4.0, key: "color-${f.name}") {
+                                            Shape(modifier: ::size(24.0, 24.0).fill(value.${f.name}).rounded(5.0).outline(1.0, studioTheme.hairline), key: "swatch")
+                                            NumberField(name, f.name, 0, value.${f.name}.r, studio.focus, badge: "R", badgeColor: studioTheme.axisX, key: "r")
+                                            NumberField(name, f.name, 1, value.${f.name}.g, studio.focus, badge: "G", badgeColor: studioTheme.axisY, key: "g")
+                                            NumberField(name, f.name, 2, value.${f.name}.b, studio.focus, badge: "B", badgeColor: studioTheme.axisZ, key: "b")
+                                        }
                                     }
-                                }
-                                inline if f.typeName == "Double" {
-                                    FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
-                                        NumberField(name, f.name, 0, value.${f.name}, studio.focus, key: "value")
-                                    }
-                                }
-                                inline if f.typeName == "Int" {
-                                    inline if reflect<f>.hasAnnot<Choice> {
+                                    inline if f.typeName == "Double" {
                                         FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
-                                            Press("fieldCycle", modifier: ::weight(1.0).height(24.0).sunken().rounded(5.0).padding(start: 8.0, end: 8.0).hoverable(),
-                                                target: entity.id, arg: choiceCount(reflect<f>.annotMeta<Choice>.options), text: "${name}.${f.name}", key: "choice") {
-                                                Text(choiceAt(reflect<f>.annotMeta<Choice>.options, value.${f.name}), modifier: ::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start), key: "value")
-                                                Icon("chevron-down", studioTheme.muted, size: studioTheme.iconSmall, key: "mark")
+                                            NumberField(name, f.name, 0, value.${f.name}, studio.focus, key: "value")
+                                        }
+                                    }
+                                    inline if f.typeName == "Int" {
+                                        inline if reflect<f>.hasAnnot<Choice> {
+                                            FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
+                                                Press("fieldCycle", modifier: ::weight(1.0).height(24.0).sunken().rounded(5.0).padding(start: 8.0, end: 8.0).hoverable(),
+                                                    target: entity.id, arg: choiceCount(reflect<f>.annotMeta<Choice>.options), text: "${name}.${f.name}", key: "choice") {
+                                                    Text(choiceAt(reflect<f>.annotMeta<Choice>.options, value.${f.name}), modifier: ::weight(1.0).fontSize(12.0).bodyText().textAlign(.Start), key: "value")
+                                                    Icon("chevron-down", studioTheme.muted, size: studioTheme.iconSmall, key: "mark")
+                                                }
+                                            }
+                                        } else {
+                                            FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
+                                                NumberField(name, f.name, 0, value.${f.name} as Double, studio.focus, key: "value")
                                             }
                                         }
-                                    } else {
+                                    }
+                                    inline if f.typeName == "Bool" {
                                         FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
-                                            NumberField(name, f.name, 0, value.${f.name} as Double, studio.focus, key: "value")
+                                            Press("fieldToggle", modifier: ::size(36.0, 20.0).rounded(10.0).fill(if value.${f.name} { studioTheme.accent.withAlpha(0.85) } else { studioTheme.sunken })
+                                                .outline(1.0, studioTheme.hairline), target: entity.id, text: "${name}.${f.name}", key: "toggle") {
+                                                if value.${f.name} { Gap(16.0, key: "pad") }
+                                                Shape(modifier: ::size(16.0, 16.0).rounded(8.0).fill(studioTheme.text), key: "knob")
+                                            }
+                                            Spacer(key: "fill")
                                         }
                                     }
-                                }
-                                inline if f.typeName == "Bool" {
-                                    FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
-                                        Press("fieldToggle", modifier: ::size(36.0, 20.0).rounded(10.0).fill(if value.${f.name} { studioTheme.accent.withAlpha(0.85) } else { studioTheme.sunken })
-                                            .outline(1.0, studioTheme.hairline), target: entity.id, text: "${name}.${f.name}", key: "toggle") {
-                                            if value.${f.name} { Gap(16.0, key: "pad") }
-                                            Shape(modifier: ::size(16.0, 16.0).rounded(8.0).fill(studioTheme.text), key: "knob")
+                                    inline if f.typeName == "String" {
+                                        FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
+                                            TextField(name, f.name, value.${f.name}, studio.focus, key: "value")
                                         }
-                                        Spacer(key: "fill")
-                                    }
-                                }
-                                inline if f.typeName == "String" {
-                                    FieldLine(fieldLabel(f.name), key: "line-${f.name}") {
-                                        TextField(name, f.name, value.${f.name}, studio.focus, key: "value")
                                     }
                                 }
                             }
@@ -404,27 +408,36 @@ impl pack AssetsPanel {
                 BarButton("materialCreate", app, icon: "plus", label: "Material", key: "new-material")
                 if materialAssetSelected(studio) then
                     BarButton("materialAssign", app, icon: "check", label: "Assign", key: "assign-material")
-                Row(modifier: ::width(190.0).height(24.0).sunken().rounded(5.0).padding(start: 8.0, end: 6.0), verticalAlignment: .Center, key: "search") {
-                    Text("Search…", modifier: ::weight(1.0).fontSize(12.0).faintText().textAlign(.Start), key: "hint")
-                    Icon("search", studioTheme.faint, size: studioTheme.iconSmall, key: "icon")
+                BarButton("assetsRefresh", app, icon: "refresh-cw", key: "refresh")
+                Row(modifier: ::width(190.0).height(24.0), verticalAlignment: .Center, key: "search") {
+                    TextField("AssetSearch", "name", studio.assetsFilter, studio.focus, placeholder: "Search assets…", key: "input")
                 }
             }
-            FlowRow(modifier: ::fillMaxWidth().weight(1.0).padding(start: 10.0, end: 10.0, top: 4.0), spacing: 6.0, key: "tiles") {
-                var index = 0
-                while index < studio.assets.size {
-                    fin entry = studio.assets[index]
-                    fin folder = charAt(entry, 0) == 'd'
-                    fin name = substring(entry, 2, stringLength(entry))
-                    fin target = if studio.assetsPath == "" then name else { "${studio.assetsPath}/${name}" }
-                    fin kind = studio.fileKind(name, folder)
-                    Press(if folder then "assetsOpen" else "assetsSelect", modifier: ::size(84.0, 82.0).rounded(7.0).ghost(), text: target,
-                        double: if folder then "" else "assetsEdit", key: "tile-${name}") {
-                        Column(modifier: ::fillMaxSize().padding(top: 8.0), horizontalAlignment: .Center, spacing: 6.0, key: "stack") {
-                            Icon(kind.icon, themeColor(kind.color, studioTheme.muted), size: studioTheme.iconLarge, key: "icon")
-                            Text(name, modifier: ::fillMaxWidth().height(18.0).padding(start: 4.0, end: 4.0).fontSize(11.5).bodyText(), key: "name")
+            fin search = strToLower(if studio.focus.typing && studio.focus.component == "AssetSearch" then studio.focus.text else studio.assetsFilter)
+            ScrollColumn(modifier: ::fillMaxWidth().weight(1.0).padding(start: 10.0, end: 10.0, top: 4.0), key: "assets-scroll") {
+                FlowRow(modifier: ::fillMaxWidth(), spacing: 6.0, key: "tiles") {
+                    var count = 0
+                    for entry in studio.assets {
+                        fin folder = charAt(entry, 0) == 'd'
+                        fin name = substring(entry, 2, stringLength(entry))
+                        if search != "" && !contains(strToLower(name), search) then continue
+                        count++
+                        fin target = if studio.assetsPath == "" then name else "${studio.assetsPath}/${name}"
+                        fin kind = studio.fileKind(name, folder)
+                        fin caption = if stringLength(name) > 14 then "${substring(name, 0, 12)}…" else name
+                        fin tile = Modifier::size(84.0, 82.0).rounded(7.0).clip()
+                        Press(if folder then "assetsOpen" else "assetsSelect",
+                            modifier: if target == studio.assetSelected then tile.selected() else tile.ghost(), text: target,
+                            double: if folder then "" else "assetsEdit", key: "tile-${name}") {
+                            Column(modifier: ::fillMaxSize().padding(top: 8.0), horizontalAlignment: .Center, spacing: 6.0, key: "stack") {
+                                Icon(kind.icon, themeColor(kind.color, studioTheme.muted), size: studioTheme.iconLarge, key: "icon")
+                                Text(caption, modifier: ::fillMaxWidth().height(18.0).padding(start: 4.0, end: 4.0).fontSize(11.5).bodyText(), key: "name")
+                            }
                         }
                     }
-                    index++
+                    if count == 0 {
+                        Label(if search == "" then "This folder is empty" else "No matching assets", app, studioTheme.muted, key: "empty")
+                    }
                 }
             }
         }

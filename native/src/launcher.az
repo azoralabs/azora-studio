@@ -39,7 +39,11 @@ func templatesIn(home: String): Array<LauncherTemplate> {
     for entry in split(azsBufferText(listing), "\n") {
         if !startsWith(entry, "d ") then continue
         fin folder = substring(entry, 2, stringLength(entry))
-        fin source = azsProjectRead(project, "${folder}/src/main.az")
+        fin template = azsProjectOpen("${root}/${folder}", 0)
+        if template == 0 then continue
+        fin files = projectFiles(template)
+        fin source = azsProjectRead(template, files.source)
+        azsProjectClose(template)
         if source == 0 then continue
         azsBufferClose(source)
         var item: LauncherTemplate = .(folder, folder)

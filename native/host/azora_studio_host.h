@@ -19,6 +19,7 @@ int32_t azs_set_environment(const char *name, const char *value);
  * skipping hidden entries and build output. Refuses symlinks. 1 on success. */
 int32_t azs_copy_tree(const char *from, const char *to);
 int32_t azs_project_from_template(const char *root, const char *source, const char *manifest);
+int32_t azs_project_from_template_with_entry(const char *root, const char *source, const char *manifest, const char *entry_path);
 int64_t azs_peak_memory_bytes(void);
 const char *azs_error(void);
 int32_t azs_live_handles(void);
@@ -48,7 +49,6 @@ const char *azs_process_output(int64_t process);
 int32_t azs_process_cancel(int64_t process);
 int32_t azs_process_close(int64_t process);
 int64_t azs_studio_start(const char *program);
-int64_t azs_studio_open_scene(const char *project, const char *scene);
 int32_t azs_process_pid(int64_t process);
 void azs_diagnostic(int32_t offset, int32_t length, int32_t line,
                     int32_t column, const char *message);

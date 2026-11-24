@@ -115,15 +115,19 @@ func readPresets(text: String): Array<EntityPresetSlot> {
 
 // ── File ────────────────────────────────────────────────────────────────
 
+func saveSceneWorld(project: Long, path: String, world: World!): Bool {
+    fin buffer = azsBufferNew(writeScene(world))
+    fin written = if buffer == 0 then 0 else azsProjectWrite(project, path, buffer)
+    if buffer != 0 then azsBufferClose(buffer)
+    return written != 0
+}
+
 func saveSceneDocument(studio: Studio!): Bool {
     if saveBuiltInLandscape() != 0 {
         studio.notify("Could not save the sculpted landscape", 3)
         return false
     }
-    fin buffer = azsBufferNew(writeScene(studio.scene))
-    fin written = if buffer == 0 then 0 else azsProjectWrite(studio.editor.project, studio.scenePath, buffer)
-    if buffer != 0 then azsBufferClose(buffer)
-    if written == 0 {
+    if !saveSceneWorld(studio.editor.project, studio.scenePath, studio.scene) {
         studio.notify(azsError(), 3)
         return false
     }
@@ -140,6 +144,15 @@ func fileSave(studio: Studio!, call: Invocation&): Unit {
         return
     }
     if !saveSceneDocument(studio) then return
+    for i: Int in 0..<studio.sceneTabs.size {
+        let tab: SceneTab! = studio.sceneTabs[i]
+        if tab.path == studio.scenePath || !tab.dirty then continue
+        if !saveSceneWorld(studio.editor.project, tab.path, tab.world) {
+            studio.notify(azsError(), 3)
+            return
+        }
+        tab.dirty = false
+    }
     studio.layoutDirty = true
     studio.requestedTool = "inspect"
     studio.notify("Saved ${studio.editor.path} and ${studio.scenePath}", 2)
@@ -400,25 +413,41 @@ func viewTogglePhotons(studio: Studio!, call: Invocation&) {
 @Command(title: "Play in Viewport", menu: "Run", group: 0, order: 0, key: "p")
 func runPlay(studio: Studio!, call: Invocation&): Unit {
     if studio.play.running {
-        if studio.paused then studio.paused = false
+        if studio.play.stopAsked > 0.0 then return
+        if studio.paused then setPlayPaused(studio, false)
         studio.play.focused = true
         return
     }
+    if playPending(studio) {
+        if studio.paused then setPlayPaused(studio, false)
+        return
+    }
     if !makeWayForTool(studio) then return
-    if saveSceneDocument(studio) then studio.requestedTool = "pie"
+    if saveSceneDocument(studio) {
+        studio.paused = false
+        studio.showPanel = "ScenePanel"
+        studio.requestedTool = "pie"
+    }
 }
 
 @Command(title: "Pause Play", menu: "Run", group: 0, order: 1, key: "p", shift: true)
 func runPause(studio: Studio!, call: Invocation&): Unit {
-    if !studio.play.running then return
-    studio.paused = !studio.paused
-    studio.message(if studio.paused then "Play paused" else "Playing")
+    if studio.play.stopAsked > 0.0 || (!studio.play.running && !playPending(studio)) then return
+    setPlayPaused(studio, !studio.paused)
 }
 
 @Command(title: "Stop Play", menu: "Run", group: 0, order: 2)
 func runStop(studio: Studio!, call: Invocation&): Unit {
     if studio.play.running then stopPlaySession(studio)
-    else if studio.process != 0 && studio.processAction == "pie" then azsProcessCancel(studio.process)
+    else if playPending(studio) {
+        studio.requestedTool = ""
+        if studio.process != 0 && studio.processAction == "pie" {
+            studio.quietCancel = true
+            azsProcessCancel(studio.process)
+        }
+        studio.paused = false
+        studio.message("Play stopped")
+    }
 }
 
 @Command(title: "Build", menu: "Run", group: 1, order: 0, key: "b")
@@ -696,6 +725,7 @@ func fieldToggle(studio: Studio!, call: Invocation&): Unit {
     fin before = studio.snapshot(entity)
     fin component: String = dotted(call.text, false)
     fin field: String = dotted(call.text, true)
+    studio.rebaseSkyClock(entity, component, field)
     setFieldFlag(studio.scene, entity, component, field, !fieldFlag(studio.scene, entity, component, field))
     studio.record(entity, before, studio.scene.getParent(entity).id, "edit ${field}")
 }
@@ -717,7 +747,16 @@ func fieldCycle(studio: Studio!, call: Invocation&): Unit {
 
 @Command
 func assetsOpen(studio: Studio!, call: Invocation&): Unit {
+    if studio.assetsPath != call.text {
+        studio.assetSelected = ""
+        studio.assetsFilter = ""
+    }
     studio.assetsPath = call.text
+    studio.refreshAssets()
+}
+
+@Command
+func assetsRefresh(studio: Studio!, call: Invocation&): Unit {
     studio.refreshAssets()
 }
 
@@ -731,18 +770,25 @@ func assetsSelect(studio: Studio!, call: Invocation&): Unit {
 @Command
 func assetsEdit(studio: Studio!, call: Invocation&): Unit {
     if isProjectScenePath(call.text) {
-        fin file = azsProjectRead(studio.editor.project, call.text)
-        if file == 0 {
-            studio.notify("Could not open ${call.text}", 3)
-            return
+        var index = studio.sceneTabIndex(call.text)
+        if index < 0 {
+            fin file = azsProjectRead(studio.editor.project, call.text)
+            if file == 0 {
+                studio.notify("Could not open ${call.text}", 3)
+                return
+            }
+            var world: World = .()
+            fin loaded = readScene(world, azsBufferText(file))
+            azsBufferClose(file)
+            if loaded < 0 {
+                studio.notify("Could not read scene ${call.text}", 3)
+                return
+            }
+            prepareSceneTab(world)
+            index = studio.sceneTabs.size
+            studio.sceneTabs.add(SceneTab(call.text, take world))
         }
-        azsBufferClose(file)
-        fin window = azsStudioOpenScene(studio.root, call.text)
-        if window == 0 then studio.notify(azsError(), 3)
-        else {
-            studio.sceneWindows.add(window)
-            studio.message("Opened ${call.text}")
-        }
+        showSceneTab(studio, index)
         return
     }
     if !studio.editsAsText(call.text) then return
@@ -757,6 +803,37 @@ func assetsEdit(studio: Studio!, call: Invocation&): Unit {
     studio.message(call.text)
 }
 
+func showSceneTab(studio: Studio!, index: Int) {
+    if index < 0 || index >= studio.sceneTabs.size then return
+    if studio.sceneTabs[index].path != studio.scenePath then runStop(studio, .())
+    studio.activateSceneTab(index)
+    studio.sourceFocused = false
+    studio.showPanel = "ScenePanel"
+    studio.message("Opened ${studio.scenePath}")
+}
+
+@Command
+func sceneTabSelect(studio: Studio!, call: Invocation&) {
+    showSceneTab(studio, studio.sceneTabIndex(call.text))
+}
+
+@Command
+func sceneTabClose(studio: Studio!, call: Invocation&) {
+    fin index = studio.sceneTabIndex(call.text)
+    if index <= 0 then return
+    if call.text == studio.scenePath {
+        if studio.sceneDirty && !saveSceneDocument(studio) then return
+        showSceneTab(studio, index - 1)
+    } else {
+        let tab: SceneTab! = studio.sceneTabs[index]
+        if tab.dirty && !saveSceneWorld(studio.editor.project, tab.path, tab.world) {
+            studio.notify(azsError(), 3)
+            return
+        }
+    }
+    studio.sceneTabs.removeAt(index)
+    studio.changed()
+}
 @Command(title: "Create Landscape from Heightmap", menu: "Assets", group: 0, order: 1)
 func createHeightfield(studio: Studio!, call: Invocation&) {
     fin path = if call.text != "" then call.text else studio.assetSelected

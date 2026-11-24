@@ -134,14 +134,14 @@ impl pack TopBar {
             Label("Azora Studio", app, studioTheme.text, size: 13.5, bold: true, key: "name")
             Icon("chevron-right", studioTheme.faint, size: studioTheme.iconSmall, key: "sep")
             Label(studio.projectName(), app, studioTheme.muted, size: 13.0, key: "project")
-            if studio.sceneDirty || studio.documentsDirty() {
+            if studio.scenesDirty() || studio.documentsDirty() {
                 Shape(modifier: ::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty")
             }
             Spacer(key: "left")
             Row(modifier: ::height(30.0).raised().rounded(8.0).padding(start: 3.0, end: 3.0), spacing: 2.0, verticalAlignment: .Center, key: "transport") {
                 BarButton("runPlay", app, icon: "play", active: running, tint: studioTheme.green, key: "play")
                 BarButton("runPause", app, icon: "pause", active: studio.paused, tint: studioTheme.yellow, key: "pause")
-                BarButton("runStop", app, icon: "square", tint: if studio.playing then studioTheme.red else studioTheme.muted, key: "stop")
+                BarButton("runStop", app, icon: "square", tint: if studio.playing || playPending(studio) then studioTheme.red else studioTheme.muted, key: "stop")
             }
             Spacer(key: "right")
             BarButton("toolBuild", app, icon: "hammer", label: "Build", key: "build")
@@ -462,6 +462,8 @@ func commitField(studio: Studio!) {
             fin entity = studio.selected()
             studio.record(entity, focus.before, studio.scene.getParent(entity).id, "edit ${focus.field}")
         }
+    } else if focus.component == "AssetSearch" {
+        studio.assetsFilter = focus.text
     } else if focus.component == "SkyTime" {
         if !focus.replace then setViewportSkyHour(studio, focus.text)
     } else if focus.component == "PhysicsRate" {
@@ -471,6 +473,7 @@ func commitField(studio: Studio!) {
     } else if studio.scene.isAlive(entity) {
         if focus.numeric {
             fin number = parseNumber(focus.text, fieldNumber(studio.scene, entity, focus.component, focus.field, focus.axis))
+            studio.rebaseSkyClock(entity, focus.component, focus.field)
             setFieldNumber(studio.scene, entity, focus.component, focus.field, focus.axis, number)
         } else {
             setFieldText(studio.scene, entity, focus.component, focus.field, focus.text)
@@ -626,23 +629,8 @@ react func main() {
     }
     fin landscapeTools = if resources != 0 then readText(resources, "landscape-tools.azon") else ""
     if resources != 0 then azsProjectClose(resources)
-    var id = 0
-    while id < studio.scene.entityCount {
-        fin entity = studio.scene.entityAt(id)
-        if studio.scene.isAlive(entity) && !storageHas<FlightSpline>(ensureStorage(studio.scene), entity) {
-            storageInsert<Expanded>(ensureStorage(studio.scene), entity, .())
-        }
-        id++
-    }
-    var first = Entity::invalid
-    id = 0
-    while id < studio.scene.entityCount && !studio.scene.isAlive(first) {
-        if studio.scene.isAlive(studio.scene.entityAt(id)) && storageHas<Mesh3d>(ensureStorage(studio.scene), studio.scene.entityAt(id)) {
-            first = studio.scene.entityAt(id)
-        }
-        id++
-    }
-    studio.select(first)
+    prepareSceneTab(studio.scene)
+    studio.sceneTabs.add(SceneTab(studio.scenePath))
     frameTerrainScene(studio)
     studio.refreshAssets()
     // Plugins: installed ones load as soon as the frame loop runs, and new ones
@@ -884,6 +872,7 @@ react func main() {
                 if absValue(delta) > 2.0 then scrubMoved = true
                 if scrubMoved && studio.scene.isAlive(entity) {
                     fin steps = (delta / 3.0) as Int
+                    studio.rebaseSkyClock(entity, studio.focus.component, studio.focus.field)
                     setFieldNumber(studio.scene, entity, studio.focus.component, studio.focus.field, studio.focus.axis,
                         studio.focus.startValue + (steps as Double) * studio.focus.step)
                     studio.changed()
@@ -932,6 +921,8 @@ react func main() {
                         studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
                             formatDecimal(studio.pluginParams[index].value, 4), input.x, 0.0, 0.0, "", true, true)
                     }
+                } else if binding.component == "AssetSearch" {
+                    studio.focus = FieldFocus(binding.component, binding.field, 0, true, false, studio.assetsFilter, input.x)
                 } else if binding.component == "SkyTime" {
                     // The physical sky keeps its hour in AetherSky: reading SkyEnvironment
                     // there read a component the entity does not have.
@@ -1123,7 +1114,6 @@ react func main() {
         if studio.playing && !studio.paused then studio.playTime = studio.playTime + app.deltaTime()
         studio.tickPlugins(app)
         tickMaterials(app, studio)
-        studio.tickSceneWindows()
         syncPluginPanels(studio, pass.world)
         if cue.menu != "" && !chooseMenuItem(cue.menu) then println("script: no menu item '${cue.menu}'")
         // The menu bar's choices run as the same commands a button or a key runs.

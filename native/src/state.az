@@ -11,9 +11,11 @@ import engine.ecs
 import engine.math
 import engine.scene
 import engine.scene.io
+import engine.scene.spline
 import engine.gizmos
 import engine.gpu
 import engine.platform.embed
+import engine.physics.d3::{RigidBody}
 import engine.material.fusion
 import engine.render.scene
 import engine.ui.docking
@@ -277,6 +279,7 @@ pack MenuEntry derives Clone {
  * drawing into the Scene viewport through a shared link (engine.platform.embed).
  */
 pack PlaySession {
+    var directory: String = ""
     var link: EmbedLink = .()
     var game: Spawned = .()
     /** A Metal buffer over the link, and a texture per frame slot at [frameWidth] x [frameHeight]. */
@@ -305,6 +308,40 @@ impl PlaySession {
     /** Whether ([px], [py]) lies where the game is shown. */
     func &.contains(px: Double, py: Double): Bool =
         px >= self.x && py >= self.y && px < self.x + self.width && py < self.y + self.height
+}
+
+func prepareSceneTab(world: World!) {
+    migrateAtmosphereClocks(world)
+    var id = 0
+    while id < world.entityCount {
+        fin entity = world.entityAt(id)
+        if world.isAlive(entity) && !storageHas<FlightSpline>(ensureStorage(world), entity) {
+            storageInsert<Expanded>(ensureStorage(world), entity, .())
+        }
+        id++
+    }
+    var first = Entity::invalid
+    id = 0
+    while id < world.entityCount && !world.isAlive(first) {
+        if world.isAlive(world.entityAt(id)) && storageHas<Mesh3d>(ensureStorage(world), world.entityAt(id)) {
+            first = world.entityAt(id)
+        }
+        id++
+    }
+    if world.isAlive(first) then storageInsert<Selected>(ensureStorage(world), first, .())
+}
+
+/** Inactive scene tabs keep the authored world and editor state together. */
+pack SceneTab {
+    var path: String
+    var world: World = .()
+    var camera: EditorCamera = .()
+    var history: Array<SceneEdit> = []
+    var historyAt: Int = 0
+    var dirty: Bool = false
+    var time: Time = timeInit()
+    var skyOffset: Double = 0.0
+    var frames: Int = 0
 }
 
 func gpuDocument(path: String, source: Long): Bool =
@@ -391,6 +428,7 @@ pack Studio {
     var focus: FieldFocus = .()
     var popup: Popup = .()
     var assetsPath: String = ""
+    var assetsFilter: String = ""
     /** The open asset folder's entries: "d name" or "f name", folders first. */
     var assets: Array<String> = []
     var assetSelected: String = ""
@@ -432,6 +470,7 @@ pack Studio {
     var viewportSimulations: Bool = true
     var editorTime: Time = timeInit()
     var skyTimeOffset: Double = 0.0
+    var skyPreviewMinute: Int = -1
     var roadTarget: Entity = ::invalid
     var roadPlacement: Int = 0
     var foliageBrush: FoliageBrush = .()
@@ -460,7 +499,8 @@ pack Studio {
     var pluginTriangles: Int = 0
     var shaderCookRequested: Bool = true
     var shaderCookProcess: Long = 0
-    var sceneWindows: Array<Long> = []
+    var sceneTabs: Array<SceneTab> = []
+    var sceneViewReset: Bool = false
     /** What each item of the menu bar runs, by its tag. */
     var menuEntries: Array<MenuEntry> = []
 }
@@ -521,7 +561,6 @@ impl Studio {
         while self.problemText.size > 0 then azsBufferClose(self.problemText.removeLast())
         if self.process != 0 then azsProcessClose(self.process)
         if self.shaderCookProcess != 0 then azsProcessClose(self.shaderCookProcess)
-        for window in self.sceneWindows then azsProcessClose(window)
         while self.documents.size > 0 {
             var file = self.documents.removeLast()
             azsBufferClose(file.source)
@@ -603,16 +642,72 @@ impl Studio {
         return saved
     }
 
-    func !.tickSceneWindows() {
-        var index = 0
-        while index < self.sceneWindows.size {
-            fin window = self.sceneWindows[index]
-            if azsProcessPoll(window) == -1 then index++
-            else {
-                azsProcessClose(window)
-                self.sceneWindows.removeAt(index)
-            }
+    func &.sceneTabIndex(path: String): Int {
+        for i: Int in 0..<self.sceneTabs.size {
+            if self.sceneTabs[i].path == path then return i
         }
+        return -1
+    }
+
+    func &.scenesDirty(): Bool {
+        if self.sceneDirty then return true
+        for tab in self.sceneTabs {
+            if tab.path != self.scenePath && tab.dirty then return true
+        }
+        return false
+    }
+
+    func !.activateSceneTab(index: Int) {
+        fin current = self.sceneTabIndex(self.scenePath)
+        if current == index then return
+        let before: SceneTab! = self.sceneTabs[current]
+        before.world = take self.scene
+        before.camera = self.camera.clone()
+        before.history = take self.history
+        before.historyAt = self.historyAt
+        before.dirty = self.sceneDirty
+        before.time = take self.editorTime
+        before.skyOffset = self.skyTimeOffset
+        before.frames = self.editorFrames
+
+        let entry: SceneTab! = self.sceneTabs[index]
+        self.scene = take entry.world
+        self.scenePath = entry.path
+        self.camera = entry.camera.clone()
+        self.history = take entry.history
+        self.historyAt = entry.historyAt
+        self.sceneDirty = entry.dirty
+        self.editorTime = take entry.time
+        self.skyTimeOffset = entry.skyOffset
+        self.editorFrames = entry.frames
+
+        self.focus = FieldFocus()
+        self.sourceFocused = false
+        self.popup = Popup()
+        self.gizmo.active = 0
+        self.viewDrag = 0
+        self.roadTarget = ::invalid
+        self.roadPlacement = 0
+        self.foliageBrush = .()
+        self.atmosphereOwner = ::invalid
+        self.atmosphere.cloudFrames = 0
+        self.recomputeShadows = true
+        self.sceneViewReset = true
+        self.changed()
+    }
+
+    /** Start a new clock interval at the current displayed time before editing its speed or switch. */
+    func !.rebaseSkyClock(entity: Entity, component: String, field: String) {
+        if component != "AetherSky" || (field != "hour" && field != "advanceTime" && field != "timeMultiplier") then return
+        let skies = ensureStorage<AetherSky>(self.scene)
+        fin index = storageIndexOf<AetherSky>(skies, entity)
+        if index < 0 then return
+        if field != "hour" {
+            fin hour = runningHour(skies.values[index], self.editorTime.elapsedSecs - self.skyTimeOffset)
+            skies.values[index].hour = wrapDegrees(hour * 15.0) / 15.0
+        }
+        self.skyTimeOffset = self.editorTime.elapsedSecs
+        self.skyPreviewMinute = -1
     }
 
     func !.changed() { self.revision = self.revision + 1 }

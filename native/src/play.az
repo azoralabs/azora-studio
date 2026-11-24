@@ -22,9 +22,6 @@ import studio.theme
 // Studio takes them back. Pause holds the game still, Stop ends it. A game
 // that crashes ends only its own process.
 
-/** The file a game built from [root] is linked to Studio through. */
-func playLinkPath(root: String): String = "${root}/.azora-build/play-in-editor.link"
-
 /** The executable tools/build.sh makes for the project in [root]: its folder's name, letters, digits, '_' and '-' kept. */
 func projectExecutableName(root: String): String {
     var start = 0
@@ -44,9 +41,15 @@ func projectExecutableName(root: String): String {
  */
 func startPlaySession(studio: Studio!, app: App!, root: String): Bool {
     endPlaySession(studio, -1)
-    fin path = playLinkPath(root)
+    fin directory = temporaryFolder("${root}/.azora-build", "play-in-editor")
+    if directory == "" {
+        studio.notify("Play: could not create the viewport session", 3)
+        return false
+    }
+    fin path = "${directory}/link"
     var link = openEmbedLink(path, true)
     if link.region == 0 {
+        removeTemporaryFolder(directory)
         studio.notify("Play: could not make ${path}", 3)
         return false
     }
@@ -56,16 +59,20 @@ func startPlaySession(studio: Studio!, app: App!, root: String): Bool {
     azPoke32(link.region, embedAtHeight, ((if studio.play.height > 0.0 then studio.play.height else 720.0) * app.gpu.scale) as Int)
     // The game inherits Studio's environment: the link and the project folder only for it.
     azsSetEnvironment("AZORA_EMBED", path)
+    azsSetEnvironment("AZORA_EMBED_SCENE", studio.scenePath)
     azsSetEnvironment("AZORA_WORKING_DIRECTORY", root)
     var none: Array<String> = []
     fin game = spawn("${root}/.azora-build/${projectExecutableName(root)}", root, none, "${root}/.azora-build/play-in-editor.log")
     azsSetEnvironment("AZORA_EMBED", "")
+    azsSetEnvironment("AZORA_EMBED_SCENE", "")
     azsSetEnvironment("AZORA_WORKING_DIRECTORY", "")
     if game.pid == 0 {
         closeEmbedLink(link)
+        removeTemporaryFolder(directory)
         studio.notify("Play: the game did not start", 3)
         return false
     }
+    studio.play.directory = directory
     studio.play.buffer = embedBuffer(app.gpu.device, link)
     studio.play.link = take link
     studio.play.game = game.clone()
@@ -74,17 +81,30 @@ func startPlaySession(studio: Studio!, app: App!, root: String): Bool {
     studio.play.wheelX = 0.0
     studio.play.wheelY = 0.0
     studio.playing = true
-    studio.paused = false
     studio.playTime = 0.0
     studio.notify("Playing in the viewport · Shift+F1 frees the mouse and keyboard, a click in the view gives them back", 2)
     return true
 }
 
+func playPending(studio: Studio&): Bool =
+    studio.requestedTool == "pie" || (studio.process != 0 && studio.processAction == "pie")
+
+func setPlayPaused(studio: Studio!, paused: Bool) {
+    studio.paused = paused
+    if studio.play.running {
+        azPoke32(studio.play.link.region, embedAtPaused, if paused then 1 else 0)
+        if paused then studio.play.focused = false
+    }
+    studio.message(if paused then "Play paused" else "Playing")
+}
+
 /** Asks the game to end; [tickPlaySession] ends it outright if it has not a second and a half later. */
 func stopPlaySession(studio: Studio!) {
-    if !studio.play.running then return
+    if !studio.play.running || studio.play.stopAsked > 0.0 then return
     azPoke32(studio.play.link.region, embedAtQuit, 1)
-    if studio.play.stopAsked <= 0.0 then studio.play.stopAsked = azsMonotonicSeconds()
+    studio.play.stopAsked = azsMonotonicSeconds()
+    studio.play.focused = false
+    studio.message("Stopping Play…")
 }
 
 /**
@@ -102,6 +122,8 @@ func endPlaySession(studio: Studio!, status: Int) {
     if studio.play.buffer != 0 then send0(studio.play.buffer, sel("release"))
     studio.play.buffer = 0
     closeEmbedLink(studio.play.link)
+    removeTemporaryFolder(studio.play.directory)
+    studio.play.directory = ""
     studio.play.focused = false
     studio.play.stopAsked = 0.0
     studio.playing = false
