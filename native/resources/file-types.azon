@@ -5,8 +5,6 @@
     "az": {"icon": "file-code", "color": "blue", "text": true},
     "azon": {"icon": "file-text", "color": "teal", "text": true},
     "pgm": {"icon": "mountain", "color": "green"},
-    "azmaterial": {"icon": "palette", "color": "purple"},
-    "azfusion": {"icon": "palette", "color": "purple"},
     "azscene": {"icon": "box", "color": "purple"},
     "azlayout": {"icon": "layout-template", "color": "teal", "text": true},
     "aztexture": {"icon": "image", "color": "purple"},

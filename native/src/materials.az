@@ -1,0 +1,95 @@
+module studio.materials
+
+import std.string
+import engine.core
+import engine.io
+import engine.ecs
+import engine.scene
+import engine.platform
+import engine.material.fusion
+import engine.material.fusion.metal
+import studio.host
+import studio.editor
+import studio.state
+
+func materialAssetSelected(studio: Studio&): Bool =
+    fusionAssetPath(studio.assetSelected) && startsWith(studio.assetSelected, "Materials/")
+
+@Command(title: "New Material", menu: "Assets", group: 0, order: 0)
+func materialCreate(studio: Studio!, call: Invocation&) {
+    fin engine = azsEnvironment("AZORA_ENGINE_HOME")
+    if engine == "" {
+        studio.notify("Select an Azora Engine toolchain", 3)
+        return
+    }
+    fin template = fusionReadText("${engine}/materials/blank.az")
+    if template == "" {
+        studio.notify("Could not read the Engine's material template", 3)
+        return
+    }
+    makeFolders("${studio.root}/Materials")
+    var index = 1
+    var path = "Materials/Material-${index}.az"
+    var existing = azsProjectRead(studio.editor.project, path)
+    while existing != 0 {
+        azsBufferClose(existing)
+        index++
+        path = "Materials/Material-${index}.az"
+        existing = azsProjectRead(studio.editor.project, path)
+    }
+    fin buffer = azsBufferNew(replace(template, "module project.materials.blank", "module project.materials.material${index}"))
+    if buffer == 0 then return
+    defer { azsBufferClose(buffer) }
+    if azsProjectWrite(studio.editor.project, path, buffer) == 0 {
+        studio.notify(azsError(), 3)
+        return
+    }
+    studio.refreshAssets()
+    studio.assetSelected = path
+    if studio.editDocument(path) {
+        studio.showPanel = documentPanel(path, studio.entrySource)
+        studio.sourceFocused = true
+    }
+    studio.shaderCookRequested = true
+    studio.changed()
+}
+
+@Command(title: "Assign Selected Material", menu: "Assets", group: 0, order: 1)
+func materialAssign(studio: Studio!, call: Invocation&) {
+    fin path = studio.assetSelected
+    if !materialAssetSelected(studio) {
+        studio.notify("Select a GPU material in Assets", 1)
+        return
+    }
+    fin entity = studio.selected()
+    if !studio.scene.isAlive(entity) || (!storageHas<Mesh3d>(ensureStorage(studio.scene), entity) && !storageHas<HeightfieldTerrain>(ensureStorage(studio.scene), entity)) {
+        studio.notify("Select a mesh or landscape in the Scene Tree", 1)
+        return
+    }
+    if !studio.saveDocuments() {
+        studio.notify(azsError(), 3)
+        return
+    }
+    fin before = studio.snapshot(entity)
+    storageInsert<FusionMaterial>(ensureStorage(studio.scene), entity, .(asset: path))
+    studio.record(entity, before, studio.scene.getParent(entity).id, "assign material")
+    studio.shaderCookRequested = true
+    studio.message("Assigned ${path}")
+}
+
+func tickMaterials(app: App!, studio: Studio!) {
+    if studio.shaderCookProcess != 0 {
+        fin result = azsProcessPoll(studio.shaderCookProcess)
+        if result == -1 then return
+        fin output = azsProcessOutput(studio.shaderCookProcess)
+        if output != "" then studio.output(output)
+        azsProcessClose(studio.shaderCookProcess)
+        studio.shaderCookProcess = 0
+        if result == 0 then app.gpu.fusion.reloadAll(app.gpu.device)
+        else studio.notify("Material shader compilation failed", 3)
+    }
+    if !studio.shaderCookRequested || studio.process != 0 then return
+    studio.shaderCookRequested = false
+    studio.shaderCookProcess = azsShaderProcessStart(studio.root)
+    if studio.shaderCookProcess == 0 then studio.notify(azsError(), 3)
+}

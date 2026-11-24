@@ -14,7 +14,6 @@ import engine.ui.docking
 import studio.host
 import studio.editor
 import studio.state
-import studio.fusion
 import engine.material.fusion
 import engine.lighting.photon
 import engine.scene.terrain
@@ -117,7 +116,6 @@ func readPresets(text: String): Array<EntityPresetSlot> {
 // ── File ────────────────────────────────────────────────────────────────
 
 func saveSceneDocument(studio: Studio!): Bool {
-    if !saveFusionAsset(studio) then return false
     if saveBuiltInLandscape() != 0 {
         studio.notify("Could not save the sculpted landscape", 3)
         return false
@@ -717,7 +715,7 @@ func assetsOpen(studio: Studio!, call: Invocation&): Unit {
 @Command
 func assetsSelect(studio: Studio!, call: Invocation&): Unit {
     studio.assetSelected = call.text
-    if fusionAssetPath(call.text) then openFusionAsset(studio, call.text) else studio.message(call.text)
+    studio.message(call.text)
 }
 
 /** Opens the Assets file [call.text] in a tab of its own, or shows its tab when it is open. */

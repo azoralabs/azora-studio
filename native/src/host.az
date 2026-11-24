@@ -35,6 +35,7 @@ bridge .C {
     func @foreignName("azs_studio_start")(program: String): Long
     func @foreignName("azs_process_pid")(process: Long): Int
     func @foreignName("azs_engine_process_start")(compiler: String, project: String, action: String): Long
+    func @foreignName("azs_shader_process_start")(project: String): Long
     func @foreignName("azs_process_poll")(process: Long): Int
     func @foreignName("azs_process_output")(process: Long): String
     func @foreignName("azs_process_cancel")(process: Long): Int

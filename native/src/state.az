@@ -307,6 +307,10 @@ impl PlaySession {
         px >= self.x && py >= self.y && px < self.x + self.width && py < self.y + self.height
 }
 
+func gpuDocument(path: String, source: Long): Bool =
+    endsWith(path, ".az") && (startsWith(path, "Materials/") || contains(azsBufferText(source), "@Execution(\"GPU\")"))
+
+
 pack Studio {
     var root: String = ""
     var editor: Editor
@@ -453,17 +457,8 @@ pack Studio {
     var frameClock: Double = 0.0
     /** Plugin mesh triangles the viewport drew last frame. */
     var pluginTriangles: Int = 0
-    var fusion: FusionGraph = .()
-    var fusionPath: String = ""
-    var fusionDirty: Bool = false
-    var fusionCompile: Bool = false
-    var fusionReload: String = ""
-    var fusionDiagnostic: String = ""
-    var fusionSelected: Int = 0
-    var fusionPin: Int = 0
-    var fusionPanX: Double = 0.0
-    var fusionPanY: Double = 0.0
-    var fusionZoom: Double = 1.0
+    var shaderCookRequested: Bool = true
+    var shaderCookProcess: Long = 0
     /** What each item of the menu bar runs, by its tag. */
     var menuEntries: Array<MenuEntry> = []
 }
@@ -523,6 +518,7 @@ impl Studio {
         if self.projectLabel != 0 then azsBufferClose(self.projectLabel)
         while self.problemText.size > 0 then azsBufferClose(self.problemText.removeLast())
         if self.process != 0 then azsProcessClose(self.process)
+        if self.shaderCookProcess != 0 then azsProcessClose(self.shaderCookProcess)
         while self.documents.size > 0 {
             var file = self.documents.removeLast()
             azsBufferClose(file.source)
@@ -589,14 +585,17 @@ impl Studio {
 
     /** Saves the edited file and every parked one with changes; false when one could not be written. */
     func !.saveDocuments(): Bool {
+        fin shader = self.editor.dirty && gpuDocument(self.editor.path, self.editor.source)
         var saved = self.editor.save()
-        var index = 0
-        while index < self.documents.size {
-            if self.documents[index].dirty {
-                if azsProjectWrite(self.editor.project, self.documents[index].path, self.documents[index].source) == 0 then saved = false
-                else self.documents[index].dirty = false
+        if saved && shader then self.shaderCookRequested = true
+        for index: Int in 0..<self.documents.size {
+            if !self.documents[index].dirty then continue
+            fin path = self.documents[index].path
+            if azsProjectWrite(self.editor.project, path, self.documents[index].source) == 0 then saved = false
+            else {
+                self.documents[index].dirty = false
+                if gpuDocument(path, self.documents[index].source) then self.shaderCookRequested = true
             }
-            index++
         }
         return saved
     }

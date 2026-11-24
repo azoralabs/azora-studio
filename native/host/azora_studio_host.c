@@ -604,6 +604,20 @@ int64_t azs_engine_process_start(const char *compiler, const char *project, cons
     return start_process("/bin/bash", project, script, project, action);
 }
 
+int64_t azs_shader_process_start(const char *project) {
+    const char *engine = getenv("AZORA_ENGINE_HOME");
+    char script[PATH_MAX];
+    if (!engine || *engine != '/' ||
+        snprintf(script, sizeof script, "%s/tools/shader-cook.sh", engine) >= (int)sizeof script) {
+        fail("Select an Azora Engine toolchain"); return 0;
+    }
+    if (!project || *project != '/') {
+        fail("Invalid project directory"); return 0;
+    }
+    if (access(script, R_OK) < 0) { system_fail("open Engine shader tool"); return 0; }
+    return start_process("/bin/bash", project, script, "--studio", project);
+}
+
 static void drain(Slot *process) {
     if (process->fd < 0) return;
     char bytes[4096];

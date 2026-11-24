@@ -65,7 +65,7 @@ func placeForestGrove(studio: Studio!, call: Invocation&) {
 }
 
 func setRoadMaterial(studio: Studio!, road: Entity) {
-    fin asset = "Materials/asphalt.azmaterial"
+    fin asset = "Materials/asphalt.az"
     if readProjectFile(studio.root,asset) != "" {
         storageInsert<FusionMaterial>(ensureStorage(studio.scene),road,.(asset: asset))
     }

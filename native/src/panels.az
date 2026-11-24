@@ -15,6 +15,7 @@ import engine.ui.docking
 import studio.host
 import studio.theme
 import studio.state
+import studio.materials
 import studio.ui
 import studio.fields
 import studio.problems
@@ -400,7 +401,9 @@ impl pack AssetsPanel {
                     index++
                 }
                 Spacer(key: "fill")
-                BarButton("fusionCreate", app, icon: "plus", label: "Material", key: "new-material")
+                BarButton("materialCreate", app, icon: "plus", label: "Material", key: "new-material")
+                if materialAssetSelected(studio) then
+                    BarButton("materialAssign", app, icon: "check", label: "Assign", key: "assign-material")
                 Row(modifier: ::width(190.0).height(24.0).sunken().rounded(5.0).padding(start: 8.0, end: 6.0), verticalAlignment: .Center, key: "search") {
                     Text("Search…", modifier: ::weight(1.0).fontSize(12.0).faintText().textAlign(.Start), key: "hint")
                     Icon("search", studioTheme.faint, size: studioTheme.iconSmall, key: "icon")

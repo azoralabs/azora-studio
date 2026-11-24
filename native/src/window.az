@@ -36,7 +36,7 @@ import studio.fields
 import studio.script
 import studio.panels
 import studio.viewport
-import studio.fusion
+import studio.materials
 import studio.code
 import studio.commands
 import studio.problems
@@ -134,7 +134,7 @@ impl pack TopBar {
             Label("Azora Studio", app, studioTheme.text, size: 13.5, bold: true, key: "name")
             Icon("chevron-right", studioTheme.faint, size: studioTheme.iconSmall, key: "sep")
             Label(studio.projectName(), app, studioTheme.muted, size: 13.0, key: "project")
-            if studio.sceneDirty || studio.documentsDirty() || studio.fusionDirty {
+            if studio.sceneDirty || studio.documentsDirty() {
                 Shape(modifier: ::size(7.0, 7.0).rounded(3.5).fill(studioTheme.orange), key: "dirty")
             }
             Spacer(key: "left")
@@ -457,10 +457,6 @@ func commitField(studio: Studio!) {
         fin id = substring(focus.component, stringLength(pluginPanelPrefix), stringLength(focus.component))
         fin index = studio.pluginParam(id, focus.field)
         if index >= 0 && !focus.replace then studio.setPluginNumber(index, parseNumber(focus.text, studio.pluginParams[index].value))
-    } else if focus.component == "FusionNode" {
-        if !focus.replace then setFusionField(studio, focus.field, focus.text)
-    } else if focus.component == "FusionTexture" {
-        if !focus.replace then setFusionTexture(studio, focus.text)
     } else if focus.component == "PluginComponent" {
         if !focus.replace && setExternalComponent(studio.scene, studio.selected(), focus.field, focus.text) {
             fin entity = studio.selected()
@@ -946,14 +942,6 @@ react func main() {
                 } else if binding.component == "CameraSpeed" {
                     studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
                         formatDecimal(studio.camera.speed, 2), input.x, 0.0, 0.0, "", true, true)
-                } else if binding.component == "FusionTexture" {
-                    fin node = studio.fusion.indexOfNode(studio.fusionSelected)
-                    if node >= 0 then studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
-                        studio.fusion.nodes[node].textureSet, input.x, 0.0, 0.0, "", false, true)
-                } else if binding.component == "FusionNode" {
-                    fin node = studio.fusion.indexOfNode(studio.fusionSelected)
-                    if node >= 0 then studio.focus = FieldFocus(binding.component, binding.field, 0, true, false,
-                        formatDecimal(fusionFieldNumber(studio.fusion.nodes[node], binding.field), 6), input.x, 0.0, 0.0, "", true, true)
                 } else if binding.numeric {
                     studio.focus = FieldFocus(binding.component, binding.field, binding.axis, false, true, "", input.x,
                         fieldNumber(studio.scene, entity, binding.component, binding.field, binding.axis)
@@ -1133,7 +1121,7 @@ react func main() {
         }
         if studio.playing && !studio.paused then studio.playTime = studio.playTime + app.deltaTime()
         studio.tickPlugins(app)
-        tickFusion(app, studio)
+        tickMaterials(app, studio)
         syncPluginPanels(studio, pass.world)
         if cue.menu != "" && !chooseMenuItem(cue.menu) then println("script: no menu item '${cue.menu}'")
         // The menu bar's choices run as the same commands a button or a key runs.
