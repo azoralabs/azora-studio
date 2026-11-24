@@ -5,6 +5,7 @@ import std.container.list
 import std.serializer
 import engine.core
 import engine.atmosphere
+import engine.audio.output
 import engine.weather.state
 import engine.ecs
 import engine.math
@@ -417,7 +418,21 @@ pack Studio {
     var roadPlacement: Int = 0
     var foliageBrush: FoliageBrush = .()
     var atmosphere: AetherRenderer = .()
-    var atmosphereState: AetherState = .()
+    /**
+     * The engine's systems, as the game schedules them: the viewport runs the
+     * editor ones (`@System(editor: true)`: weather, water, plants, roads) on
+     * the scene being edited, every frame, through a game frame of its own.
+     */
+    var systems: SystemPlan = systemPlan()
+    /** The scene file being edited, relative to the project: [sceneFile] unless AZORA_STUDIO_SCENE or the user opened another. */
+    var scenePath: String = "scene.azscene"
+    /** The project's entry source (its azora.azon `project.entry`), which the Code tab edits and checks run on. */
+    var entrySource: String = "src/main.az"
+    /** What the editor's game frame needs and keeps between frames: a UI world, a silent sound output, the view's matrices. */
+    var editorUi: World = .()
+    var editorAudio: AudioOutput = .()
+    var editorMatrices: Long = 0
+    var editorFrames: Int = 0
     var atmospherePrevious: Mat4 = mat4Identity()
     var atmosphereOwner: Entity = ::invalid
     var atmosphereTried: Bool = false
@@ -986,6 +1001,7 @@ func choiceAt(options: String, index: Int): String {
 // ── The scene file ──────────────────────────────────────────────────────
 
 /** Where the scene lives in a project. */
+/** The scene a project opens with when nothing names another. */
 inline fin sceneFile = "scene.azscene"
 
 /** An entity with [components] (AZON) under [parent]. */

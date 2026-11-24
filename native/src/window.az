@@ -44,6 +44,9 @@ import studio.worldtools
 import studio.foliagetool
 import engine.vehicles
 import engine.weather
+import engine.game
+import engine.audio.output
+import engine.atmosphere.view
 import engine.roads
 import studio.menubar
 import studio.play
@@ -66,7 +69,7 @@ func keyAxis(app: App&, positive: KeyCode, negative: KeyCode): Double {
 }
 
 func canvasPointer(panel: String, app: App!, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool {
-    if startsWith(panel, filePanelPrefix) then return documentPointer(app, studio, rect, input, panelDocument(panel))
+    if startsWith(panel, filePanelPrefix) then return documentPointer(app, studio, rect, input, panelDocument(panel, studio.entrySource))
     inline for P in reflect<*>.withAnnot<Panel> {
         inline if reflect<P>.hasAnnot<Canvas> {
             if panel == reflect<P>.declName then return P::pointer(app, studio, rect, input)
@@ -78,7 +81,7 @@ func canvasPointer(panel: String, app: App!, studio: Studio!, rect: ViewRect&, i
 /** Has the `@Canvas` panel [panel] draw into [rect]. */
 func canvasDraw(panel: String, app: App!, studio: Studio!, rect: ViewRect&) {
     if startsWith(panel, filePanelPrefix) {
-        drawDocument(app, studio, rect, panelDocument(panel))
+        drawDocument(app, studio, rect, panelDocument(panel, studio.entrySource))
         return
     }
     inline for P in reflect<*>.withAnnot<Panel> {
@@ -281,7 +284,7 @@ react func (anchor: Anchor!).studioPanel(panel: String, studio: Studio&, app: Ap
         fin id = substring(panel, stringLength(pluginPanelPrefix), stringLength(panel))
         anchor.pluginPanel(studio, app, id)
     } else if startsWith(panel, filePanelPrefix) {
-        SourceTab(panel, panelDocument(panel), studio, app)
+        SourceTab(panel, panelDocument(panel, studio.entrySource), studio, app)
     } else {
         inline for P in reflect<*>.withAnnot<Panel> {
             if panel == reflect<P>.declName then P(studio, app)
@@ -577,13 +580,16 @@ react func main() {
         println(azsError())
         return
     }
-    fin source = azsProjectRead(project, "src/main.az")
+    fin entrySource = projectEntrySource(readText(project, "azora.azon"))
+    fin source = azsProjectRead(project, entrySource)
     if source == 0 {
         azsProjectClose(project)
         println(azsError())
         return
     }
     var studio: Studio = .(root, editorOf(project, source))
+    studio.entrySource = entrySource
+    studio.editor.path = entrySource
     studio.nameProject(root)
 
     // Studio's own data: the theme, entity presets and the default scene.
@@ -597,13 +603,16 @@ react func main() {
     }
 
     // The scene: the project's own, or the default one when it has none of this version.
-    if readScene(studio.scene, readText(project, sceneFile)) < 0 {
+    // The scene: the one AZORA_STUDIO_SCENE names (relative to the project), else the project's default.
+    fin askedScene = azsEnvironment("AZORA_STUDIO_SCENE")
+    if askedScene != "" && endsWith(askedScene, ".azscene") && !startsWith(askedScene, "/") && indexOf(askedScene, "..") < 0 then studio.scenePath = askedScene
+    if readScene(studio.scene, readText(project, studio.scenePath)) < 0 {
         if resources != 0 && readScene(studio.scene, readText(resources, "default-scene.azscene")) >= 0 {
             studio.sceneDirty = true
             studio.output("Azora Studio — native build.\nThis project's scene predates scene format 2; it opened with the default scene. Save (⌘S) to keep it.")
         }
     } else {
-        studio.output("Azora Studio — native build.\nOpened ${studio.projectName()} · ${sceneFile}")
+        studio.output("Azora Studio — native build.\nOpened ${studio.projectName()} · ${studio.scenePath}")
     }
     fin landscapeTools = if resources != 0 then readText(resources, "landscape-tools.azon") else ""
     if resources != 0 then azsProjectClose(resources)
@@ -963,7 +972,7 @@ react func main() {
             if surface.isValid {
                 fin panel = storageGetOrDefault<PanelSurface>(store(pass), surface, .()).panel
                 fin area = storageGetOrDefault<Rect>(store(pass), surface, .())
-                if input.pressed && panelDocument(panel) == "" && studio.sourceFocused {
+                if input.pressed && panelDocument(panel, studio.entrySource) == "" && studio.sourceFocused {
                     studio.sourceFocused = false
                     studio.changed()
                 }
@@ -1017,7 +1026,7 @@ react func main() {
                 // A file opens beside the other text tabs, named for the file.
                 fin code = dockFindPanel(pass.world, "CodePanel")
                 fin group = if pass.world.isAlive(code) then dockParent(pass.world, code) else mainDockGroup(pass.world)
-                fin path = panelDocument(studio.showPanel)
+                fin path = panelDocument(studio.showPanel, studio.entrySource)
                 if pass.world.isAlive(group) then dockAddTab(pass.world, group, studio.showPanel, title: substring(path, lastSlash(path) + 1, stringLength(path)))
             } else {
                 // Keep brush settings beside the viewport that receives the stroke.
@@ -1064,7 +1073,7 @@ react func main() {
                     studio.busy = action != "inspect"
                     if action != "inspect" { studio.output("$ azora ${action}\n") }
                     studio.notify(when action {
-                        "inspect" -> "Checking src/main.az…"
+                        "inspect" -> "Checking ${studio.entrySource}…"
                         "play" -> "Building and running the app…"
                         "pie" -> "Building the game to play in the viewport…"
                         else -> "Building with the native compiler…"
@@ -1081,10 +1090,10 @@ react func main() {
                 if studio.quietCancel {
                     studio.quietCancel = false
                 } else if studio.processAction == "inspect" && isInspectSnapshot(output) {
-                    studio.inspect(output, "src/main.az")
+                    studio.inspect(output, studio.entrySource)
                     fin count = studio.problems.size
                     if count == 0 { studio.notify("No problems", 2) }
-                    else { studio.notify(if count == 1 then "1 problem in src/main.az" else { "${count} problems in src/main.az" }, if studio.countProblems(0) > 0 then 3 else 1) }
+                    else { studio.notify(if count == 1 then "1 problem in ${studio.entrySource}" else { "${count} problems in ${studio.entrySource}" }, if studio.countProblems(0) > 0 then 3 else 1) }
                 } else {
                     studio.output(if output == "" { "$ azora ${studio.processAction}\n(no output)" } else { "$ azora ${studio.processAction}\n${output}" })
                     if result == 0 && studio.processAction == "pie" { startPlaySession(studio, app, root) }

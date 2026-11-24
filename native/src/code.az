@@ -507,7 +507,7 @@ func drawDocument(app: App!, studio: Studio!, rect: ViewRect&, path: String) {
         // Problems come from checking the entry source.
         fin none: Array<Diagnostic> = []
         drawSource(app, studio.editor.source, studio.cursor, studio.sourceFocused, area, studio.sourceScroll, caretVisible,
-            if path == mainSource then studio.problems else none, studio.problemsStale, studio.selectionStart(), studio.selectionEnd())
+            if path == studio.entrySource then studio.problems else none, studio.problemsStale, studio.selectionStart(), studio.selectionEnd())
     } else {
         fin at = studio.parkedFile(path)
         if at >= 0 {
@@ -558,17 +558,17 @@ func documentPointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameIn
     return true
 }
 
-@Panel(title: "main.az", icon: "file-code", area: .Center, order: 1)
+@Panel(title: "Code", icon: "file-code", area: .Center, order: 1)
 @Canvas
 pack CodePanel { }
 impl CodePanel {
     react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
-        return SourceTab("CodePanel", mainSource, studio, app)
+        return SourceTab("CodePanel", studio.entrySource, studio, app)
     }
 
-    func draw(app: App!, studio: Studio!, rect: ViewRect&) = drawDocument(app, studio, rect, mainSource)
+    func draw(app: App!, studio: Studio!, rect: ViewRect&) = drawDocument(app, studio, rect, studio.entrySource)
 
-    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool = documentPointer(app, studio, rect, input, mainSource)
+    func pointer(app: App&, studio: Studio!, rect: ViewRect&, input: FrameInput&): Bool = documentPointer(app, studio, rect, input, studio.entrySource)
 }
 
 @Panel(title: "Console", icon: "terminal", area: .Bottom, order: 1)

@@ -123,7 +123,7 @@ func saveSceneDocument(studio: Studio!): Bool {
         return false
     }
     fin buffer = azsBufferNew(writeScene(studio.scene))
-    fin written = if buffer == 0 then 0 else azsProjectWrite(studio.editor.project, sceneFile, buffer)
+    fin written = if buffer == 0 then 0 else azsProjectWrite(studio.editor.project, studio.scenePath, buffer)
     if buffer != 0 then azsBufferClose(buffer)
     if written == 0 {
         studio.notify(azsError(), 3)
@@ -144,7 +144,7 @@ func fileSave(studio: Studio!, call: Invocation&): Unit {
     if !saveSceneDocument(studio) then return
     studio.layoutDirty = true
     studio.requestedTool = "inspect"
-    studio.notify("Saved ${studio.editor.path} and ${sceneFile}", 2)
+    studio.notify("Saved ${studio.editor.path} and ${studio.scenePath}", 2)
 }
 
 @Command(title: "Revert to Saved", menu: "File", group: 0, order: 1)
@@ -681,7 +681,7 @@ func assetsEdit(studio: Studio!, call: Invocation&): Unit {
         studio.notify("Could not open ${call.text}", 3)
         return
     }
-    studio.showPanel = documentPanel(call.text)
+    studio.showPanel = documentPanel(call.text, studio.entrySource)
     studio.sourceFocused = true
     studio.focus = FieldFocus()
     studio.revealCursor = true
@@ -716,7 +716,7 @@ func createHeightfield(studio: Studio!, call: Invocation&) {
 func problemOpen(studio: Studio!, call: Invocation&): Unit {
     if call.arg < 0 || call.arg >= studio.problems.size then return
     fin problem = studio.problems[call.arg].clone()
-    if !studio.editDocument(mainSource) then return
+    if !studio.editDocument(studio.entrySource) then return
     studio.showPanel = "CodePanel"
     studio.sourceFocused = true
     studio.cursor = studioOffsetAt(studio, problem.line, problem.startByte)

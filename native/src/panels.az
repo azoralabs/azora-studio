@@ -444,7 +444,7 @@ impl pack ProblemsPanel {
         fin count = studio.problems.size
         return Column(modifier: ::fillMaxSize(), key: "problems") {
             PanelBar {
-                Label(if !studio.inspected then "Not checked yet" else if count == 0 then "No problems in src/main.az" else if studio.problemsStale then "Edited since the last check · ⌘S re-checks" else "Click a problem to open it",
+                Label(if !studio.inspected then "Not checked yet" else if count == 0 then "No problems in ${studio.entrySource}" else if studio.problemsStale then "Edited since the last check · ⌘S re-checks" else "Click a problem to open it",
                     app, studioTheme.muted, key: "summary")
                 Spacer(key: "fill")
                 BarButton("toolInspect", app, icon: "refresh-cw", label: "Check", key: "check")

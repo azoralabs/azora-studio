@@ -88,18 +88,53 @@ pack OpenFile derives Clone {
     var scroll: Int = 0
 }
 
-/** The project's entry source, which the "main.az" tab (CodePanel) edits and the compiler checks. */
-inline fin mainSource: String = "src/main.az"
+/** The entry source of a project whose azora.azon names none. */
+inline fin defaultEntrySource: String = "src/main.az"
+
+/**
+ * The project's entry source (`project.src` / `project.entry` of its
+ * azora.azon [manifest]), which the Code tab edits and the compiler checks:
+ * a project names its files as it likes, `src/main.az` only by default.
+ */
+func projectEntrySource(manifest: String): String {
+    fin data = decodeSerialValue(manifest, serializerOptions()) catch SerialValue.Null
+    var folder = "src"
+    var entry = "main.az"
+    when data {
+        .Object(members) -> {
+            for member in members {
+                if member.name == "project" {
+                    when member.value {
+                        .Object(fields) -> {
+                            for field in fields {
+                                when field.value {
+                                    .Text(text) -> {
+                                        if field.name == "entry" && endsWith(text, ".az") && indexOf(text, "/") < 0 then entry = text
+                                        if field.name == "src" && text != "" && indexOf(text, "..") < 0 && !startsWith(text, "/") then folder = text
+                                    }
+                                    else -> { }
+                                }
+                            }
+                        }
+                        else -> { }
+                    }
+                }
+            }
+        }
+        else -> { }
+    }
+    return "${folder}/${entry}"
+}
 
 /** What starts the dock panel name of a tab editing another project file. */
 inline fin filePanelPrefix: String = "file:"
 
 /** The dock panel that edits project file [path]. */
-func documentPanel(path: String): String = if path == mainSource then "CodePanel" else "${filePanelPrefix}${path}"
+func documentPanel(path: String, entry: String): String = if path == entry then "CodePanel" else "${filePanelPrefix}${path}"
 
 /** The project file dock [panel] edits, or "" when it edits none. */
-func panelDocument(panel: String): String = when {
-    panel == "CodePanel" -> mainSource
+func panelDocument(panel: String, entry: String): String = when {
+    panel == "CodePanel" -> entry
     startsWith(panel, filePanelPrefix) -> substring(panel, stringLength(filePanelPrefix), stringLength(panel))
     else -> ""
 }

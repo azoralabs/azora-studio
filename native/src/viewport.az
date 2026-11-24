@@ -15,6 +15,9 @@ import studio.fields
 import engine.atmosphere
 import studio.host
 import engine.render.scene
+import engine.game
+import engine.audio.output
+import engine.atmosphere.view
 import engine.world.partition
 import engine.gizmos
 import engine.ui.node
@@ -665,6 +668,21 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     fin viewProj = studio.camera.viewProj(rect.aspect())
     app.setScissor(rect.x, rect.y, rect.width, rect.height)
     fin elapsed = azsMonotonicSeconds() - studio.viewportStarted
+    // The engine's editor systems on the edited scene, as the game runs them: its weather, water, plants and roads.
+    if studio.editorMatrices == 0 then studio.editorMatrices = azAlloc(sceneViewMatrixBytes)
+    var overlay = Composition::of(studio.editorUi, "editor-systems")
+    var frame: Game = .(studio.scene, app, overlay, studio.editorAudio)
+    frame.camera = studio.camera.clone()
+    frame.time.elapsedSecs = elapsed
+    frame.time.deltaSecs = clampValue(app.deltaTime(), 0.0, 0.1)
+    frame.time.editing = true
+    frame.view.matrices = studio.editorMatrices
+    frame.view.frame = studio.editorFrames
+    updateSceneView(frame, viewProj, rect)
+    studio.editorFrames = frame.view.frame
+    dispatchEditor(studio.systems, .PreUpdate, frame)
+    dispatchEditor(studio.systems, .Update, frame)
+    dispatchEditor(studio.systems, .PostUpdate, frame)
     fin skyEntity = sceneSkyLight(studio.scene)
     fin drawnSky = drawPhysicalSky(app,studio,rect,elapsed)
     if !drawnSky && studio.mode3d && studio.scene.isAlive(skyEntity) {
@@ -691,7 +709,18 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
         app.setAmbientLight(1.0)
     }
     if studio.viewMode == 2 then send1(app.gpu.enc, sel("setTriangleFillMode:"), 1)
-    app.drawScene(studio.scene, studio.meshes, sculpted: false, elapsed: elapsed)
+    // The built-in scene with the editor systems' shadow casters and opaque draws, as in the game.
+    app.prepareSceneDraw(studio.scene)
+    var cascade = app.beginSunCascade()
+    if cascade.open {
+        app.drawSceneCasters(studio.scene, studio.meshes)
+        dispatchEditor(studio.systems, .RenderShadow, frame)
+        app.endSunCascade(cascade)
+    }
+    app.drawSceneOpaque(studio.scene, studio.meshes, false)
+    dispatchEditor(studio.systems, .RenderOpaque, frame)
+    app.gpu.mode = -1
+    app.gpu.meshPipeline = 0
     app.drawPluginMeshes(studio, rect)
     if studio.viewMode == 2 then send1(app.gpu.enc, sel("setTriangleFillMode:"), 0)
     app.gpu.flatMaterials = false

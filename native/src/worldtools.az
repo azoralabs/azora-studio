@@ -264,10 +264,7 @@ func drawPhysicalSky(app: App!, studio: Studio!, rect: ViewRect&, elapsed: Doubl
         studio.atmosphereOwner = Entity::invalid
         return false
     }
-    if owner != studio.atmosphereOwner {
-        studio.atmosphereState = AetherState()
-        studio.atmosphereOwner = owner
-    }
+    studio.atmosphereOwner = owner
     if !studio.atmosphereTried {
         studio.atmosphere = makeAetherRenderer(app.gpu.device)
         studio.atmosphereTried = true
@@ -277,7 +274,6 @@ func drawPhysicalSky(app: App!, studio: Studio!, rect: ViewRect&, elapsed: Doubl
     fin right = studio.camera.right()
     fin forward = studio.camera.forward()
     fin up = studio.camera.up()
-    previewWeather(studio.scene,owner,studio.atmosphereState,elapsed,app.deltaTime(),eye,right)
     prepareAtmosphere(studio.scene,owner,studio.atmosphere,elapsed,eye)
     fin sky = storageGet<AetherSky>(ensureStorage(studio.scene),owner)
     fin width = app.width() as Double
@@ -291,7 +287,9 @@ func drawPhysicalSky(app: App!, studio: Studio!, rect: ViewRect&, elapsed: Doubl
     pokeMat4(studio.atmosphere.uniforms,176,mat4Inverse(current))
     pokeMat4(studio.atmosphere.uniforms,352,if studio.atmosphere.cloudFrames > 0 then studio.atmospherePrevious else current)
     studio.atmospherePrevious = current.clone()
-    ensureCloudTargets(app.gpu.device,studio.atmosphere,rect.width as Int,rect.height as Int)
+    // The clouds' targets follow the viewport's pixels (the drawable's), not its points: an eighth of what is shown.
+    fin pixels = if width > 0.0 then (app.gpu.depthW as Double)/width else 1.0
+    ensureCloudTargets(app.gpu.device,studio.atmosphere,(rect.width*pixels) as Int,(rect.height*pixels) as Int)
     updateAetherTables(app.gpu.queue,studio.atmosphere,sky)
     drawAtmosphereSky(app.beginCustomSky(),app.gpu.depthOff,studio.atmosphere,rect.width/width,rect.height/height,
         (rect.x*2.0+rect.width)/width-1.0,1.0-(rect.y*2.0+rect.height)/height)
