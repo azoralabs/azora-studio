@@ -18,8 +18,7 @@ private val URL_REGEX = Regex("https?://localhost:\\d+")
  * - Android → boots the chosen emulator (if needed), `installDebug`, then launches the app.
  * - iOS → prints guidance (needs the Xcode project; see `iosApp/README.md`).
  *
- * Gradle always runs with Studio's own JVM (`java.home`) so it never picks up a too-new
- * system JDK that Gradle can't run on.
+ * Gradle uses JAVA_HOME when configured or Studio's JVM when it is a full JDK.
  */
 class ProjectRunner(private val console: ConsoleOutputManager) {
 
@@ -35,7 +34,8 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
     var isRunning by mutableStateOf(false)
         private set
 
-    private val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+    private val isWindows = File.separatorChar == '\\'
+    private val isMac = System.getProperty("os.name").startsWith("Mac")
 
     init {
         // Make sure a running dev server (e.g. Vite on localhost) never outlives Studio: child
@@ -95,15 +95,18 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
         console.info("> gradlew $task")
         val wrapper = File(projectDir, if (isWindows) "gradlew.bat" else "gradlew")
         val launcher = when {
-            wrapper.exists() -> wrapper.absolutePath
-            isWindows -> "gradle.bat"
-            else -> "gradle"
+            isWindows -> listOf("cmd.exe", "/d", "/c", if (wrapper.isFile) wrapper.name else "gradle.bat")
+            wrapper.isFile -> listOf("sh", wrapper.absolutePath)
+            else -> listOf("gradle")
         }
-        val builder = ProcessBuilder(launcher, task, "--console=plain")
+        val builder = ProcessBuilder(launcher + listOf(task, "--console=plain"))
             .directory(projectDir)
             .redirectErrorStream(true)
-        System.getProperty("java.home")?.takeIf { it.isNotBlank() }?.let {
-            builder.environment()["JAVA_HOME"] = it
+        val environment = builder.environment()
+        val javac = if (isWindows) "bin/javac.exe" else "bin/javac"
+        val studioJava = File(System.getProperty("java.home"))
+        if (environment["JAVA_HOME"].isNullOrBlank() && studioJava.resolve(javac).isFile) {
+            environment["JAVA_HOME"] = studioJava.path
         }
         extraEnv.forEach { (k, v) -> builder.environment()[k] = v }
         val proc = builder.start()
@@ -126,16 +129,16 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
     private fun runCommand(projectDir: File, target: RunTarget) {
         val command = target.command
         if (command.isNullOrBlank()) { console.error("Run target \"${target.label}\" has no command."); return }
-        val dir = target.workingDir?.let { File(projectDir, it) } ?: projectDir
+        val dir = target.workingDir?.let { File(it).let { path -> if (path.isAbsolute) path else projectDir.resolve(path) } } ?: projectDir
         if (!dir.isDirectory) { console.error("Working directory not found: ${dir.absolutePath}"); return }
 
         // Projects usually live under ~/Documents, which may be iCloud-synced: between Studio
         // sessions iCloud can evict files to dataless placeholders. /bin/sh then fails reading
         // the script with "Interrupted system call" (exit 126), while JVM reads block until the
         // file is materialized — so touch every shell script first, and retry a failed launch.
-        materializeScripts(dir)
+        if (isMac) materializeScripts(dir)
 
-        val full = if (isWindows) listOf("cmd", "/c", command) else listOf("sh", "-lc", command)
+        val full = if (isWindows) listOf("cmd.exe", "/d", "/c", command) else listOf("sh", "-c", command)
         var attempt = 0
         while (true) {
             attempt++
@@ -152,7 +155,7 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
             val code = proc.waitFor()
             if (code == 0) return
             // 126 = "found but cannot execute" — with EINTR that's the iCloud eviction race.
-            if (attempt < 3 && (code == 126 || sawEintr)) {
+            if (isMac && attempt < 3 && (code == 126 || sawEintr)) {
                 console.info("Script wasn't readable yet (iCloud sync) — retrying…")
                 materializeScripts(dir)
                 Thread.sleep(400)
@@ -179,7 +182,7 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
     private fun openInBrowser(url: String) {
         val cmd = when {
             isWindows -> listOf("cmd", "/c", "start", "", url)
-            System.getProperty("os.name").lowercase().contains("mac") -> listOf("open", url)
+            isMac -> listOf("open", url)
             else -> listOf("xdg-open", url)
         }
         runCatching { ProcessBuilder(cmd).redirectErrorStream(true).start() }
@@ -195,7 +198,7 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
         }
         if (target.androidAvd != null) {
             console.info("Booting emulator \"${target.androidAvd}\"…")
-            RunTargets.sdkDir()?.resolve("emulator/emulator")?.let { emu ->
+            RunTargets.emulator()?.let { emu ->
                 runCatching {
                     ProcessBuilder(emu.absolutePath, "-avd", target.androidAvd)
                         .redirectOutput(ProcessBuilder.Redirect.DISCARD)
@@ -205,9 +208,9 @@ class ProjectRunner(private val console: ConsoleOutputManager) {
             }
             runAndWait(listOf(adb.absolutePath, "wait-for-device"))
             // Wait until the device finishes booting.
-            repeat(60) {
+            for (attempt in 0 until 60) {
                 val booted = capture(listOf(adb.absolutePath, "shell", "getprop", "sys.boot_completed")).trim()
-                if (booted == "1") return@repeat
+                if (booted == "1") break
                 Thread.sleep(2000)
             }
         }

@@ -41,14 +41,25 @@ data class RunTarget(
  */
 object RunTargets {
 
-    fun sdkDir(): File? =
-        (System.getenv("ANDROID_HOME")
-            ?: System.getenv("ANDROID_SDK_ROOT")
-            ?: System.getProperty("user.home")?.let { "$it/Library/Android/sdk" })
-            ?.let(::File)?.takeIf { it.isDirectory }
+    private val isWindows = File.separatorChar == '\\'
+    private val executableSuffix = if (isWindows) ".exe" else ""
 
-    fun adb(): File? = sdkDir()?.resolve("platform-tools/adb")?.takeIf { it.canExecute() }
-    private fun emulator(): File? = sdkDir()?.resolve("emulator/emulator")?.takeIf { it.canExecute() }
+    fun sdkDir(): File? {
+        val home = File(System.getProperty("user.home"))
+        return listOfNotNull(
+            System.getenv("ANDROID_HOME")?.takeIf { it.isNotBlank() }?.let(::File),
+            System.getenv("ANDROID_SDK_ROOT")?.takeIf { it.isNotBlank() }?.let(::File),
+            System.getenv("LOCALAPPDATA")?.takeIf { it.isNotBlank() }?.let { File(it, "Android/Sdk") },
+            home.resolve("Android/Sdk"),
+            home.resolve("Library/Android/sdk"),
+        ).firstOrNull(File::isDirectory)
+    }
+
+    fun adb(): File? = sdkExecutable("platform-tools/adb")
+    fun emulator(): File? = sdkExecutable("emulator/emulator")
+
+    private fun sdkExecutable(name: String): File? =
+        sdkDir()?.resolve(name + executableSuffix)?.takeIf { it.isFile && it.canExecute() }
 
     /** Whether the template can be run from Studio at all (drives toolbar visibility). Cheap (no subprocess). */
     fun isRunnable(templateId: String, pluginManager: PluginManager, libraryManager: LibraryManager): Boolean =

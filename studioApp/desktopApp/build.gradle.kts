@@ -149,6 +149,6 @@ compose.desktop {
             }
         }
 
-        jvmArgs("-Xdock:name=Azora Studio")
+        if (System.getProperty("os.name").startsWith("Mac")) jvmArgs("-Xdock:name=Azora Studio")
     }
 }
