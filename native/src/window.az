@@ -644,12 +644,13 @@ react func main() {
     }
     studio.select(first)
     frameTerrainScene(studio)
-    studio.viewportStarted = azsMonotonicSeconds()
     studio.refreshAssets()
     // Plugins: installed ones load as soon as the frame loop runs, and new ones
     // the moment they appear - no restart.
     fin home = azsEnvironment("HOME")
     loadRenderPreferences(studio, home)
+    fin quality = azsEnvironment("AZORA_STUDIO_VIEWPORT_QUALITY")
+    if quality != "" then studio.viewportQuality = parseViewportQuality(quality)
     studio.pluginsRoot = if azsEnvironment("AZORA_STUDIO_PLUGINS") != "" then azsEnvironment("AZORA_STUDIO_PLUGINS")
         else if home != "" then "${home}/Library/Application Support/Azora Studio/Plugins" else ""
     studio.message("Ready")
@@ -658,7 +659,7 @@ react func main() {
     var pass = Composition::of(world, "studio")
     if !readDockLayout(pass.world, readText(project, layoutFile), pluginPanelPrefix, false) then dockDefaultLayout(pass.world)
 
-    var app = appInit("Azora Studio", 1520, 940)
+    var app = appInit(if askedScene == "" then "Azora Studio" else "Azora Studio · ${studio.scenePath}", 1520, 940)
     if !app.ok then return
     studio.installMenuBar()
     if azsEnvironment("AZORA_STUDIO_TRACE") != "" then print(menuBarOutline())
@@ -1122,6 +1123,7 @@ react func main() {
         if studio.playing && !studio.paused then studio.playTime = studio.playTime + app.deltaTime()
         studio.tickPlugins(app)
         tickMaterials(app, studio)
+        studio.tickSceneWindows()
         syncPluginPanels(studio, pass.world)
         if cue.menu != "" && !chooseMenuItem(cue.menu) then println("script: no menu item '${cue.menu}'")
         // The menu bar's choices run as the same commands a button or a key runs.

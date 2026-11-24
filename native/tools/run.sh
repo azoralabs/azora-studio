@@ -34,6 +34,7 @@ else
 fi
 case "$PROJECT_OVERRIDE" in /*|"") ;; *) echo "The project must be an absolute path" >&2; exit 1 ;; esac
 
+export AZORA_STUDIO_PREVIEW_PROJECT="${AZORA_STUDIO_PREVIEW_PROJECT:-$PROJECT_OVERRIDE}"
 [ -f "$AZORA_ENGINE_HOME/runtime/build/libazora_runtime.dylib" ] || bash "$AZORA_ENGINE_HOME/runtime/build.sh"
 bash "$ROOT/tools/build-window.sh" studio
 if [ "$MODE" = launcher ]; then

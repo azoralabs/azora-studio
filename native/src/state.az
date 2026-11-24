@@ -429,15 +429,16 @@ pack Studio {
     var viewMode: Int = 0
     var viewportQuality: ViewportQuality = .High
     var viewportUpscaling: Bool = true
-    var viewportStarted: Double = 0.0
+    var viewportSimulations: Bool = true
+    var editorTime: Time = timeInit()
+    var skyTimeOffset: Double = 0.0
     var roadTarget: Entity = ::invalid
     var roadPlacement: Int = 0
     var foliageBrush: FoliageBrush = .()
     var atmosphere: AetherRenderer = .()
     /**
-     * The engine's systems, as the game schedules them: the viewport runs the
-     * editor ones (`@System(editor: true)`: weather, water, plants, roads) on
-     * the scene being edited, every frame, through a game frame of its own.
+     * The engine and project's editor systems run on the edited scene through
+     * a game frame of its own.
      */
     var systems: SystemPlan = systemPlan()
     /** The scene file being edited, relative to the project: [sceneFile] unless AZORA_STUDIO_SCENE or the user opened another. */
@@ -459,6 +460,7 @@ pack Studio {
     var pluginTriangles: Int = 0
     var shaderCookRequested: Bool = true
     var shaderCookProcess: Long = 0
+    var sceneWindows: Array<Long> = []
     /** What each item of the menu bar runs, by its tag. */
     var menuEntries: Array<MenuEntry> = []
 }
@@ -519,6 +521,7 @@ impl Studio {
         while self.problemText.size > 0 then azsBufferClose(self.problemText.removeLast())
         if self.process != 0 then azsProcessClose(self.process)
         if self.shaderCookProcess != 0 then azsProcessClose(self.shaderCookProcess)
+        for window in self.sceneWindows then azsProcessClose(window)
         while self.documents.size > 0 {
             var file = self.documents.removeLast()
             azsBufferClose(file.source)
@@ -598,6 +601,18 @@ impl Studio {
             }
         }
         return saved
+    }
+
+    func !.tickSceneWindows() {
+        var index = 0
+        while index < self.sceneWindows.size {
+            fin window = self.sceneWindows[index]
+            if azsProcessPoll(window) == -1 then index++
+            else {
+                azsProcessClose(window)
+                self.sceneWindows.removeAt(index)
+            }
+        }
     }
 
     func !.changed() { self.revision = self.revision + 1 }

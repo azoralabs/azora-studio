@@ -497,6 +497,8 @@ func loadRenderPreferences(studio: Studio!, home: String) {
             studio.upscaling = upscaling == "temporal"
             studio.viewportUpscaling = memberText(fields, "viewportUpscaling", upscaling) == "temporal"
             studio.viewportQuality = parseViewportQuality(memberText(fields, "viewportQuality", "High"))
+            fin simulations = memberAt(fields, "viewportSimulations")
+            if simulations >= 0 then studio.viewportSimulations = serialAsBool(fields[simulations].value) catch true
             studio.camera.speed = memberReal(fields, "cameraSpeed", studio.camera.speed)
             // Older files saved the 120 Hz default even when the user only changed unrelated settings.
             fin legacyRate = memberInt(fields, "physicsRate", 120)
@@ -542,7 +544,7 @@ func saveRenderPreferences(studio: Studio!) {
     fin viewportUpscaling = if studio.viewportUpscaling then "temporal" else "native"
     fin quality = viewportQualityLabel(studio.viewportQuality)
     fin physicsRateOverride = if studio.overridePhysicsRate then studio.physicsRate else 0
-    fin buffer = azsBufferNew("{\"lighting\": \"${lighting}\", \"shadows\": \"${shadows}\", \"upscaling\": \"${upscaling}\", \"viewportQuality\": \"${quality}\", \"viewportUpscaling\": \"${viewportUpscaling}\", \"pauseViewportDuringPlay\": ${studio.pauseViewportDuringPlay}, \"cameraSpeed\": ${formatDecimal(studio.camera.speed, 3)}, \"physicsRateOverride\": ${physicsRateOverride}}\n")
+    fin buffer = azsBufferNew("{\"lighting\": \"${lighting}\", \"shadows\": \"${shadows}\", \"upscaling\": \"${upscaling}\", \"viewportQuality\": \"${quality}\", \"viewportUpscaling\": \"${viewportUpscaling}\", \"viewportSimulations\": ${studio.viewportSimulations}, \"pauseViewportDuringPlay\": ${studio.pauseViewportDuringPlay}, \"cameraSpeed\": ${formatDecimal(studio.camera.speed, 3)}, \"physicsRateOverride\": ${physicsRateOverride}}\n")
     fin written = if buffer == 0 then 0 else azsProjectWrite(project, renderPreferencesFile, buffer)
     if buffer != 0 then azsBufferClose(buffer)
     azsProjectClose(project)
@@ -576,6 +578,13 @@ func preferencesUpscaling(studio: Studio!, call: Invocation&) {
 @Command
 func preferencesViewportUpscaling(studio: Studio!, call: Invocation&) {
     studio.viewportUpscaling = call.text == "temporal"
+    saveRenderPreferences(studio)
+    studio.changed()
+}
+
+@Command
+func preferencesViewportSimulations(studio: Studio!, call: Invocation&) {
+    studio.viewportSimulations = !studio.viewportSimulations
     saveRenderPreferences(studio)
     studio.changed()
 }
@@ -721,6 +730,21 @@ func assetsSelect(studio: Studio!, call: Invocation&): Unit {
 /** Opens the Assets file [call.text] in a tab of its own, or shows its tab when it is open. */
 @Command
 func assetsEdit(studio: Studio!, call: Invocation&): Unit {
+    if isProjectScenePath(call.text) {
+        fin file = azsProjectRead(studio.editor.project, call.text)
+        if file == 0 {
+            studio.notify("Could not open ${call.text}", 3)
+            return
+        }
+        azsBufferClose(file)
+        fin window = azsStudioOpenScene(studio.root, call.text)
+        if window == 0 then studio.notify(azsError(), 3)
+        else {
+            studio.sceneWindows.add(window)
+            studio.message("Opened ${call.text}")
+        }
+        return
+    }
     if !studio.editsAsText(call.text) then return
     if !studio.editDocument(call.text) {
         studio.notify("Could not open ${call.text}", 3)

@@ -35,6 +35,16 @@ case "$MODE" in
     workspace-probe|model-probe)
         cp "$ROOT/src/scene.az" "$ROOT/src/workspace.az" "$ROOT/src/problems.az" "$BUILD/project/src/" ;;
 esac
+if [ "$MODE" = studio ]; then
+    PREVIEW_PROJECT="${AZORA_STUDIO_PREVIEW_PROJECT:-${AZORA_STUDIO_PROJECT:-}}"
+    if [ -n "$PREVIEW_PROJECT" ]; then
+        python3 "$ROOT/tools/stage-project-preview.py" "$ENGINE/tools" "$PREVIEW_PROJECT" "$BUILD/project/src" > "$BUILD/preview-imports.az"
+        if [ -s "$BUILD/preview-imports.az" ]; then
+            cat "$BUILD/preview-imports.az" "$BUILD/project/src/main.az" > "$BUILD/preview-main.az"
+            mv "$BUILD/preview-main.az" "$BUILD/project/src/main.az"
+        fi
+    fi
+fi
 python3 "$ENGINE/tools/azpm.py" resolve "$BUILD/project" > "$BUILD/resolve.tsv"
 FLAGS=()
 while IFS=$'\t' read -r kind source destination; do
@@ -44,7 +54,7 @@ while IFS=$'\t' read -r kind source destination; do
         LIB) FLAGS+=("-l$source") ;;
     esac
 done < "$BUILD/resolve.tsv"
-cp "$BUILD/project/src/"*.az "$BUILD/staged/"
+cp -R "$BUILD/project/src/." "$BUILD/staged/"
 # Studio exports the services its plugins call (studio.plugins); a plugin
 # library resolves them against this executable when it is loaded.
 EXPORTS=()

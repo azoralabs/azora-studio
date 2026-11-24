@@ -48,6 +48,7 @@ const char *azs_process_output(int64_t process);
 int32_t azs_process_cancel(int64_t process);
 int32_t azs_process_close(int64_t process);
 int64_t azs_studio_start(const char *program);
+int64_t azs_studio_open_scene(const char *project, const char *scene);
 int32_t azs_process_pid(int64_t process);
 void azs_diagnostic(int32_t offset, int32_t length, int32_t line,
                     int32_t column, const char *message);

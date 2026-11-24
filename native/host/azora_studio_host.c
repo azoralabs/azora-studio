@@ -21,6 +21,7 @@
 #include <unistd.h>
 #ifdef __APPLE__
 #include <crt_externs.h>
+#include <mach-o/dyld.h>
 #else
 extern char **environ;
 #endif
@@ -561,17 +562,12 @@ int64_t azs_process_start(const char *program, const char *directory, const char
 }
 
 /* Studio inherits the Launcher's log and can keep editing after Launcher closes. */
-int64_t azs_studio_start(const char *program) {
+static int64_t start_studio(const char *program, char **environment) {
     if (!native_program(program)) return 0;
     int64_t handle = allocate(PROCESS);
     if (!handle) return 0;
     Slot *process = get(handle, PROCESS);
     char *args[] = {(char *)program, NULL};
-#ifdef __APPLE__
-    char **environment = *_NSGetEnviron();
-#else
-    char **environment = environ;
-#endif
     int result = posix_spawn(&process->pid, program, NULL, NULL, args, environment);
     if (result != 0) {
         release(process);
@@ -580,6 +576,51 @@ int64_t azs_studio_start(const char *program) {
         return 0;
     }
     process->independent = 1;
+    return handle;
+}
+
+static char **studio_environment(void) {
+#ifdef __APPLE__
+    return *_NSGetEnviron();
+#else
+    return environ;
+#endif
+}
+
+int64_t azs_studio_start(const char *program) {
+    return start_studio(program, studio_environment());
+}
+
+int64_t azs_studio_open_scene(const char *project, const char *scene) {
+    char program[PATH_MAX], opened_project[PATH_MAX + 24], opened_scene[PATH_MAX + 24];
+    if (!project || *project != '/' || !scene || !*scene ||
+        snprintf(opened_project, sizeof opened_project, "AZORA_STUDIO_PROJECT=%s", project) >= (int)sizeof opened_project ||
+        snprintf(opened_scene, sizeof opened_scene, "AZORA_STUDIO_SCENE=%s", scene) >= (int)sizeof opened_scene) {
+        return fail("Invalid scene path");
+    }
+#ifdef __APPLE__
+    uint32_t capacity = sizeof program;
+    if (_NSGetExecutablePath(program, &capacity) != 0) return fail("Studio executable path is too long");
+#else
+    ssize_t length = readlink("/proc/self/exe", program, sizeof program - 1);
+    if (length < 0 || length >= (ssize_t)sizeof program - 1) return system_fail("locate Studio executable");
+    program[length] = 0;
+#endif
+    char **current = studio_environment();
+    size_t count = 0;
+    while (current[count]) ++count;
+    char **environment = calloc(count + 3, sizeof *environment);
+    if (!environment) return fail("out of memory");
+    size_t next = 0;
+    for (size_t i = 0; i < count; ++i) {
+        if (strncmp(current[i], "AZORA_STUDIO_PROJECT=", 21) &&
+            strncmp(current[i], "AZORA_STUDIO_SCENE=", 19) &&
+            strncmp(current[i], "AZORA_STUDIO_SCRIPT=", 20)) environment[next++] = current[i];
+    }
+    environment[next++] = opened_project;
+    environment[next] = opened_scene;
+    int64_t handle = start_studio(program, environment);
+    free(environment);
     return handle;
 }
 

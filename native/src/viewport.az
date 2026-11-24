@@ -1,5 +1,6 @@
 module studio.viewport
 import std.math
+import std.io
 import std.traits
 import engine.core
 import engine.ecs
@@ -136,7 +137,7 @@ func setViewportSkyHour(studio: Studio!, text: String) {
         sky.hour = skyClamp(parseNumber(text,sky.hour),0.0,24.0)
         storageInsert<SkyEnvironment>(ensureStorage(studio.scene),entity,take sky)
     }
-    studio.viewportStarted = azsMonotonicSeconds()
+    studio.skyTimeOffset = studio.editorTime.elapsedSecs
     studio.record(entity, before, studio.scene.getParent(entity).id, "edit sky hour")
 }
 
@@ -654,6 +655,7 @@ func frameTerrainScene(studio: Studio!) {
             studio.camera.pitch = asin(clampValue(forward.y, -1.0, 1.0)) / degreesToRadians
             studio.camera.yaw = atan2(-forward.x, -forward.z) / degreesToRadians
             studio.camera.fov = camera.fov
+            studio.camera.near = camera.near
             studio.camera.far = camera.far
             return
         }
@@ -696,22 +698,10 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     fin colors = gizmoColors()
     fin viewProj = studio.camera.viewProj(rect.aspect())
     app.setScissor(rect.x, rect.y, rect.width, rect.height)
-    fin elapsed = azsMonotonicSeconds() - studio.viewportStarted
-    // The engine's editor systems on the edited scene, as the game runs them: its weather, water, plants and roads.
-    if studio.editorMatrices == 0 then studio.editorMatrices = azAlloc(sceneViewMatrixBytes)
-    var overlay = Composition::of(studio.editorUi, "editor-systems")
-    var frame: Game = .(studio.scene, app, overlay, studio.editorAudio)
-    frame.camera = studio.camera.clone()
-    frame.time.elapsedSecs = elapsed
-    frame.time.deltaSecs = clampValue(app.deltaTime(), 0.0, 0.1)
-    frame.time.editing = true
-    frame.view.matrices = studio.editorMatrices
-    frame.view.frame = studio.editorFrames
-    updateSceneView(frame, viewProj, rect)
-    studio.editorFrames = frame.view.frame
-    dispatchEditor(studio.systems, .PreUpdate, frame)
-    dispatchEditor(studio.systems, .Update, frame)
-    dispatchEditor(studio.systems, .PostUpdate, frame)
+    fin firstFrame = studio.editorFrames == 0
+    fin delta = if studio.viewportSimulations && !firstFrame then clampValue(app.deltaTime(), 0.0, 0.1) else 0.0
+    if delta > 0.0 then studio.editorTime.advance(delta)
+    fin skyTime = studio.editorTime.elapsedSecs - studio.skyTimeOffset
     fin quality = studio.viewportQuality
     fin lit = studio.viewMode == 0
     fin cinematic = lit && quality == .Ultra
@@ -721,16 +711,40 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     fin filmGrade = app.gpu.filmGrade
     fin sharpness = app.gpu.resolveSharpness
     fin reflectWater = app.gpu.reflectWater
+    fin offscreen = app.gpu.offscreenScene
+    fin detailOnly = app.gpu.detailShadowsOnly
     app.gpu.upscale = studio.viewMode != 2 && studio.viewportUpscaling
     app.gpu.upscaleFactor = if quality == .Low then 0.375 else 0.5
     app.gpu.nativeTemporal = cinematic && !app.gpu.upscale
     app.gpu.filmGrade = if cinematic then 1.4 else 0.0
     app.gpu.resolveSharpness = if cinematic then 0.3 else 0.0
     app.gpu.reflectWater = cinematic && studio.mode3d
+    fin water = studio.mode3d && (storageLength<Ocean>(ensureStorage(studio.scene)) > 0 ||
+        storageLength<WaterSurface>(ensureStorage(studio.scene)) > 0)
+    app.gpu.offscreenScene = water
+    app.beginScenePass()
+    // The engine's editor systems on the edited scene, as the game runs them: its weather, water, plants and roads.
+    if studio.editorMatrices == 0 then studio.editorMatrices = azAlloc(sceneViewMatrixBytes)
+    var overlay = Composition::of(studio.editorUi, "editor-systems")
+    var frame: Game = .(studio.scene, app, overlay, studio.editorAudio)
+    frame.camera = studio.camera.clone()
+    frame.time.elapsedSecs = studio.editorTime.elapsedSecs
+    frame.time.deltaSecs = delta
+    frame.time.frame = studio.editorTime.frame
+    frame.time.editing = true
+    frame.paused = !studio.viewportSimulations && !firstFrame
+    frame.view.matrices = studio.editorMatrices
+    frame.view.frame = studio.editorFrames
+    updateSceneView(frame, viewProj, rect)
+    studio.editorFrames = frame.view.frame
+    if firstFrame then dispatchEditor(studio.systems, .Startup, frame)
+    dispatchEditor(studio.systems, .PreUpdate, frame, paused: frame.paused)
+    dispatchEditor(studio.systems, .Update, frame, paused: frame.paused)
+    dispatchEditor(studio.systems, .PostUpdate, frame, paused: frame.paused)
     fin skyEntity = sceneSkyLight(studio.scene)
-    fin drawnSky = drawPhysicalSky(app,studio,rect,elapsed)
+    fin drawnSky = drawPhysicalSky(app,studio,rect,skyTime)
     if !drawnSky && studio.mode3d && studio.scene.isAlive(skyEntity) {
-        fin sky = sampleSky(storageGet<SkyEnvironment>(ensureStorage(studio.scene), skyEntity), elapsed)
+        fin sky = sampleSky(storageGet<SkyEnvironment>(ensureStorage(studio.scene), skyEntity), skyTime)
         app.drawSkyView(rect.x, rect.y, rect.width, rect.height, sky,
             studio.camera.forward(), studio.camera.right(), studio.camera.up(), tan(studio.camera.fov*degreesToRadians*0.5))
     } else if !drawnSky {
@@ -742,17 +756,17 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     app.gpu.shadowsActive = false
     app.gpu.indirectLighting = lit && (quality == .High || quality == .Ultra)
     app.gpu.virtualShadows = quality != .Medium
+    app.gpu.detailShadowsOnly = quality == .Low
     if lit {
         if studio.recomputeShadows {
             discardStaticShadows(app.gpu)
             studio.recomputeShadows = false
         }
-        app.applySceneLight(studio.scene, elapsed)
-        if quality == .Low {
-            app.gpu.cloudShadow = 0
-        } else {
-            app.updateScenePhotons(studio.scene, studio.camera.target, elapsed, previewIndirect: cinematic)
-        }
+        app.applySceneLight(studio.scene, skyTime)
+        if quality == .Low then app.gpu.cloudShadow = 0
+        fin distance = clampValue(studio.camera.distance, 0.0, app.gpu.detailHalf * 0.75)
+        fin focus = v3add(studio.camera.position(), v3scale(studio.camera.forward(), distance))
+        app.updateScenePhotons(studio.scene, focus, skyTime, previewIndirect: cinematic)
     } else {
         app.setAmbientLight(1.0)
     }
@@ -766,12 +780,23 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
         app.endSunCascade(cascade)
     }
     app.drawSceneOpaque(studio.scene, studio.meshes, false)
+    frame.view.encoder = app.gpu.enc
     dispatchEditor(studio.systems, .RenderOpaque, frame)
     app.gpu.mode = -1
     app.gpu.meshPipeline = 0
     app.drawPluginMeshes(studio, rect)
     if studio.viewMode == 2 then send1(app.gpu.enc, sel("setTriangleFillMode:"), 0)
     app.gpu.flatMaterials = false
+    if studio.tracing && studio.editorFrames == 1 {
+        fin seas = ensureStorage<SeaGpu>(studio.scene)
+        fin simulated = if storageLength<SeaGpu>(seas) > 0 then seas.values[0].revision else -1
+        println("viewport ${studio.scenePath}: waves=${simulated}, shadows=${app.gpu.shadowsActive}, cascade=${app.gpu.detailReady}, atlas=${app.gpu.staticShadowReady}, pages=${app.gpu.photonPages}")
+    }
+    if water && app.gpu.scenePass.active {
+        app.suspendScenePass()
+        frame.view.encoder = 0
+        dispatchEditor(studio.systems, .RenderVolumes, frame)
+    }
     app.endView()
     app.gpu.upscale = upscale
     app.gpu.upscaleFactor = upscaleFactor
@@ -779,6 +804,8 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     app.gpu.filmGrade = filmGrade
     app.gpu.resolveSharpness = sharpness
     app.gpu.reflectWater = reflectWater
+    app.gpu.offscreenScene = offscreen
+    app.gpu.detailShadowsOnly = detailOnly
     app.setScissor(rect.x, rect.y, rect.width, rect.height)
     fin selected = studio.selected()
     if studio.scene.isAlive(selected) then boundsLines(app, studio, selected, viewProj, rect, studioTheme.accent.withAlpha(0.9))

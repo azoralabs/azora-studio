@@ -19,6 +19,23 @@ window, and creates the project from the Engine's ECS template when it does not
 exist yet. Every choice can be overridden with `AZORA_NATIVE_COMPILER`,
 `AZORA_STDLIB`, `AZORA_ENGINE_HOME` and `AZORA_STUDIO_PROJECT`.
 
+## Project previews and materials
+
+Set `project.editorPreviewSources` in `azora.azon` to the project-relative
+`.az` modules to include in the development Studio build. Run `run.sh studio`
+with that project after changing those modules. Preview systems declare
+`@System(editor: true)`. Also list the other project modules they import
+unless they already come from an Engine package.
+
+**Preferences → Scene Viewport → Simulations** pauses the editor's simulation
+clock and resumes from the displayed frame. Startup and render systems still
+prepare and draw the scene. Update systems that synchronize authored inputs
+without advancing time can also declare `editorWhilePaused: true`.
+
+The Assets panel creates material shaders as `.az` files with an
+`@Execution("GPU")` module. Saving a shader requests a Metal build and reloads
+the compiled material in the viewport.
+
 ## What is in it
 
 - `src/window.az` — the Studio window: frame loop, input, the custom-drawn source

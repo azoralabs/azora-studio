@@ -147,7 +147,7 @@ func sceneLinks(world: World!): SceneLinks {
     var id = world.entityCount - 1
     while id >= 0 {
         fin parent = world.parents[id]
-        if world.alive[id] && parent >= 0 && parent < world.entityCount && world.alive[parent] {
+        if world.alive[id] && !world.resourceMarks[id] && parent >= 0 && parent < world.entityCount && world.alive[parent] {
             links.next[id] = links.first[parent]
             links.first[parent] = id
         }
@@ -494,6 +494,17 @@ react func (anchor: Anchor!).renderPreference(command: String, option: String, t
     }
 }
 
+react func (anchor: Anchor!).preferenceCheckbox(command: String, title: String, checked: Bool, app: App&) {
+    Press(command, modifier: ::fillMaxWidth().height(32.0).rounded(5.0).ghost().padding(start: 8.0),
+        spacing: 8.0, key: command) {
+        fin tint = if checked then studioTheme.accent else studioTheme.muted
+        Row(modifier: ::size(14.0, 14.0).rounded(3.0).border(1.0, tint.r, tint.g, tint.b), key: "checkbox") {
+            if checked then Icon("check", tint, size: 14.0, key: "check")
+        }
+        Label(title, app, studioTheme.text, key: "title")
+    }
+}
+
 @Panel(title: "Preferences", icon: "settings", initiallyOpen: false)
 impl pack PreferencesPanel {
     react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
@@ -517,6 +528,7 @@ impl pack PreferencesPanel {
                 FieldCaption("Scene Viewport", key: "heading")
                 renderPreference("preferencesViewportUpscaling", "native", "Native Resolution", !studio.viewportUpscaling, app)
                 renderPreference("preferencesViewportUpscaling", "temporal", "TSR (Temporal Super Resolution)", studio.viewportUpscaling, app)
+                preferenceCheckbox("preferencesViewportSimulations", "Simulations", studio.viewportSimulations, app)
                 if studio.viewportQuality == .Medium {
                     BarButton("preferencesRecompute", app, icon: "refresh-cw", label: "Recompute Static Shadows", key: "recompute")
                 }
@@ -534,14 +546,7 @@ impl pack PreferencesPanel {
             }
             Column(modifier: ::width(322.0).padding(all: 8.0), spacing: 3.0, key: "playback") {
                 FieldCaption("Play", key: "heading")
-                Press("preferencesPauseViewport", modifier: ::fillMaxWidth().height(32.0).rounded(5.0).ghost().padding(start: 8.0),
-                    spacing: 8.0, key: "pause-viewport") {
-                    fin tint = if studio.pauseViewportDuringPlay then studioTheme.accent else studioTheme.muted
-                    Row(modifier: ::size(14.0, 14.0).rounded(3.0).border(1.0, tint.r, tint.g, tint.b), key: "checkbox") {
-                        if studio.pauseViewportDuringPlay then Icon("check", tint, size: 14.0, key: "check")
-                    }
-                    Label("Pause viewport while the game runs", app, studioTheme.text, key: "title")
-                }
+                preferenceCheckbox("preferencesPauseViewport", "Pause viewport while the game runs", studio.pauseViewportDuringPlay, app)
             }
         }
     }

@@ -88,7 +88,8 @@ func tickMaterials(app: App!, studio: Studio!) {
         if result == 0 then app.gpu.fusion.reloadAll(app.gpu.device)
         else studio.notify("Material shader compilation failed", 3)
     }
-    if !studio.shaderCookRequested || studio.process != 0 then return
+    if !studio.shaderCookRequested then return
+    if studio.process != 0 && studio.processAction != "inspect" then return
     studio.shaderCookRequested = false
     studio.shaderCookProcess = azsShaderProcessStart(studio.root)
     if studio.shaderCookProcess == 0 then studio.notify(azsError(), 3)
