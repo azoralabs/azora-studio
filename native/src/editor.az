@@ -91,15 +91,24 @@ pack OpenFile derives Clone {
 /** The entry source of a project whose azora.azon names none. */
 inline fin defaultEntrySource: String = "src/main.az"
 
-/**
- * The project's entry source (`project.src` / `project.entry` of its
- * azora.azon [manifest]), which the Code tab edits and the compiler checks:
- * a project names its files as it likes, `src/main.az` only by default.
- */
-func projectEntrySource(manifest: String): String {
-    fin data = decodeSerialValue(manifest, serializerOptions()) catch SerialValue.Null
+/** The source and scene that Launcher and Studio open for a project. */
+pack ProjectFiles {
+    fin source: String
+    fin scene: String = "scene.azscene"
+}
+
+func isProjectScenePath(path: String): Bool = endsWith(path, ".azscene") &&
+    !startsWith(path, "/") && indexOf(path, "..") < 0 && indexOf(path, "\\") < 0
+
+/** Reads the project's source directory, entry filename and optional startup scene from azora.azon. */
+func projectFiles(project: Long): ProjectFiles {
+    fin manifest = azsProjectRead(project, "azora.azon")
+    if manifest == 0 then return .(defaultEntrySource)
+    defer { azsBufferClose(manifest) }
+    fin data = decodeSerialValue(azsBufferText(manifest), serializerOptions()) catch SerialValue.Null
     var folder = "src"
     var entry = "main.az"
+    var scene = "scene.azscene"
     when data {
         .Object(members) -> {
             for member in members {
@@ -111,6 +120,7 @@ func projectEntrySource(manifest: String): String {
                                     .Text(text) -> {
                                         if field.name == "entry" && endsWith(text, ".az") && indexOf(text, "/") < 0 then entry = text
                                         if field.name == "src" && text != "" && indexOf(text, "..") < 0 && !startsWith(text, "/") then folder = text
+                                        if field.name == "scene" && isProjectScenePath(text) then scene = text
                                     }
                                     else -> { }
                                 }
@@ -123,7 +133,7 @@ func projectEntrySource(manifest: String): String {
         }
         else -> { }
     }
-    return "${folder}/${entry}"
+    return .("${folder}/${entry}", "${scene}")
 }
 
 /** What starts the dock panel name of a tab editing another project file. */

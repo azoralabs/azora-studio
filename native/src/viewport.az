@@ -32,6 +32,7 @@ import studio.plugins
 import studio.worldtools
 import studio.foliagetool
 import engine.roads
+import engine.scene.spline
 import studio.play
 
 // The scene viewport: the Engine renders the scene into the panel's surface,
@@ -266,6 +267,8 @@ func pickMarker(studio: Studio!, viewProj: Mat4&, rect: ViewRect&, x: Double, y:
         if studio.scene.isAlive(entity) && (storageHas<Camera3d>(ensureStorage(studio.scene), entity) ||
             storageHas<Light3d>(ensureStorage(studio.scene), entity) ||
             storageHas<RoadPoint>(ensureStorage(studio.scene),entity) ||
+            (storageHas<SplinePoint>(ensureStorage(studio.scene),entity) &&
+                (studio.selected() == entity || studio.selected() == studio.scene.getParent(entity))) ||
             storageHas<RoadJunction>(ensureStorage(studio.scene),entity) ||
             storageHas<PlayerStart>(ensureStorage(studio.scene),entity)) {
             fin at = project(viewProj, rect, worldPosition(studio.scene, entity))
@@ -556,6 +559,24 @@ func drawMarkers(app: App!, studio: Studio!, viewProj: Mat4&, rect: ViewRect&) {
         if !storageHas<Streamed>(streamed, entity) then markerDot(app, studio, viewProj, rect, entity, studioTheme.green)
     }
     fin selected = studio.selected()
+    if studio.scene.isAlive(selected) {
+        fin owner = if storageHas<SplinePoint>(ensureStorage(studio.scene), selected)
+            then studio.scene.getParent(selected) else selected.clone()
+        fin splines = ensureStorage<FlightSpline>(studio.scene)
+        if storageHas<FlightSpline>(splines, owner) {
+            fin closed = storageGet<FlightSpline>(splines, owner).closed
+            fin knots = flightKnots(studio.scene, owner)
+            fin curve = flightPolyline(knots, closed)
+            for i: Int in 1..<curve.size {
+                app.worldLine(viewProj, rect, curve[i-1], curve[i], 2.0, studioTheme.teal.withAlpha(0.85))
+            }
+            fin controls = ensureStorage<SplinePoint>(studio.scene)
+            for i: Int in 0..<storageLength<SplinePoint>(controls) {
+                fin point = storageEntityAt<SplinePoint>(controls, i)
+                if studio.scene.getParent(point) == owner then markerDot(app, studio, viewProj, rect, point, studioTheme.teal)
+            }
+        }
+    }
     fin points = ensureStorage<RoadPoint>(studio.scene)
     for i: Int in 0..<storageLength<RoadPoint>(points) {
         fin entity = storageEntityAt<RoadPoint>(points, i)

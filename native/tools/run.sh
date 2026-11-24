@@ -4,7 +4,7 @@
 #
 #   bash native/tools/run.sh                     # Studio on build/demo-project
 #   bash native/tools/run.sh studio /abs/project # Studio on a project
-#   bash native/tools/run.sh launcher /abs/new   # Launcher creating a project there
+#   bash native/tools/run.sh launcher /abs/project # open a project or create it from a template
 #
 # Every variable can be overridden from the environment.
 set -euo pipefail

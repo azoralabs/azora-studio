@@ -178,11 +178,17 @@ func ensureProjectFolder(location: String): Bool {
     return send5(files, sel("createDirectoryAtPath:withIntermediateDirectories:attributes:error:"), nsString(location), 1, 0, 0, 0) != 0
 }
 
-func launchProject(root: String): Long {
+func launchProject(root: String, requireManifest: Bool = false): Long {
     fin project = azsProjectOpen(root, 0)
     if project == 0 then return 0
     defer { azsProjectClose(project) }
-    fin source = azsProjectRead(project, "src/main.az")
+    if requireManifest {
+        fin manifest = azsProjectRead(project, "azora.azon")
+        if manifest == 0 then return 0
+        azsBufferClose(manifest)
+    }
+    fin files = projectFiles(project)
+    fin source = azsProjectRead(project, files.source)
     if source == 0 then return 0
     azsBufferClose(source)
     if azsSetEnvironment("AZORA_STUDIO_PROJECT", root) == 0 then return 0
@@ -217,6 +223,13 @@ react func main() {
     var page = 0
     var revision: Long = 1
     var studios: Array<StudioSession> = []
+    if requested != "" {
+        fin studio = launchProject(requested, requireManifest: true)
+        if studio != 0 {
+            studios.add(StudioSession(requested, studio))
+            status = "Opening project in Studio…"
+        }
+    }
     var frames = 0
     var layoutVersion: Long = -1
     var lastWidth: Double = -1.0

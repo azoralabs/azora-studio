@@ -214,6 +214,10 @@ func fusionFieldNumber(node: FusionNode&, field: String): Double = when field {
     "Offset" -> node.offset
     "Height Contrast" -> node.contrast
     "Macro Scale" -> node.macroScale
+    "Displacement (m)" -> node.displacement
+    "Spacing (m)" -> node.scale
+    "Feature Size (m)" -> node.featureSize
+    "Density" -> node.density
     "Rotation" -> node.rotation
     "Thickness" -> node.thickness
     "Minimum" -> node.low
@@ -237,8 +241,11 @@ func setFusionField(studio: Studio!, field: String, text: String) {
         "Offset" -> { studio.fusion.nodes[index].offset = fusionClamp(value, 0.0, 8.0) }
         "Height Contrast" -> { studio.fusion.nodes[index].contrast = fraction }
         "Macro Scale" -> { studio.fusion.nodes[index].macroScale = fusionClamp(value, 0.0, 1000.0) }
+        "Displacement (m)" -> { studio.fusion.nodes[index].displacement = fusionClamp(value, 0.0, 0.25) }
+        "Feature Size (m)" -> { studio.fusion.nodes[index].featureSize = fusionClamp(value, 0.005, 5.0) }
+        "Density" -> { studio.fusion.nodes[index].density = fraction }
         "Rotation" -> { studio.fusion.nodes[index].rotation = fraction }
-        "Scale", "Tile Size" -> { studio.fusion.nodes[index].scale = fusionClamp(value, 0.01, 100.0) }
+        "Scale", "Tile Size", "Spacing (m)" -> { studio.fusion.nodes[index].scale = fusionClamp(value, 0.01, 100.0) }
         "Thickness" -> { studio.fusion.nodes[index].thickness = fusionClamp(value, 0.0, 8.0) }
         "Minimum" -> { studio.fusion.nodes[index].low = fusionClamp(value, -100000.0, 100000.0) }
         "Maximum" -> { studio.fusion.nodes[index].high = fusionClamp(value, -100000.0, 100000.0) }
@@ -250,7 +257,7 @@ func setFusionField(studio: Studio!, field: String, text: String) {
 
 func setFusionTexture(studio: Studio!, path: String) {
     fin index = studio.fusion.indexOfNode(studio.fusionSelected)
-    if index < 0 || studio.fusion.nodes[index].kind != "texture" then return
+    if index < 0 || (studio.fusion.nodes[index].kind != "texture" && studio.fusion.nodes[index].kind != "scatter") then return
     if path != "" && !fusionTexturePath(path) {
         studio.notify("Use a project-relative .aztexture texture set", 3)
         return
@@ -280,17 +287,24 @@ react func (anchor: Anchor!).fusionFields(studio: Studio&, app: App&) {
                     fusionField(studio, node, "Metallic")
                     fusionField(studio, node, "Emission")
                 }
-                "texture" -> {
+                "texture", "scatter" -> {
                     FieldCaption("Texture Set (.aztexture)", key: "texture-caption")
                     Row(modifier: ::fillMaxWidth().height(24.0), key: "path") {
                         TextField("FusionTexture", "texture", node.textureSet, studio.focus, key: "value")
                     }
-                    fusionField(studio, node, "Tile Size")
-                    fusionField(studio, node, "Offset")
-                    fusionField(studio, node, "Rotation")
-                    fusionField(studio, node, "Height Contrast")
-                    fusionField(studio, node, "Macro Scale")
+                    if node.kind == "scatter" {
+                        fusionField(studio, node, "Spacing (m)")
+                        fusionField(studio, node, "Feature Size (m)")
+                        fusionField(studio, node, "Density")
+                    } else {
+                        fusionField(studio, node, "Tile Size")
+                        fusionField(studio, node, "Offset")
+                        fusionField(studio, node, "Rotation")
+                        fusionField(studio, node, "Height Contrast")
+                        fusionField(studio, node, "Macro Scale")
+                    }
                     fusionField(studio, node, "Normal Strength")
+                    fusionField(studio, node, "Displacement (m)")
                 }
                 "altitude", "slope" -> {
                     fusionField(studio, node, "Minimum")
@@ -340,6 +354,7 @@ impl pack MaterialFusionPanel {
                     Press("fusionAddNode", text: "checker", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "checker") { Label("+ Checker", app, studioTheme.text, key: "label") }
                     Press("fusionAddNode", text: "noise", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "noise") { Label("+ Noise", app, studioTheme.text, key: "label") }
                     Press("fusionAddNode", text: "texture", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "texture") { Label("+ Bombing", app, studioTheme.text, key: "label") }
+                    Press("fusionAddNode", text: "scatter", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "scatter") { Label("+ Scatter", app, studioTheme.text, key: "label") }
                     Press("fusionAddNode", text: "altitude", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "altitude") { Label("+ Altitude", app, studioTheme.text, key: "label") }
                     Press("fusionAddNode", text: "slope", modifier: ::height(24.0).ghost().padding(start: 8.0, end: 8.0), key: "slope") { Label("+ Slope", app, studioTheme.text, key: "label") }
 

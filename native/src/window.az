@@ -15,6 +15,7 @@ import engine.core
 import engine.ecs
 import engine.math
 import engine.scene
+import engine.scene.spline
 import engine.atmosphere.legacy
 import engine.scene.io
 import engine.render.scene
@@ -580,7 +581,8 @@ react func main() {
         println(azsError())
         return
     }
-    fin entrySource = projectEntrySource(readText(project, "azora.azon"))
+    fin files = projectFiles(project)
+    fin entrySource = files.source
     fin source = azsProjectRead(project, entrySource)
     if source == 0 {
         azsProjectClose(project)
@@ -602,10 +604,8 @@ react func main() {
         for i in 0..<presets.size then studio.presets.add(presets[i].clone())
     }
 
-    // The scene: the project's own, or the default one when it has none of this version.
-    // The scene: the one AZORA_STUDIO_SCENE names (relative to the project), else the project's default.
     fin askedScene = azsEnvironment("AZORA_STUDIO_SCENE")
-    if askedScene != "" && endsWith(askedScene, ".azscene") && !startsWith(askedScene, "/") && indexOf(askedScene, "..") < 0 then studio.scenePath = askedScene
+    studio.scenePath = if isProjectScenePath(askedScene) then askedScene else files.scene
     if readScene(studio.scene, readText(project, studio.scenePath)) < 0 {
         if resources != 0 && readScene(studio.scene, readText(resources, "default-scene.azscene")) >= 0 {
             studio.sceneDirty = true
@@ -619,7 +619,9 @@ react func main() {
     var id = 0
     while id < studio.scene.entityCount {
         fin entity = studio.scene.entityAt(id)
-        if studio.scene.isAlive(entity) then storageInsert<Expanded>(ensureStorage(studio.scene), entity, .())
+        if studio.scene.isAlive(entity) && !storageHas<FlightSpline>(ensureStorage(studio.scene), entity) {
+            storageInsert<Expanded>(ensureStorage(studio.scene), entity, .())
+        }
         id++
     }
     var first = Entity::invalid
