@@ -150,6 +150,15 @@ pack Popup derives Clone {
     var target: Int = -1
 }
 
+enum ViewportQuality { Low, Medium, High, Ultra }
+
+func viewportQualityLabel(quality: ViewportQuality): String = when quality {
+    .Low -> "Low"
+    .Medium -> "Medium"
+    .High -> "High"
+    .Ultra -> "Ultra"
+}
+
 // ── Plugins ─────────────────────────────────────────────────────────────
 
 /**
@@ -357,12 +366,13 @@ pack Studio {
     var icons: IconAtlas = .()
     var meshes: PrimitiveMeshes = .(.(0, 0), .(0, 0), .(0, 0), .(0, 0))
     var mode3d: Bool = true
+    /** Rendering preferences for games launched by Studio. */
     var indirectLighting: Bool = true
     var virtualShadows: Bool = true
-    /** Temporal upscaling: the 3D view drawn at half resolution per axis and reconstructed. */
     var upscaling: Bool = true
     /** Physics steps per second for the game Studio runs (AZORA_PHYSICS_RATE), 10 to 1000. */
-    var physicsRate: Int = 120
+    var physicsRate: Int = 60
+    var overridePhysicsRate: Bool = false
     var pauseViewportDuringPlay: Bool = true
     var recomputeShadows: Bool = false
     var preferencesRoot: String = ""
@@ -413,6 +423,8 @@ pack Studio {
     var pluginInstallPath: String = ""
     var pluginScanned: Bool = false
     var viewMode: Int = 0
+    var viewportQuality: ViewportQuality = .High
+    var viewportUpscaling: Bool = true
     var viewportStarted: Double = 0.0
     var roadTarget: Entity = ::invalid
     var roadPlacement: Int = 0

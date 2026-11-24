@@ -287,9 +287,15 @@ func drawPhysicalSky(app: App!, studio: Studio!, rect: ViewRect&, elapsed: Doubl
     pokeMat4(studio.atmosphere.uniforms,176,mat4Inverse(current))
     pokeMat4(studio.atmosphere.uniforms,352,if studio.atmosphere.cloudFrames > 0 then studio.atmospherePrevious else current)
     studio.atmospherePrevious = current.clone()
-    // The clouds' targets follow the viewport's pixels (the drawable's), not its points: an eighth of what is shown.
+    // Cloud targets are a fraction of the viewport's pixel dimensions.
     fin pixels = if width > 0.0 then (app.gpu.depthW as Double)/width else 1.0
-    ensureCloudTargets(app.gpu.device,studio.atmosphere,(rect.width*pixels) as Int,(rect.height*pixels) as Int)
+    fin divisor = when studio.viewportQuality {
+        .Low -> 16
+        .Medium -> 12
+        .High -> 8
+        .Ultra -> 4
+    }
+    ensureCloudTargets(app.gpu.device,studio.atmosphere,(rect.width*pixels) as Int,(rect.height*pixels) as Int,divisor)
     updateAetherTables(app.gpu.queue,studio.atmosphere,sky)
     drawAtmosphereSky(app.beginCustomSky(),app.gpu.depthOff,studio.atmosphere,rect.width/width,rect.height/height,
         (rect.x*2.0+rect.width)/width-1.0,1.0-(rect.y*2.0+rect.height)/height)

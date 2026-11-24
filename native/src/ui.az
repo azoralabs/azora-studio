@@ -18,6 +18,9 @@ pack Invocation derives Clone {
     var arg: Int = 0
     var number: Double = 0.0
     var text: String = ""
+    /** The left and bottom edges of the pressed control, when invoked by a click. */
+    var anchorX: Double = -1.0
+    var anchorY: Double = -1.0
 }
 
 /** A node that runs [command] when it is pressed, and [double] when pressed twice in quick succession. */

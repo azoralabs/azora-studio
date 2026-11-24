@@ -200,7 +200,7 @@ impl pack StatusBar {
     }
 }
 
-/** A popup's rows: components to add, or entity presets. */
+/** Rows of the active popup. */
 react func (anchor: Anchor!).popupRows(studio: Studio&, app: App&) {
     when studio.popup.kind {
         "addComponent" -> {
@@ -242,6 +242,19 @@ react func (anchor: Anchor!).popupRows(studio: Studio&, app: App&) {
                 index++
             }
         }
+        "viewportQuality" -> {
+            fin choices: Array<ViewportQuality> = [.Low, .Medium, .High, .Ultra]
+            for quality in choices {
+                fin label = viewportQualityLabel(quality)
+                fin selected = quality == studio.viewportQuality
+                Press("setViewportQuality", modifier: ::fillMaxWidth().height(28.0).rounded(5.0).ghost()
+                    .padding(start: 8.0, end: 8.0), text: label, spacing: 8.0, key: label) {
+                    Label(label, app, if selected then studioTheme.text else studioTheme.muted, key: "label")
+                    Spacer(key: "fill")
+                    if selected then Icon("check", studioTheme.accent, size: studioTheme.iconSmall, key: "check")
+                }
+            }
+        }
         else -> { }
     }
 }
@@ -262,6 +275,7 @@ func popupHeight(studio: Studio!, kind: String): Double {
             }
         }
         "addEntity" -> { rows = studio.presets.size }
+        "viewportQuality" -> { return 128.0 }
         else -> { }
     }
     return 26.0 + (rows as Double) * 28.0 + 12.0
@@ -960,7 +974,9 @@ react func main() {
                 fin twice = press.double != "" && pressKey == lastPressKey && now - lastPressAt < doubleClickSeconds &&
                     absValue(input.x - lastPressX) < doubleClickSlop && absValue(input.y - lastPressY) < doubleClickSlop
                 if tracing then println("press '${press.command}' '${press.text}'${if twice then " double '${press.double}'" else ""}")
-                runCommand(studio, if twice then press.double else press.command, .(press.target, press.arg, 0.0, press.text))
+                fin rect = storageGet<Rect>(store(pass), hitPress)
+                runCommand(studio, if twice then press.double else press.command,
+                    .(press.target, press.arg, 0.0, press.text, rect.x, rect.y + rect.height))
                 // A third press starts the next double click rather than ending this one.
                 lastPressKey = if twice then "" else pressKey
                 lastPressAt = now
@@ -1055,12 +1071,12 @@ react func main() {
             } else if studio.saveDocuments() {
                 fin manifest = readText(project, "azora.azon")
                 if hasProjectPackages(manifest) {
-                    // The game Studio runs renders as Preferences say, not only the viewport.
+                    // Game rendering follows Preferences for both launch modes.
                     if action == "play" || action == "pie" {
                         azsSetEnvironment("AZORA_RENDER_LIGHTING", if studio.indirectLighting then "photon" else "standard")
                         azsSetEnvironment("AZORA_RENDER_SHADOWS", if studio.virtualShadows then "virtual" else "computed")
                         azsSetEnvironment("AZORA_RENDER_UPSCALING", if studio.upscaling then "temporal" else "native")
-                        azsSetEnvironment("AZORA_PHYSICS_RATE", "${studio.physicsRate}")
+                        if studio.overridePhysicsRate then azsSetEnvironment("AZORA_PHYSICS_RATE", "${studio.physicsRate}")
                     }
                     // Play In Editor builds the game; Studio then runs it into the viewport itself.
                     studio.process = azsEngineProcessStart(compiler, root, if action == "play" then "run" else if action == "pie" then "build" else action)
@@ -1160,11 +1176,12 @@ react func main() {
             if popupNode.isValid {
                 var x = studio.popup.x
                 var y = studio.popup.y + 6.0
+                fin popupWidth: Double = if studio.popup.kind == "viewportQuality" then 144.0 else 280.0
                 fin wanted = popupHeight(studio, studio.popup.kind)
                 fin h = if wanted > height - 16.0 then height - 16.0 else wanted
-                if x + 280.0 > width then x = width - 288.0
+                if x + popupWidth > width then x = width - popupWidth - 8.0
                 if y + h > height then y = height - h - 8.0
-                pass.arrange(popupNode, x, y, 280.0, h)
+                pass.arrange(popupNode, x, y, popupWidth, h)
             }
             layoutVersion = pass.version
             lastWidth = width

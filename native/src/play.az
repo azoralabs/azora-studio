@@ -51,6 +51,7 @@ func startPlaySession(studio: Studio!, app: App!, root: String): Bool {
         return false
     }
     azPokeF64(link.region, embedAtScale, app.gpu.scale)
+    azPokeF64(link.region, embedAtRefreshInterval, app.refreshInterval())
     azPoke32(link.region, embedAtWidth, ((if studio.play.width > 0.0 then studio.play.width else 1280.0) * app.gpu.scale) as Int)
     azPoke32(link.region, embedAtHeight, ((if studio.play.height > 0.0 then studio.play.height else 720.0) * app.gpu.scale) as Int)
     // The game inherits Studio's environment: the link and the project folder only for it.
@@ -165,6 +166,7 @@ func drawPlayFrame(app: App!, studio: Studio!, x: Double, y: Double, width: Doub
     studio.play.width = width
     studio.play.height = height
     fin region = studio.play.link.region
+    azPokeF64(region, embedAtRefreshInterval, app.refreshInterval())
     azPoke32(region, embedAtWidth, (width * app.gpu.scale) as Int)
     azPoke32(region, embedAtHeight, (height * app.gpu.scale) as Int)
     app.uiRoundRect(x, y, width, height, 0.0, 0.0, 0.0, 0.0, 1.0)

@@ -329,6 +329,33 @@ func viewWireframe(studio: Studio!, call: Invocation&) { studio.viewMode = 2
     studio.changed()
 }
 
+@Command
+func viewportQualityMenu(studio: Studio!, call: Invocation&) {
+    studio.sourceFocused = false
+    fin x = if call.anchorX < 0.0 then studio.pointerX else call.anchorX
+    fin y = if call.anchorY < 0.0 then studio.pointerY else call.anchorY
+    studio.popup = Popup("viewportQuality", x, y)
+    studio.changed()
+}
+
+func parseViewportQuality(text: String): ViewportQuality = when text {
+    "Low" -> .Low
+    "Medium" -> .Medium
+    "Ultra" -> .Ultra
+    else -> .High
+}
+
+@Command
+func setViewportQuality(studio: Studio!, call: Invocation&) {
+    studio.popup = Popup()
+    fin quality = parseViewportQuality(call.text)
+    if studio.viewportQuality != quality {
+        studio.viewportQuality = quality
+        saveRenderPreferences(studio)
+    }
+    studio.changed()
+}
+
 @Command(title: "Focus Selection", menu: "View", group: 1, order: 1, key: "f", shift: true, hotkey: "f")
 func viewFocus(studio: Studio!, call: Invocation&): Unit {
     fin selected = studio.selected()
@@ -468,9 +495,18 @@ func loadRenderPreferences(studio: Studio!, home: String) {
         .Object(fields) -> {
             studio.indirectLighting = memberText(fields, "lighting", "photon") != "standard"
             studio.virtualShadows = memberText(fields, "shadows", "virtual") != "computed"
-            studio.upscaling = memberText(fields, "upscaling", "temporal") == "temporal"
+            fin upscaling = memberText(fields, "upscaling", "temporal")
+            studio.upscaling = upscaling == "temporal"
+            studio.viewportUpscaling = memberText(fields, "viewportUpscaling", upscaling) == "temporal"
+            studio.viewportQuality = parseViewportQuality(memberText(fields, "viewportQuality", "High"))
             studio.camera.speed = memberReal(fields, "cameraSpeed", studio.camera.speed)
-            studio.physicsRate = memberInt(fields, "physicsRate", studio.physicsRate)
+            // Older files saved the 120 Hz default even when the user only changed unrelated settings.
+            fin legacyRate = memberInt(fields, "physicsRate", 120)
+            fin physicsRate = memberInt(fields, "physicsRateOverride", if legacyRate == 120 then 0 else legacyRate)
+            if physicsRate >= 10 && physicsRate <= 1000 {
+                studio.physicsRate = physicsRate
+                studio.overridePhysicsRate = true
+            }
             fin pauseViewport = memberAt(fields, "pauseViewportDuringPlay")
             if pauseViewport >= 0 {
                 studio.pauseViewportDuringPlay = serialAsBool(fields[pauseViewport].value) catch true
@@ -484,6 +520,7 @@ func loadRenderPreferences(studio: Studio!, home: String) {
 func setPhysicsRate(studio: Studio!, text: String) {
     fin rate = parseNumber(text, studio.physicsRate as Double) as Int
     studio.physicsRate = if rate < 10 then 10 else if rate > 1000 then 1000 else rate
+    studio.overridePhysicsRate = true
     saveRenderPreferences(studio)
 }
 
@@ -504,7 +541,10 @@ func saveRenderPreferences(studio: Studio!) {
     fin lighting = if studio.indirectLighting then "photon" else "standard"
     fin shadows = if studio.virtualShadows then "virtual" else "computed"
     fin upscaling = if studio.upscaling then "temporal" else "native"
-    fin buffer = azsBufferNew("{\"lighting\": \"${lighting}\", \"shadows\": \"${shadows}\", \"upscaling\": \"${upscaling}\", \"pauseViewportDuringPlay\": ${studio.pauseViewportDuringPlay}, \"cameraSpeed\": ${formatDecimal(studio.camera.speed, 3)}, \"physicsRate\": ${studio.physicsRate}}\n")
+    fin viewportUpscaling = if studio.viewportUpscaling then "temporal" else "native"
+    fin quality = viewportQualityLabel(studio.viewportQuality)
+    fin physicsRateOverride = if studio.overridePhysicsRate then studio.physicsRate else 0
+    fin buffer = azsBufferNew("{\"lighting\": \"${lighting}\", \"shadows\": \"${shadows}\", \"upscaling\": \"${upscaling}\", \"viewportQuality\": \"${quality}\", \"viewportUpscaling\": \"${viewportUpscaling}\", \"pauseViewportDuringPlay\": ${studio.pauseViewportDuringPlay}, \"cameraSpeed\": ${formatDecimal(studio.camera.speed, 3)}, \"physicsRateOverride\": ${physicsRateOverride}}\n")
     fin written = if buffer == 0 then 0 else azsProjectWrite(project, renderPreferencesFile, buffer)
     if buffer != 0 then azsBufferClose(buffer)
     azsProjectClose(project)
@@ -531,6 +571,13 @@ func preferencesShadows(studio: Studio!, call: Invocation&) {
 @Command
 func preferencesUpscaling(studio: Studio!, call: Invocation&) {
     studio.upscaling = call.text == "temporal"
+    saveRenderPreferences(studio)
+    studio.changed()
+}
+
+@Command
+func preferencesViewportUpscaling(studio: Studio!, call: Invocation&) {
+    studio.viewportUpscaling = call.text == "temporal"
     saveRenderPreferences(studio)
     studio.changed()
 }

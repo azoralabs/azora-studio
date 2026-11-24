@@ -55,6 +55,14 @@ impl pack ScenePanel {
                 BarButton("viewLit", app, label: "Lit", active: studio.viewMode == 0, key: "lit")
                 BarButton("viewUnlit", app, label: "Unlit", active: studio.viewMode == 1, key: "unlit")
                 BarButton("viewWireframe", app, label: "Wireframe", active: studio.viewMode == 2, key: "wire")
+                Divider(key: "quality-divider")
+                Press("viewportQualityMenu", modifier: ::width(102.0).height(26.0).rounded(6.0).raised()
+                    .hoverFill(studioTheme.hover.withAlpha(0.12)).padding(start: 7.0, end: 7.0), spacing: 5.0, key: "quality") {
+                    Icon("sliders-horizontal", studioTheme.muted, size: studioTheme.iconSmall, key: "quality-icon")
+                    Label(viewportQualityLabel(studio.viewportQuality), app, studioTheme.text, key: "quality-label")
+                    Spacer(key: "fill")
+                    Icon("chevron-down", studioTheme.muted, size: studioTheme.iconSmall, key: "arrow")
+                }
                 Spacer(key: "fill")
                 fin sky = viewSkyEntity(studio)
                 if sky.isValid {
@@ -704,6 +712,21 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     dispatchEditor(studio.systems, .PreUpdate, frame)
     dispatchEditor(studio.systems, .Update, frame)
     dispatchEditor(studio.systems, .PostUpdate, frame)
+    fin quality = studio.viewportQuality
+    fin lit = studio.viewMode == 0
+    fin cinematic = lit && quality == .Ultra
+    fin upscale = app.gpu.upscale
+    fin upscaleFactor = app.gpu.upscaleFactor
+    fin nativeTemporal = app.gpu.nativeTemporal
+    fin filmGrade = app.gpu.filmGrade
+    fin sharpness = app.gpu.resolveSharpness
+    fin reflectWater = app.gpu.reflectWater
+    app.gpu.upscale = studio.viewMode != 2 && studio.viewportUpscaling
+    app.gpu.upscaleFactor = if quality == .Low then 0.375 else 0.5
+    app.gpu.nativeTemporal = cinematic && !app.gpu.upscale
+    app.gpu.filmGrade = if cinematic then 1.4 else 0.0
+    app.gpu.resolveSharpness = if cinematic then 0.3 else 0.0
+    app.gpu.reflectWater = cinematic && studio.mode3d
     fin skyEntity = sceneSkyLight(studio.scene)
     fin drawnSky = drawPhysicalSky(app,studio,rect,elapsed)
     if !drawnSky && studio.mode3d && studio.scene.isAlive(skyEntity) {
@@ -715,17 +738,21 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     }
     app.beginView(viewProj, rect)
     app.setMaterialEye(studio.camera.position())
-    app.gpu.flatMaterials = studio.viewMode != 0
-    if studio.viewMode == 0 {
-        app.gpu.indirectLighting = studio.indirectLighting
-        app.gpu.virtualShadows = studio.virtualShadows
-        app.gpu.upscale = studio.upscaling
+    app.gpu.flatMaterials = !lit
+    app.gpu.shadowsActive = false
+    app.gpu.indirectLighting = lit && (quality == .High || quality == .Ultra)
+    app.gpu.virtualShadows = quality != .Medium
+    if lit {
         if studio.recomputeShadows {
             discardStaticShadows(app.gpu)
             studio.recomputeShadows = false
         }
         app.applySceneLight(studio.scene, elapsed)
-        app.updateScenePhotons(studio.scene, studio.camera.target, elapsed)
+        if quality == .Low {
+            app.gpu.cloudShadow = 0
+        } else {
+            app.updateScenePhotons(studio.scene, studio.camera.target, elapsed, previewIndirect: cinematic)
+        }
     } else {
         app.setAmbientLight(1.0)
     }
@@ -746,6 +773,12 @@ func drawViewport(app: App!, studio: Studio!, rect: ViewRect&) {
     if studio.viewMode == 2 then send1(app.gpu.enc, sel("setTriangleFillMode:"), 0)
     app.gpu.flatMaterials = false
     app.endView()
+    app.gpu.upscale = upscale
+    app.gpu.upscaleFactor = upscaleFactor
+    app.gpu.nativeTemporal = nativeTemporal
+    app.gpu.filmGrade = filmGrade
+    app.gpu.resolveSharpness = sharpness
+    app.gpu.reflectWater = reflectWater
     app.setScissor(rect.x, rect.y, rect.width, rect.height)
     fin selected = studio.selected()
     if studio.scene.isAlive(selected) then boundsLines(app, studio, selected, viewProj, rect, studioTheme.accent.withAlpha(0.9))

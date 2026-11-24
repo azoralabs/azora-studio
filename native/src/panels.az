@@ -496,22 +496,27 @@ impl pack PreferencesPanel {
     react ctor (anchor: Anchor!).(studio: Studio&, app: App&): Entity {
         return ScrollColumn(modifier: ::fillMaxSize().padding(all: 16.0), spacing: 12.0, key: "preferences") {
             Column(modifier: ::width(322.0).padding(all: 8.0), spacing: 3.0, key: "indirect") {
-                FieldCaption("Global Illumination", key: "heading")
+                FieldCaption("Game Global Illumination", key: "heading")
                 renderPreference("preferencesLighting", "photon", "Photon Field", studio.indirectLighting, app)
                 renderPreference("preferencesLighting", "standard", "Standard (No GI)", !studio.indirectLighting, app)
             }
             Column(modifier: ::width(322.0).padding(all: 8.0), spacing: 3.0, key: "shadows") {
-                FieldCaption("Shadows", key: "heading")
+                FieldCaption("Game Shadows", key: "heading")
                 renderPreference("preferencesShadows", "computed", "Computed Shadows (Static)", !studio.virtualShadows, app)
                 renderPreference("preferencesShadows", "virtual", "Virtual Shadows (Dynamic)", studio.virtualShadows, app)
-                if !studio.virtualShadows {
-                    BarButton("preferencesRecompute", app, icon: "refresh-cw", label: "Recompute Static Shadows", key: "recompute")
-                }
             }
             Column(modifier: ::width(322.0).padding(all: 8.0), spacing: 3.0, key: "resolution") {
-                FieldCaption("Resolution", key: "heading")
+                FieldCaption("Game Resolution", key: "heading")
                 renderPreference("preferencesUpscaling", "native", "Native Resolution", !studio.upscaling, app)
                 renderPreference("preferencesUpscaling", "temporal", "Temporal Upscaling (½ Resolution)", studio.upscaling, app)
+            }
+            Column(modifier: ::width(322.0).padding(all: 8.0), spacing: 3.0, key: "scene") {
+                FieldCaption("Scene Viewport", key: "heading")
+                renderPreference("preferencesViewportUpscaling", "native", "Native Resolution", !studio.viewportUpscaling, app)
+                renderPreference("preferencesViewportUpscaling", "temporal", "TSR (Temporal Super Resolution)", studio.viewportUpscaling, app)
+                if studio.viewportQuality == .Medium {
+                    BarButton("preferencesRecompute", app, icon: "refresh-cw", label: "Recompute Static Shadows", key: "recompute")
+                }
             }
             Column(modifier: ::width(322.0).padding(all: 8.0), spacing: 3.0, key: "physics") {
                 FieldCaption("Physics", key: "heading")
