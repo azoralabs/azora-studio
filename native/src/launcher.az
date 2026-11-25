@@ -1,9 +1,12 @@
 import std.io
 import std.string
 import std.traits
+import std.serializer
 import engine.platform
 import engine.gpu.draw
 import engine.input
+import engine.objc
+import engine.io
 import engine.core
 import engine.ecs
 import engine.ui.node
@@ -19,6 +22,81 @@ pack StudioVersion derives Clone {
     var version: String
     var packagePath: String
     var installed: Bool
+    var label: String = ""
+    var installedBuild: Int = 0
+    var offeredBuild: Int = 0
+    var archive: String = ""
+    var digest: String = ""
+}
+
+pack RunningStudio derives Clone {
+    var version: String
+    var process: Long
+}
+
+inline fin officialCatalog: String = "https://azorastudio.org/downloads/macos-arm64/catalog.json"
+
+func releaseFilePart(value: String): Bool {
+    if value == "" || stringLength(value) > 100 || startsWith(value, ".") then return false
+    for i: Int in 0..<stringLength(value) {
+        fin c = charAt(value, i)
+        if !(c == '.' || c == '-' || c == '+' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) then return false
+    }
+    return true
+}
+
+func releaseDigest(value: String): Bool {
+    if stringLength(value) != 64 then return false
+    for i: Int in 0..<64 {
+        fin c = charAt(value, i)
+        if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) then return false
+    }
+    return true
+}
+
+func readReleases(text: String, catalogUrl: String, releases: Array<StudioVersion>!): Bool {
+    fin data = decodeSerialValue(text, serializerOptions()) catch SerialValue.Null
+    fin base = substring(catalogUrl, 0, stringLength(catalogUrl) - stringLength("catalog.json"))
+    var schema = 0
+    var foundList = false
+    when data {
+        .Object(members) -> {
+            for member in members {
+                if member.name == "schema" then schema = serialAsInt(member.value) catch 0
+                if member.name != "studio" then continue
+                when member.value {
+                    .Array(entries) -> {
+                        foundList = true
+                        for entry in entries {
+                            var version = ""
+                            var file = ""
+                            var digest = ""
+                            var label = ""
+                            var build = 0
+                            when entry {
+                                .Object(fields) -> {
+                                    for field in fields {
+                                        if field.name == "version" then version = serialAsText(field.value) catch ""
+                                        if field.name == "file" then file = serialAsText(field.value) catch ""
+                                        if field.name == "sha256" then digest = serialAsText(field.value) catch ""
+                                        if field.name == "label" then label = serialAsText(field.value) catch ""
+                                        if field.name == "versionCode" then build = serialAsInt(field.value) catch 0
+                                    }
+                                }
+                                else -> { }
+                            }
+                            if releaseFilePart(version) && releaseFilePart(label) && build > 0 && releaseFilePart(file) && endsWith(file, ".zip") && releaseDigest(digest) {
+                                releases.add(StudioVersion(version, "", false, label, 0, build, "${base}${file}", digest))
+                            }
+                        }
+                    }
+                    else -> { }
+                }
+            }
+        }
+        else -> { }
+    }
+    return schema == 1 && foundList
 }
 
 func listStudioVersions(location: String, installed: Bool, versions: Array<StudioVersion>!) {
@@ -38,36 +116,64 @@ func listStudioVersions(location: String, installed: Bool, versions: Array<Studi
         azsBufferClose(marker)
         var duplicate = false
         for current in versions { if current.version == version then duplicate = true }
-        if !duplicate then versions.add(StudioVersion(version, path, installed))
+        if !duplicate then versions.add(StudioVersion(version, path, installed, version, azsStudioBuild(path)))
     }
 }
 
-func studioVersions(library: String, catalog: String): Array<StudioVersion> {
+func studioVersions(library: String, catalog: String, releases: Array<StudioVersion>&): Array<StudioVersion> {
     var versions: Array<StudioVersion> = []
     listStudioVersions(library, true, versions)
     listStudioVersions(catalog, false, versions)
+    for item in releases {
+        var match = -1
+        for at: Int in 0..<versions.size { if versions[at].version == item.version then match = at }
+        if match < 0 then versions.add(item.clone())
+        else if item.offeredBuild > versions[match].offeredBuild {
+            versions[match].label = item.label
+            versions[match].offeredBuild = item.offeredBuild
+            versions[match].archive = item.archive
+            versions[match].digest = item.digest
+        }
+    }
     return versions
 }
 
 inline fin versionsPerPage: Int = 5
+inline fin launchVersionAction: Int = 100
+inline fin installVersionAction: Int = 10000
+
+func studioIsOpen(path: String): Bool {
+    fin bundle = send1(cls("NSBundle"), sel("bundleWithPath:"), nsString(path))
+    fin identifier = send0(bundle, sel("bundleIdentifier"))
+    if identifier == 0 then return false
+    fin applications = send1(cls("NSRunningApplication"), sel("runningApplicationsWithBundleIdentifier:"), identifier)
+    return send0(applications, sel("count")) > 0
+}
 
 impl pack VersionRow {
-    react ctor (anchor: Anchor!).(item: StudioVersion&, index: Int): Entity {
+    react ctor (anchor: Anchor!).(item: StudioVersion&, index: Int, active: Bool): Entity {
+        fin canUpdate = item.installed && item.offeredBuild > item.installedBuild
         return Row(modifier: ::fillMaxWidth().height(65.0).surface().rounded(9.0).padding(start: 16.0, end: 12.0), spacing: 14.0, verticalAlignment: .Center, key: item.version) {
             Shape(modifier: ::size(4.0, 32.0).rounded(2.0).background(0.820, 0.306, 0.918))
             Column(modifier: ::weight(1.0).height(40.0), spacing: 3.0) {
-                Text("Azora Studio ${item.version}", modifier: ::fillMaxWidth().height(21.0).fontSize(16.0).semibold().textAlign(.Start))
-                Text(if item.installed then "Installed" else "Available to install", modifier: ::fillMaxWidth().height(16.0).fontSize(12.0).mutedText().textAlign(.Start))
+                Text("Azora Studio ${item.label}", modifier: ::fillMaxWidth().height(21.0).fontSize(16.0).semibold().textAlign(.Start))
+                fin detail = if active then "Downloading and verifying…" else if canUpdate then "Build ${item.offeredBuild} available" else if item.installed then "Installed" else "Available to install"
+                Text(detail,
+                    modifier: ::fillMaxWidth().height(16.0).fontSize(12.0).mutedText().textAlign(.Start))
             }
-            StartupButton(if item.installed then "Launch" else "Install", 100 + index, 105.0, true)
+            if !active {
+                if item.installed then StartupButton("Launch", launchVersionAction + index, 105.0, !canUpdate)
+                if !item.installed || canUpdate then StartupButton(if canUpdate then "Update" else "Install", installVersionAction + index, 105.0, true)
+            }
         }
     }
 }
 
 impl pack StudioLibrary {
-    react ctor (anchor: Anchor!).(versions: Array<StudioVersion>&, page: Int, status: String): Entity {
+    react ctor (anchor: Anchor!).(versions: Array<StudioVersion>&, page: Int, status: String, installing: String, loading: Bool, logo: Long): Entity {
         return Column(modifier: ::fillMaxSize().ground().padding(all: 28.0), spacing: 10.0, key: "library") {
             Row(modifier: ::fillMaxWidth().height(52.0), spacing: 10.0, verticalAlignment: .Center) {
+                if logo != 0 then ImageView(logo, modifier: ::size(42.0, 42.0))
                 Column(modifier: ::weight(1.0).fillMaxHeight(), spacing: 3.0) {
                     Text("AZORA LAUNCHER", modifier: ::fillMaxWidth().height(15.0).caption())
                     Text("Studio Library", modifier: ::fillMaxWidth().height(31.0).fontSize(26.0).semibold().textAlign(.Start))
@@ -76,11 +182,12 @@ impl pack StudioLibrary {
                 StartupButton("Install from file…", 1, 149.0)
             }
             if versions.size == 0 {
-                Text("Choose a Studio package to add your first version.", modifier: ::fillMaxWidth().height(72.0).surface().rounded(9.0).padding(start: 16.0).mutedText().textAlign(.Start))
+                Text(if loading then "Checking for Studio releases…" else "Choose a Studio package to add your first version.",
+                    modifier: ::fillMaxWidth().height(72.0).surface().rounded(9.0).padding(start: 16.0).mutedText().textAlign(.Start))
             }
             for i: Int in 0..<versionsPerPage {
                 fin index = page * versionsPerPage + i
-                if index < versions.size then VersionRow(versions[index].&, index)
+                if index < versions.size then VersionRow(versions[index].&, index, versions[index].version == installing)
             }
             if versions.size > versionsPerPage {
                 Row(modifier: ::fillMaxWidth().height(36.0), spacing: 8.0, verticalAlignment: .Center) {
@@ -101,16 +208,29 @@ react func main() {
     fin libraryOverride = azsEnvironment("AZORA_STUDIO_LIBRARY")
     fin catalog = azsEnvironment("AZORA_STUDIO_CATALOG")
     fin library = if libraryOverride != "" then libraryOverride else "${home}/Library/Application Support/Azora Studio/Versions"
-    var versions = studioVersions(library, catalog)
+    fin embeddedTeam = startupBundleValue("AzoraReleaseTeam")
+    fin requestedCatalog = azsEnvironment("AZORA_STUDIO_CATALOG_URL")
+    fin catalogUrl = if embeddedTeam != "" then officialCatalog else if endsWith(requestedCatalog, "/catalog.json") then requestedCatalog else ""
+    fin team = if embeddedTeam == "" then "-" else embeddedTeam
+    fin resources = studioBundleResources()
+    fin installer = "${resources}/install-release.sh"
+    var releases: Array<StudioVersion> = []
+    var versions = studioVersions(library, catalog, releases)
     var world: World = .()
     var pass = Composition::of(world, "launcher")
     var app = appInit("Azora Launcher", 860, 580)
     if !app.ok then azsExit(1)
+    fin logo = app.loadImage("${resources}/azora-logo.png").texture
     azsSetEnvironment("AZORA_STUDIO_PROJECT", "")
     azsSetEnvironment("AZORA_STUDIO_SCENE", "")
     var player = ScriptPlayer::open(azsEnvironment("AZORA_LAUNCHER_SCRIPT"))
     var status = ""
-    var sessions: Array<Long> = []
+    var sessions: Array<RunningStudio> = []
+    var catalogProcess: Long = 0
+    var nextCheck: Double = 0.0
+    var installProcess: Long = 0
+    var installStage = ""
+    var installing = StudioVersion("", "", false)
     var page = 0
     var frames = 0
     var revision: Long = 1
@@ -126,53 +246,135 @@ react func main() {
         if cue.click then action = pass.hit(player.x, player.y)
         else if !player.pointing && app.mouseClicked(.Left) then action = pass.hit(app.mouseX(), app.mouseY())
         if app.keyDown(.Meta) && app.keyJustPressed(.O) then action = 1
+        if cue.command == "refresh" then action = 2
         if action == 3 || action == 4 {
             page += if action == 3 then -1 else 1
             revision++
         }
         var packagePath = if cue.command == "install" then cue.argument else ""
         if action == 1 then packagePath = chooseStartupPath("Install Studio", if catalog == "" then "${home}/Downloads" else catalog, true)
-        if cue.command == "launch" {
+        if cue.command == "launch" || cue.command == "download" {
             for i: Int in 0..<versions.size {
-                if versions[i].version == cue.argument && versions[i].installed then action = 100 + i
+                if versions[i].version == cue.argument || versions[i].label == cue.argument {
+                    action = (if cue.command == "launch" then launchVersionAction else installVersionAction) + i
+                }
             }
         }
-        if action >= 100 && action - 100 < versions.size {
-            fin item = versions[action - 100].clone()
-            if item.installed {
+        if action >= launchVersionAction && action - launchVersionAction < versions.size {
+            fin item = versions[action - launchVersionAction].clone()
+            if item.installed && item.version != installing.version {
                 fin process = azsStudioStart("${item.packagePath}/Contents/MacOS/azora-studio")
                 if process == 0 then status = "${azsError()}"
                 else {
-                    sessions.add(process)
-                    status = "Opened Azora Studio ${item.version}."
+                    sessions.add(RunningStudio(item.version, process))
+                    status = "Opened Azora Studio ${item.label}."
                 }
                 revision++
-            } else { packagePath = item.packagePath }
+            }
         }
-        if packagePath != "" {
+        if action >= installVersionAction && action - installVersionAction < versions.size {
+            fin item = versions[action - installVersionAction].clone()
+            if item.archive == "" && !item.installed { packagePath = item.packagePath }
+            else if item.offeredBuild > item.installedBuild && installProcess == 0 {
+                var running = item.installed && studioIsOpen(item.packagePath)
+                for session in sessions { if session.version == item.version then running = true }
+                if running { status = "Close Azora Studio ${item.label} before updating." }
+                else if !ensureStartupDirectory(library) { status = "Could not create the Studio library." }
+                else {
+                    fin staged = azsReleaseStage(library)
+                    if staged == 0 { status = "${azsError()}" }
+                    else {
+                        installStage = "${azsBufferText(staged)}"
+                        azsBufferClose(staged)
+                        installProcess = azsReleaseProcessStart(installer, "install", item.archive, installStage, item.version, item.digest, team)
+                        if installProcess == 0 {
+                            status = "${azsError()}"
+                            azsReleaseDiscard(installStage)
+                            installStage = ""
+                        } else {
+                            installing = item.clone()
+                            status = "Installing Azora Studio ${item.label}, build ${item.offeredBuild}…"
+                        }
+                    }
+                }
+                revision++
+            }
+        }
+        if packagePath != "" && installProcess == 0 {
             if !ensureStartupDirectory(library) then status = "Could not create the Studio library."
             else if azsStudioInstall(packagePath, library) == 0 then status = "${azsError()}"
             else { status = "Studio installed." }
-            action = 2
-        }
-        if action == 2 {
-            versions = studioVersions(library, catalog)
+            versions = studioVersions(library, catalog, releases)
             page = 0
             revision++
+        }
+        if installProcess != 0 {
+            fin result = azsProcessPoll(installProcess)
+            if result != -1 {
+                if result != 0 {
+                    fin detail = trim("${azsProcessOutput(installProcess)}")
+                    println(detail)
+                    fin lines = split(detail, "\n")
+                    status = if detail == "" then "Could not install Studio. Try again." else lines[lines.size - 1]
+                } else if installing.installed && studioIsOpen(installing.packagePath) {
+                    status = "Close Azora Studio before updating, then try again."
+                } else if azsReleasePublish(installStage, installing.version, installing.offeredBuild) == 0 {
+                    status = "${azsError()}"
+                } else {
+                    status = "Azora Studio ${installing.label} build ${installing.offeredBuild} installed."
+                }
+                azsProcessClose(installProcess)
+                azsReleaseDiscard(installStage)
+                installProcess = 0
+                installStage = ""
+                installing = StudioVersion("", "", false)
+                versions = studioVersions(library, catalog, releases)
+                revision++
+            }
+        }
+        fin now = azsMonotonicSeconds()
+        if action == 2 {
+            versions = studioVersions(library, catalog, releases)
+            page = 0
+            nextCheck = 0.0
+            revision++
+        }
+        if catalogUrl != "" && catalogProcess == 0 && now >= nextCheck {
+            catalogProcess = azsReleaseProcessStart(installer, "catalog", catalogUrl, "-", "-", "-", team)
+            nextCheck = now + 60.0
+            if catalogProcess == 0 && installProcess == 0 then status = "${azsError()}"
+            revision++
+        }
+        if catalogProcess != 0 {
+            fin result = azsProcessPoll(catalogProcess)
+            if result != -1 {
+                var published: Array<StudioVersion> = []
+                if result == 0 && readReleases(azsProcessOutput(catalogProcess), catalogUrl, published) {
+                    releases = take published
+                    if startsWith(status, "Studio releases unavailable") then status = ""
+                } else if installProcess == 0 {
+                    status = "Studio releases unavailable. Try Refresh."
+                }
+                azsProcessClose(catalogProcess)
+                catalogProcess = 0
+                versions = studioVersions(library, catalog, releases)
+                if page > 0 && page * versionsPerPage >= versions.size then page = 0
+                revision++
+            }
         }
         var at = sessions.size
         while at > 0 {
             at--
-            fin result = azsProcessPoll(sessions[at])
+            fin result = azsProcessPoll(sessions[at].process)
             if result == -1 then continue
-            azsProcessClose(sessions[at])
+            azsProcessClose(sessions[at].process)
             sessions.removeAt(at)
             if result != 0 {
                 status = "Studio exited (${result}). See the Launcher log."
                 revision++
             }
         }
-        composeIfChanged(pass, revision) { StudioLibrary(versions, page, status) }
+        composeIfChanged(pass, revision) { StudioLibrary(versions, page, status, installing.version, catalogProcess != 0, logo) }
         fin root = pass.findChild(pass.root, "library")
         fin width = app.width() as Double
         fin height = app.height() as Double
@@ -189,7 +391,13 @@ react func main() {
         app.present()
         if frameLimit > 0 && frames >= frameLimit then app.quit()
     }
-    for session in sessions then azsProcessClose(session)
+    for session in sessions then azsProcessClose(session.process)
+    if catalogProcess != 0 then azsProcessClose(catalogProcess)
+    if installProcess != 0 {
+        azsProcessClose(installProcess)
+        azsReleaseDiscard(installStage)
+    }
+    App::releaseTexture(logo)
     player.close()
     pass.dispose()
     app.shutdown()

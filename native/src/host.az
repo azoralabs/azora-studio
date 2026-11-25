@@ -33,7 +33,12 @@ bridge .C {
     func @foreignName("azs_project_list")(project: Long, relative: String): Long
     func @foreignName("azs_project_make_dir")(project: Long, relative: String): Int
     func @foreignName("azs_process_start")(program: String, directory: String, first: String, second: String): Long
+    func @foreignName("azs_release_process_start")(script: String, action: String, url: String, library: String, version: String, digest: String, team: String): Long
+    func @foreignName("azs_release_stage")(library: String): Long
+    func @foreignName("azs_release_publish")(stage: String, version: String, build: Int): Int
+    func @foreignName("azs_release_discard")(stage: String)
     func @foreignName("azs_studio_version")(bundle: String): Long
+    func @foreignName("azs_studio_build")(bundle: String): Int
     func @foreignName("azs_studio_install")(bundle: String, library: String): Int
     func @foreignName("azs_studio_start")(program: String): Long
     func @foreignName("azs_process_pid")(process: Long): Int

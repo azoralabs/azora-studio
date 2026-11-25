@@ -45,12 +45,18 @@ int64_t azs_project_list(int64_t project, const char *relative);
 int32_t azs_project_make_dir(int64_t project, const char *relative);
 int64_t azs_process_start(const char *program, const char *directory,
                          const char *first, const char *second);
+int64_t azs_release_process_start(const char *script, const char *action, const char *url,
+                                  const char *library, const char *version, const char *digest, const char *team);
+int64_t azs_release_stage(const char *library);
+int32_t azs_release_publish(const char *stage, const char *version, int32_t build);
+void azs_release_discard(const char *stage);
 int64_t azs_engine_process_start(const char *compiler, const char *project, const char *action);
 int32_t azs_process_poll(int64_t process);
 const char *azs_process_output(int64_t process);
 int32_t azs_process_cancel(int64_t process);
 int32_t azs_process_close(int64_t process);
 int64_t azs_studio_version(const char *bundle);
+int32_t azs_studio_build(const char *bundle);
 int32_t azs_studio_install(const char *bundle, const char *library);
 int64_t azs_studio_start(const char *program);
 int32_t azs_process_pid(int64_t process);

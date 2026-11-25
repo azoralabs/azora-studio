@@ -598,6 +598,24 @@ int64_t azs_studio_version(const char *bundle) {
     return azs_buffer_new(version);
 }
 
+int32_t azs_studio_build(const char *bundle) {
+    char path[PATH_MAX], number[16];
+    if (!bundle || *bundle != '/' ||
+        snprintf(path, sizeof path, "%s/Contents/Resources/studio-build", bundle) >= (int)sizeof path) return 0;
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) return 0;
+    struct stat info;
+    ssize_t count = fstat(fd, &info) == 0 && S_ISREG(info.st_mode) ? read(fd, number, sizeof number - 1) : -1;
+    close(fd);
+    if (count <= 0 || count >= (ssize_t)sizeof number - 1 || number[0] < '1' || number[0] > '9') return 0;
+    if (number[count - 1] == '\n') count--;
+    number[count] = 0;
+    char *end;
+    errno = 0;
+    long build = strtol(number, &end, 10);
+    return errno || *end || build > INT32_MAX ? 0 : (int32_t)build;
+}
+
 int32_t azs_studio_install(const char *bundle, const char *library) {
     if (!library || *library != '/') return fail("Choose an absolute Studio library path");
     int64_t manifest = azs_studio_version(bundle);
@@ -625,7 +643,71 @@ int32_t azs_studio_install(const char *bundle, const char *library) {
     if (!ok) nftw(stage, remove_entry, 16, FTW_DEPTH | FTW_PHYS);
     return ok;
 }
-static int64_t start_process(const char *program, const char *directory, const char *first, const char *second, const char *third) {
+
+int64_t azs_release_stage(const char *library) {
+    char path[PATH_MAX];
+    if (!library || *library != '/' ||
+        snprintf(path, sizeof path, "%s/.azora-download-XXXXXX", library) >= (int)sizeof path)
+        return fail("Invalid Studio library directory");
+    if (!mkdtemp(path)) return system_fail("prepare Studio download");
+    int64_t buffer = azs_buffer_new(path);
+    if (!buffer) rmdir(path);
+    return buffer;
+}
+
+static int release_stage_path(const char *stage) {
+    if (!stage || *stage != '/') return 0;
+    const char *name = strrchr(stage, '/') + 1;
+    return strlen(name) == sizeof ".azora-download-XXXXXX" - 1 && !strncmp(name, ".azora-download-", 16);
+}
+
+int32_t azs_release_publish(const char *stage, const char *version, int32_t build) {
+    if (!release_stage_path(stage) || !version || !*version || strchr(version, '/') || build <= 0)
+        return fail("Invalid Studio download staging path");
+    char source[PATH_MAX], target[PATH_MAX], lock_path[PATH_MAX];
+    int prefix = (int)(strrchr(stage, '/') - stage);
+    if (snprintf(source, sizeof source, "%s/Azora Studio %s.app", stage, version) >= (int)sizeof source ||
+        snprintf(target, sizeof target, "%.*s/Azora Studio %s.app", prefix, stage, version) >= (int)sizeof target ||
+        snprintf(lock_path, sizeof lock_path, "%.*s/.azora-install.lock", prefix, stage) >= (int)sizeof lock_path)
+        return fail("Studio installation path is too long");
+    int64_t marker = azs_studio_version(source);
+    int valid = marker && !strcmp(azs_buffer_text(marker), version);
+    if (marker) azs_buffer_close(marker);
+    if (!valid || azs_studio_build(source) != build) return fail("Downloaded Studio does not match the selected build");
+    int lock = open(lock_path, O_CREAT | O_RDWR | O_NOFOLLOW, 0600);
+    if (lock < 0) return system_fail("open Studio installation lock");
+    struct flock write_lock = {.l_type = F_WRLCK, .l_whence = SEEK_SET};
+    int result = 0;
+    if (fcntl(lock, F_SETLKW, &write_lock) < 0) {
+        system_fail("lock Studio installation");
+    } else if (publish_directory(source, target)) {
+        result = 1;
+    } else if (errno != EEXIST && errno != ENOTEMPTY) {
+        system_fail("publish Studio installation");
+    } else {
+        int64_t existing = azs_studio_version(target);
+        int compatible = existing && !strcmp(azs_buffer_text(existing), version);
+        if (existing) azs_buffer_close(existing);
+        if (!compatible) fail("A different application occupies this Studio installation path");
+        else if (azs_studio_build(target) >= build) fail("This Studio build is already installed or has been superseded");
+        else {
+#ifdef __APPLE__
+            if (renamex_np(source, target, RENAME_SWAP) == 0) result = 1;
+            else system_fail("replace Studio installation");
+#else
+            fail("Studio release updates are available on macOS");
+#endif
+        }
+    }
+    close(lock);
+    return result;
+}
+
+void azs_release_discard(const char *stage) {
+    if (release_stage_path(stage)) nftw(stage, remove_entry, 16, FTW_DEPTH | FTW_PHYS);
+}
+
+static int64_t start_process(const char *program, const char *directory, const char *const arguments[], size_t count) {
     if (!native_program(program)) return 0;
     int64_t handle = allocate(PROCESS);
     if (!handle) return 0;
@@ -643,11 +725,11 @@ static int64_t start_process(const char *program, const char *directory, const c
         close(pipefd[1]);
         for (int i = 0; i < SLOTS; ++i) if (slots[i].fd >= 0) close(slots[i].fd);
         if (directory && *directory && chdir(directory) < 0) _exit(126);
-        char *args[5] = {(char *)program, NULL, NULL, NULL, NULL};
-        int at = 1;
-        if (first && *first) args[at++] = (char *)first;
-        if (second && *second) args[at++] = (char *)second;
-        if (third && *third) args[at] = (char *)third;
+        char *args[10] = {(char *)program};
+        size_t at = 1;
+        for (size_t i = 0; i < count; ++i) {
+            if (arguments[i] && *arguments[i]) args[at++] = (char *)arguments[i];
+        }
         execv(program, args); _exit(127);
     }
     close(pipefd[1]); setpgid(pid, pid);
@@ -658,7 +740,15 @@ static int64_t start_process(const char *program, const char *directory, const c
     process->fd = pipefd[0]; process->pid = pid; return handle;
 }
 int64_t azs_process_start(const char *program, const char *directory, const char *first, const char *second) {
-    return start_process(program, directory, first, second, NULL);
+    const char *arguments[] = {first, second};
+    return start_process(program, directory, arguments, 2);
+}
+
+int64_t azs_release_process_start(const char *script, const char *action, const char *url,
+                                  const char *library, const char *version, const char *digest, const char *team) {
+    if (!script || *script != '/' || access(script, R_OK) < 0) return fail("Azora release installer is missing");
+    const char *arguments[] = {script, action, url, library, version, digest, team};
+    return start_process("/bin/bash", NULL, arguments, 7);
 }
 
 /* Studio inherits the Launcher's log and can keep editing after Launcher closes. */
@@ -709,7 +799,8 @@ int64_t azs_engine_process_start(const char *compiler, const char *project, cons
     }
     if (access(script, R_OK) < 0) { system_fail("open Engine build tool"); return 0; }
     if (!azs_set_environment("AZORA_COMPILER_BIN", compiler)) return 0;
-    return start_process("/bin/bash", project, script, project, action);
+    const char *arguments[] = {script, project, action};
+    return start_process("/bin/bash", project, arguments, 3);
 }
 
 int64_t azs_shader_process_start(const char *project) {
@@ -723,7 +814,8 @@ int64_t azs_shader_process_start(const char *project) {
         fail("Invalid project directory"); return 0;
     }
     if (access(script, R_OK) < 0) { system_fail("open Engine shader tool"); return 0; }
-    return start_process("/bin/bash", project, script, "--studio", project);
+    const char *arguments[] = {script, "--studio", project};
+    return start_process("/bin/bash", project, arguments, 3);
 }
 
 static void drain(Slot *process) {

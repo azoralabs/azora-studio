@@ -45,6 +45,11 @@ func studioBundleResources(): String {
     return if bundle == 0 then "" else nsStringText(send0(bundle, sel("resourcePath")))
 }
 
+func startupBundleValue(key: String): String {
+    fin bundle = send0(cls("NSBundle"), sel("mainBundle"))
+    return nsStringText(send1(bundle, sel("objectForInfoDictionaryKey:"), nsString(key)))
+}
+
 /** A versioned app locates its matching toolchain relative to itself. */
 func useBundledStudioToolchain() {
     fin resources = studioBundleResources()

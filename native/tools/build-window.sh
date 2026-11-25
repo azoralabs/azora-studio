@@ -3,6 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLANG="${AZORA_CLANG:-/usr/bin/clang}"
 ENGINE="${AZORA_ENGINE_DIR:-${AZORA_ENGINE_HOME:-$(cd "$ROOT/../../azora-engine" && pwd)}}"
+RUNTIME="${AZORA_ENGINE_RUNTIME_DIR:-$ENGINE/runtime/build}"
 COMPILER="${AZORA_NATIVE_COMPILER:-${AZORA_COMPILER_BIN:-}}"
 if [ -z "$COMPILER" ]; then echo "Select AZORA_NATIVE_COMPILER or an explicit development AZORA_COMPILER_BIN" >&2; exit 1; fi
 if [ -z "${AZORA_NATIVE_COMPILER:-}" ] && [ "${AZORA_STUDIO_DEVELOPMENT_BOOTSTRAP:-0}" != 1 ]; then
@@ -62,11 +63,11 @@ EXPORTS=()
 "$COMPILER" compile llvm ${EXPORTS[@]+"${EXPORTS[@]}"} "$BUILD/staged/main.az" > "$BUILD/studio.ll"
 "$CLANG" -std=c11 -Wall -Wextra -Werror -Wno-override-module ${AZORA_STUDIO_OPTIMIZE:--O2} \
     ${AZORA_STUDIO_SANITIZER_FLAGS:-} "$BUILD/studio.ll" "$ROOT/host/azora_studio_host.c" \
-    -L "$ENGINE/runtime/build" -lazora_runtime -Wl,-rpath,@executable_path \
+    -L "$RUNTIME" -lazora_runtime -Wl,-rpath,@executable_path \
     ${FLAGS[@]+"${FLAGS[@]}"} -o "$BUILD/azora-$MODE.next"
 APP="$BUILD/Azora $MODE Development.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$ENGINE/runtime/build/libazora_runtime.dylib" "$BUILD/"
+cp "$RUNTIME/libazora_runtime.dylib" "$BUILD/"
 cp "$BUILD/libazora_runtime.dylib" "$APP/Contents/MacOS/"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -75,16 +76,24 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <key>CFBundleIdentifier</key><string>dev.azora.native.$MODE.development</string>
 <key>CFBundleExecutable</key><string>azora-$MODE</string>
 <key>CFBundleName</key><string>Azora $MODE Development</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>0.1.0</string>
 </dict></plist>
 EOF
 if [[ "$MODE" = studio || "$MODE" = launcher ]]; then
+    ICON="$ROOT/resources/AppIcon.icns"
+    if [ "$MODE" = launcher ]; then ICON="$ROOT/resources/LauncherIcon.icns"; fi
+    cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"
     AZORA_COMPILER_BIN="$COMPILER" AZORA_SHADER_SCOPE=engine \
         bash "$ENGINE/tools/shader-cook.sh" "$BUILD/project" "$BUILD/shaders" metallib
     test -s "$BUILD/shaders/scene.metallib"
     mkdir -p "$APP/Contents/Resources/shaders"
     cp "$BUILD/shaders/"*.metallib "$APP/Contents/Resources/shaders/"
+fi
+if [ "$MODE" = launcher ]; then
+    cp "$ROOT/tools/install-release.sh" "$APP/Contents/Resources/"
+    cp "$ROOT/resources/azora-logo.png" "$APP/Contents/Resources/"
 fi
 mv "$BUILD/azora-$MODE.next" "$BUILD/azora-$MODE"
 cp "$BUILD/azora-$MODE" "$APP/Contents/MacOS/azora-$MODE"

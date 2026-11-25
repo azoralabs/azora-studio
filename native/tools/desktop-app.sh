@@ -15,7 +15,9 @@ DEST="${1:-$HOME/Desktop}"
 make_app() {
     local app="$DEST/$1.app" executable="azora-$2"
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-    cp "$ROOT/resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
+    local icon="$ROOT/resources/AppIcon.icns"
+    if [ "$2" = launcher ]; then icon="$ROOT/resources/LauncherIcon.icns"; fi
+    cp "$icon" "$app/Contents/Resources/AppIcon.icns"
     cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

@@ -35,6 +35,18 @@ Packages contain the corresponding native compiler, Engine, stdlib, runtime
 and shaders for macOS on Apple silicon. Building and running projects uses the
 macOS developer tools and Python 3.
 
+## Apple silicon releases
+
+The public Launcher reads `https://azorastudio.org/downloads/macos-arm64/catalog.json` at startup, on **Refresh**, and once a minute while open. **Update** replaces the installed Studio bundle atomically when the catalog offers a higher `versionCode` for the same Studio version. Studio must be closed during the replacement. Projects stay in their own folders, with `~/Documents/Azora` as the default.
+
+```sh
+bash native/tools/package-release.sh 1 native/build/macos-test --local
+```
+
+`--local` creates a DMG and Studio archive for loopback testing. Serve the output directory on `127.0.0.1` and set `AZORA_STUDIO_CATALOG_URL` to its `catalog.json` URL when launching the test app. `--public` signs the apps and notarizes the distribution through Apple. Set `AZORA_SIGN_IDENTITY` to the Developer ID Application identity, `AZORA_SIGN_TEAM` to its Team ID, and `AZORA_NOTARY_PROFILE` to a configured Keychain profile.
+
+To publish, attach `catalog.json`, the Launcher DMG and the Studio ZIP to the public `macos-v0.1-dev` release in `azoralabs/azora-studio`. For updates, increment `versionCode`, upload the new archives, then replace `catalog.json`. Run the `azora-studio-website` deployment to publish the verified files at `azorastudio.org`. The website displays the download after the public catalog is served.
+
 ## Project previews and materials
 
 Set `project.editorPreviewSources` in `azora.azon` to the project-relative
