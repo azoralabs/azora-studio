@@ -27,11 +27,14 @@ bridge .C {
     func @foreignName("azs_buffer_size")(buffer: Long): Int
     func @foreignName("azs_buffer_byte")(buffer: Long, offset: Int): Int
     func @foreignName("azs_buffer_text")(buffer: Long): String
+    func @foreignName("azs_project_file_stamp")(project: Long, relative: String): Long
     func @foreignName("azs_project_read")(project: Long, relative: String): Long
     func @foreignName("azs_project_write")(project: Long, relative: String, buffer: Long): Int
     func @foreignName("azs_project_list")(project: Long, relative: String): Long
     func @foreignName("azs_project_make_dir")(project: Long, relative: String): Int
     func @foreignName("azs_process_start")(program: String, directory: String, first: String, second: String): Long
+    func @foreignName("azs_studio_version")(bundle: String): Long
+    func @foreignName("azs_studio_install")(bundle: String, library: String): Int
     func @foreignName("azs_studio_start")(program: String): Long
     func @foreignName("azs_process_pid")(process: Long): Int
     func @foreignName("azs_engine_process_start")(compiler: String, project: String, action: String): Long

@@ -2,11 +2,15 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODE="${1:-studio}"
-case "$MODE" in studio|launcher) ;; *) echo "usage: launch.sh [studio|launcher]" >&2; exit 1 ;; esac
-if [ "$MODE" = studio ]; then
-    : "${AZORA_STUDIO_PROJECT:?Select an absolute project directory}"
+case "$MODE" in
+    studio) source "$ROOT/tools/toolchain-env.sh" ;;
+    launcher) export AZORA_STUDIO_CATALOG="${AZORA_STUDIO_CATALOG:-$ROOT/build/catalog}" ;;
+    *) echo "usage: launch.sh [studio|launcher]" >&2; exit 1 ;;
+esac
+BUILD="${AZORA_STUDIO_BUILD_DIR:-$ROOT/build/$MODE}"
+APP="$BUILD/Azora $MODE Development.app/Contents"
+if [ ! -s "$APP/Resources/shaders/scene.metallib" ] || [ ! -x "$APP/MacOS/azora-$MODE" ]; then
+    echo "Build Azora $MODE first with native/tools/run.sh $MODE" >&2
+    exit 1
 fi
-: "${AZORA_NATIVE_COMPILER:?Select the matching native compiler executable}"
-export AZORA_ENGINE_HOME="${AZORA_ENGINE_HOME:-$(cd "$ROOT/../../azora-engine" && pwd)}"
-export AZORA_STUDIO_EXECUTABLE="${AZORA_STUDIO_EXECUTABLE:-$ROOT/build/studio/Azora studio Development.app/Contents/MacOS/azora-studio}"
-exec "$ROOT/build/$MODE/Azora $MODE Development.app/Contents/MacOS/azora-$MODE"
+exec "$APP/MacOS/azora-$MODE"

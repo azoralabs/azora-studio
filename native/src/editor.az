@@ -94,10 +94,11 @@ pack OpenFile derives Clone {
 /** The entry source of a project whose azora.azon names none. */
 inline fin defaultEntrySource: String = "src/main.az"
 
-/** The source and scene that Launcher and Studio open for a project. */
+/** The entry files and display name from the project's manifest. */
 pack ProjectFiles {
     fin source: String
     fin scene: String = "scene.azscene"
+    fin name: String = ""
 }
 
 func isProjectScenePath(path: String): Bool = endsWith(path, ".azscene") &&
@@ -112,6 +113,7 @@ func projectFiles(project: Long): ProjectFiles {
     var folder = "src"
     var entry = "main.az"
     var scene = "scene.azscene"
+    var name = ""
     when data {
         .Object(members) -> {
             for member in members {
@@ -124,6 +126,7 @@ func projectFiles(project: Long): ProjectFiles {
                                         if field.name == "entry" && endsWith(text, ".az") && indexOf(text, "/") < 0 then entry = text
                                         if field.name == "src" && text != "" && indexOf(text, "..") < 0 && !startsWith(text, "/") then folder = text
                                         if field.name == "scene" && isProjectScenePath(text) then scene = text
+                                        if field.name == "name" then name = trim(text)
                                     }
                                     else -> { }
                                 }
@@ -136,7 +139,7 @@ func projectFiles(project: Long): ProjectFiles {
         }
         else -> { }
     }
-    return .("${folder}/${entry}", "${scene}")
+    return .("${folder}/${entry}", "${scene}", name)
 }
 
 /** What starts the dock panel name of a tab editing another project file. */

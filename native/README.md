@@ -8,16 +8,32 @@ qualification gates, recorded in `NATIVE_ARCHITECTURE.md`.
 ## Run it
 
 ```sh
-bash native/tools/run.sh                         # Studio on build/demo-project
+bash native/tools/run.sh                         # Studio Project Browser
 bash native/tools/run.sh studio /abs/path/project
-bash native/tools/run.sh launcher /abs/path/new-project
+bash native/tools/package-studio.sh 0.1.0-dev     # add a package to the local catalog
+bash native/tools/run.sh launcher                # Studio Library
 ```
 
 `run.sh` selects `../azora-lang`'s release native compiler (falling back to the
 debug one), the standard library and the Engine beside this checkout, builds the
-window, and creates the project from the Engine's ECS template when it does not
-exist yet. Every choice can be overridden with `AZORA_NATIVE_COMPILER`,
-`AZORA_STDLIB`, `AZORA_ENGINE_HOME` and `AZORA_STUDIO_PROJECT`.
+window, and creates a project from the Engine's ECS template when an explicit
+new project directory is supplied. Override the defaults with
+`AZORA_NATIVE_COMPILER`, `AZORA_STDLIB`, `AZORA_ENGINE_HOME` or `AZORA_STUDIO_PROJECT`.
+
+Choose **Install** in the Launcher to copy a catalog package into
+`~/Library/Application Support/Azora Studio/Versions`. **Install from file…**
+selects a Studio `.app` package from another folder. **Launch** opens that
+version's Project Browser. **Projects** watches `~/Documents/Azora` for
+projects and reads the display names from `azora.azon`. A `thumbnail.png`,
+`thumbnail.jpg` or `thumbnail.jpeg` in a project's root supplies its image.
+You can also open a recent project, browse for a directory or `azora.azon` file,
+or create a project from a template.
+The development catalog is `native/build/catalog`. Set `AZORA_STUDIO_CATALOG`
+or `AZORA_STUDIO_LIBRARY` to use different directories.
+
+Packages contain the corresponding native compiler, Engine, stdlib, runtime
+and shaders for macOS on Apple silicon. Building and running projects uses the
+macOS developer tools and Python 3.
 
 ## Project previews and materials
 
@@ -50,7 +66,8 @@ the compiled material in the viewport.
   is one step), splice, atomic save and transactional reopen.
 - `src/scene.az` — the Engine ECS scene: selection, transform edits, drag, undo,
   `AZORA-SCENE 1` persistence with whole-file validation, isolated preview.
-- `src/launcher.az` — template gallery and project creation, then Studio.
+- `src/launcher.az` — version library, installation and Studio launch.
+- `src/projectbrowser.az` — Studio's templates, recent projects and file picker.
 - `src/intelligence.az` — structural spans; `src/main.az` the console services.
 - `host/` — the C host: checked byte-buffer handles, confined project files and
   cancellable child processes. No editor or compiler logic.

@@ -1,0 +1,63 @@
+module studio.startup
+
+import std.string
+import engine.core
+import engine.io
+import engine.objc
+import engine.ui.node
+import engine.ui.compose
+import studio.host
+import studio.theme
+
+impl pack StartupButton {
+    react ctor (anchor: Anchor!).(label: String, action: Int, width: Double, primary: Bool = false): Entity {
+        fin base = Modifier::width(width).height(36.0).rounded(8.0)
+        return Button(modifier: if primary then base.background(0.561, 0.180, 0.706).hover(0.663, 0.235, 0.820) else base.raised().hoverable(), :action, key: label) {
+            Text(label, modifier: ::fontSize(13.0))
+        }
+    }
+}
+
+func chooseStartupPath(title: String, location: String, appPackage: Bool = false, project: Bool = false): String {
+    fin panel = send0(cls("NSOpenPanel"), sel("openPanel"))
+    send1(panel, sel("setCanChooseDirectories:"), if appPackage then 0 else 1)
+    send1(panel, sel("setCanChooseFiles:"), if appPackage || project then 1 else 0)
+    send1(panel, sel("setTreatsFilePackagesAsDirectories:"), 0)
+    send1(panel, sel("setPrompt:"), nsString(title))
+    if location != "" then send1(panel, sel("setDirectoryURL:"), send1(cls("NSURL"), sel("fileURLWithPath:"), nsString(location)))
+    if send0(panel, sel("runModal")) != 1 then return ""
+    return nsStringText(send0(send0(panel, sel("URL")), sel("path")))
+}
+
+func ensureStartupDirectory(location: String): Bool {
+    if !startsWith(location, "/") then return false
+    fin files = send0(cls("NSFileManager"), sel("defaultManager"))
+    return send4(files, sel("createDirectoryAtPath:withIntermediateDirectories:attributes:error:"), nsString(location), 1, 0, 0) != 0
+}
+
+func startupName(path: String): String {
+    fin text = nsString(path)
+    return nsStringText(send0(text, sel("lastPathComponent")))
+}
+
+func studioBundleResources(): String {
+    fin bundle = send0(cls("NSBundle"), sel("mainBundle"))
+    return if bundle == 0 then "" else nsStringText(send0(bundle, sel("resourcePath")))
+}
+
+/** A versioned app locates its matching toolchain relative to itself. */
+func useBundledStudioToolchain() {
+    fin resources = studioBundleResources()
+    if resources == "" then return
+    fin files = send0(cls("NSFileManager"), sel("defaultManager"))
+    if send1(files, sel("fileExistsAtPath:"), nsString("${resources}/studio-version")) == 0 then return
+    azsSetEnvironment("AZORA_NATIVE_COMPILER", "${resources}/toolchain/azora")
+    azsSetEnvironment("AZORA_COMPILER_BIN", "${resources}/toolchain/azora")
+    azsSetEnvironment("AZORA_SHADER_COMPILER_BIN", "${resources}/toolchain/azora")
+    azsSetEnvironment("AZORA_STDLIB", "${resources}/toolchain/std")
+    azsSetEnvironment("AZORA_ENGINE_HOME", "${resources}/toolchain/engine")
+    azsSetEnvironment("AZORA_SHADER_DIR", "${resources}/shaders")
+    azsSetEnvironment("AZORA_STUDIO_RESOURCES", "${resources}/studio")
+    // Python-backed Engine tools must leave the signed application untouched.
+    azsSetEnvironment("PYTHONDONTWRITEBYTECODE", "1")
+}

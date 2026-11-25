@@ -167,6 +167,19 @@ static int remove_entry(const char *path, const struct stat *info, int type, str
     return remove(path);
 }
 
+static int publish_directory(const char *stage, const char *target) {
+#ifdef __APPLE__
+    return renamex_np(stage, target, RENAME_EXCL) == 0;
+#else
+    if (mkdir(target, 0700) < 0) return 0;
+    if (rename(stage, target) == 0) return 1;
+    int error = errno;
+    rmdir(target);
+    errno = error;
+    return 0;
+#endif
+}
+
 static int template_manifest(const char *stage, const char *name, const char *configured) {
     char path[PATH_MAX];
     if (snprintf(path, sizeof path, "%s/azora.azon", stage) >= (int)sizeof path)
@@ -211,14 +224,7 @@ int32_t azs_project_from_template_with_entry(const char *root, const char *sourc
         ok = entry != 0 && template_manifest(stage, name, manifest);
     }
     if (ok) {
-#ifdef __APPLE__
-        ok = renamex_np(stage, root, RENAME_EXCL) == 0;
-#else
-        ok = mkdir(root, 0700) == 0;
-        if (ok && rename(stage, root) < 0) {
-            int error = errno; rmdir(root); errno = error; ok = 0;
-        }
-#endif
+        ok = publish_directory(stage, root);
         if (!ok) system_fail("publish project folder");
     }
     if (!ok) nftw(stage, remove_entry, 16, FTW_DEPTH | FTW_PHYS);
@@ -384,6 +390,30 @@ static int parent_fd(Slot *project, const char *relative, char name[NAME_MAX + 1
         directory = next; segment = slash + 1;
     }
 }
+int64_t azs_project_file_stamp(int64_t handle, const char *relative) {
+    Slot *project = get(handle, PROJECT);
+    if (!project) return 0;
+    char name[NAME_MAX + 1];
+    int parent = parent_fd(project, relative, name);
+    if (parent < 0) return 0;
+    struct stat info;
+    int found = fstatat(parent, name, &info, AT_SYMLINK_NOFOLLOW) == 0 && S_ISREG(info.st_mode);
+    close(parent);
+    if (!found) return 0;
+#ifdef __APPLE__
+    const struct timespec changed = info.st_ctimespec, modified = info.st_mtimespec;
+#else
+    const struct timespec changed = info.st_ctim, modified = info.st_mtim;
+#endif
+    const uint64_t fields[] = {info.st_dev, info.st_ino, info.st_size,
+                               changed.tv_sec, changed.tv_nsec, modified.tv_sec, modified.tv_nsec};
+    uint64_t stamp = UINT64_C(14695981039346656037);
+    for (size_t i = 0; i < sizeof fields / sizeof fields[0]; ++i)
+        stamp = (stamp ^ fields[i]) * UINT64_C(1099511628211);
+    stamp &= INT64_MAX;
+    return stamp ? (int64_t)stamp : 1;
+}
+
 int64_t azs_project_read(int64_t handle, const char *relative) {
     Slot *project = get(handle, PROJECT);
     if (!project) return 0;
@@ -528,6 +558,72 @@ static int native_program(const char *program) {
                  !memcmp(magic, "\xca\xfe\xba\xbe", 4) || !memcmp(magic, "\xbe\xba\xfe\xca", 4));
     if (!elf && !macho) return fail("Studio requires a native compiler/tool; script and JAR bootstraps are development-only");
     return access(program, X_OK) == 0 ? 1 : system_fail("native tool is not executable");
+}
+
+static int studio_file(const char *bundle, const char *relative, int mode) {
+    char path[PATH_MAX];
+    struct stat info;
+    return snprintf(path, sizeof path, "%s/Contents/%s", bundle, relative) < (int)sizeof path &&
+        lstat(path, &info) == 0 && S_ISREG(info.st_mode) && access(path, mode) == 0;
+}
+
+int64_t azs_studio_version(const char *bundle) {
+    struct stat info;
+    if (!bundle || *bundle != '/' || lstat(bundle, &info) < 0 || !S_ISDIR(info.st_mode)) return 0;
+    if (!studio_file(bundle, "Info.plist", R_OK) ||
+        !studio_file(bundle, "MacOS/azora-studio", X_OK) ||
+        !studio_file(bundle, "MacOS/libazora_runtime.dylib", R_OK) ||
+        !studio_file(bundle, "Resources/shaders/scene.metallib", R_OK) ||
+        !studio_file(bundle, "Resources/studio/theme.azon", R_OK) ||
+        !studio_file(bundle, "Resources/toolchain/azora", X_OK) ||
+        !studio_file(bundle, "Resources/toolchain/std/core.az", R_OK) ||
+        !studio_file(bundle, "Resources/toolchain/engine/workspace.azon", R_OK) ||
+        !studio_file(bundle, "Resources/toolchain/engine/tools/build.sh", R_OK) ||
+        !studio_file(bundle, "Resources/toolchain/engine/native/macos/libazora_runtime.dylib", R_OK)) return 0;
+    char path[PATH_MAX];
+    if (snprintf(path, sizeof path, "%s/Contents/Resources/studio-version", bundle) >= (int)sizeof path) return 0;
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) return 0;
+    char version[65];
+    ssize_t size = fstat(fd, &info) == 0 && S_ISREG(info.st_mode) ? read(fd, version, sizeof version) : -1;
+    close(fd);
+    if (size <= 0 || size >= (ssize_t)sizeof version || version[0] < '0' || version[0] > '9') return 0;
+    if (version[size - 1] == '\n') size--;
+    for (ssize_t i = 0; i < size; ++i) {
+        const char c = version[i];
+        if (!(c == '.' || c == '-' || c == '+' || (c >= '0' && c <= '9') ||
+              (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) return 0;
+    }
+    version[size] = 0;
+    return azs_buffer_new(version);
+}
+
+int32_t azs_studio_install(const char *bundle, const char *library) {
+    if (!library || *library != '/') return fail("Choose an absolute Studio library path");
+    int64_t manifest = azs_studio_version(bundle);
+    if (!manifest) return fail("Choose a complete Azora Studio version package");
+    char target[PATH_MAX], stage[PATH_MAX], version[65];
+    snprintf(version, sizeof version, "%s", azs_buffer_text(manifest));
+    int length = snprintf(target, sizeof target, "%s/Azora Studio %s.app", library, version);
+    azs_buffer_close(manifest);
+    if (length >= (int)sizeof target ||
+        snprintf(stage, sizeof stage, "%s/.azora-install-XXXXXX", library) >= (int)sizeof stage)
+        return fail("Studio library path is too long");
+    struct stat info;
+    if (lstat(target, &info) == 0) return fail("This Studio version is already in the library");
+    if (errno != ENOENT) return system_fail("check Studio installation");
+    if (!mkdtemp(stage)) return system_fail("prepare Studio installation");
+    int ok = copy_tree(bundle, stage, 0);
+    if (!ok) system_fail("copy Studio package");
+    if (ok) {
+        manifest = azs_studio_version(stage);
+        ok = manifest && strcmp(azs_buffer_text(manifest), version) == 0;
+        if (manifest) azs_buffer_close(manifest);
+        if (!ok) fail("The installed package is incomplete or has changed");
+    }
+    if (ok && !publish_directory(stage, target)) ok = system_fail("publish Studio installation");
+    if (!ok) nftw(stage, remove_entry, 16, FTW_DEPTH | FTW_PHYS);
+    return ok;
 }
 static int64_t start_process(const char *program, const char *directory, const char *first, const char *second, const char *third) {
     if (!native_program(program)) return 0;

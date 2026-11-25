@@ -139,8 +139,8 @@ pack ScriptPlayer {
 
 impl ScriptPlayer {
     /** The script AZORA_STUDIO_SCRIPT holds, or one with no steps. */
-    func open(): ScriptPlayer {
-        fin script = azsBufferNew(azsEnvironment("AZORA_STUDIO_SCRIPT"))
+    func open(source: String = azsEnvironment("AZORA_STUDIO_SCRIPT")): ScriptPlayer {
+        fin script = azsBufferNew(source)
         return .(script, parseScript(script))
     }
 

@@ -51,6 +51,8 @@ import engine.atmosphere.view
 import engine.roads
 import studio.menubar
 import studio.play
+import studio.startup
+import studio.projectbrowser
 
 // The Studio window. Panels are found by reflection, commands are found by
 // reflection, and the layout is ECS state the dock rearranges; this file only
@@ -588,7 +590,15 @@ react func main() {
         println("incompatible Studio host ABI")
         return
     }
-    fin root = azsEnvironment("AZORA_STUDIO_PROJECT")
+    fin startupPool = objcAutoreleasePoolPush()
+    useBundledStudioToolchain()
+    fin requested = projectRoot(azsEnvironment("AZORA_STUDIO_PROJECT"))
+    fin root = if requested != "" && projectCanOpen(requested) then requested else browseStudioProjects(
+        if requested == "" then "" else "Cannot open ${startupName(requested)}. Check that its entry source exists.")
+    if root != "" then rememberProject(root)
+    objcAutoreleasePoolPop(startupPool)
+    if root == "" then return
+    azsSetEnvironment("AZORA_STUDIO_PROJECT", root)
     fin project = azsProjectOpen(root, 0)
     if project == 0 {
         println(azsError())

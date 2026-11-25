@@ -4,8 +4,8 @@ Azora Studio and Launcher must be written entirely in **azora-lang** and compile
 through **LLVM** to native executables. The installed product must have no
 JAR/JVM dependency, including its bundled build tools and language services.
 
-- **Launcher** creates, opens and manages Azora projects.
-- **Studio** provides the editor workspace: docking panels, scene editing,
+- **Launcher** installs and launches Studio versions side by side.
+- **Studio** creates and opens projects and provides the editor workspace with docking panels, scene editing,
   project and asset tools, source intelligence, build/play and undo/redo.
 
 ## Architecture
@@ -26,8 +26,8 @@ Engine and compiled through LLVM with the native compiler. It has a themed
 retained workspace (toolbar, hierarchy, project, inspector, console/problems
 dock, status bar), a syntax-coloured source editor with selection, clipboard and
 undo, an ECS scene viewport with drag editing, live semantic diagnostics with
-navigation, and build/run through the native compiler. The Launcher creates
-projects from Engine templates and opens them in Studio. It runs clean under
+navigation, and build/run through the native compiler. Studio opens a project
+browser at startup with recent projects, a file picker and Engine templates. It runs clean under
 Apple ASan/UBSan.
 
 Preserve the Kotlin/Compose prototype as behavior/UI reference for the port;
@@ -43,7 +43,7 @@ in [the legacy prototype reference](docs/LEGACY_PROTOTYPE.md).
 
 ## Landscape, roads and driving
 
-Open the **Dolomites Drive** template in Launcher or point the native Studio at
+Open the **Dolomites Drive** template in Studio's Project Browser or point the native Studio at
 `../azora-engine/templates/dolomites-drive`. The **World** menu has the built-in
 landscape, vehicle start, atmosphere and road tools. The inspector edits the
 selected entity's component settings.

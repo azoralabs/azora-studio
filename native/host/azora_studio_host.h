@@ -36,6 +36,8 @@ int32_t azs_buffer_close(int64_t buffer);
 int32_t azs_buffer_size(int64_t buffer);
 int32_t azs_buffer_byte(int64_t buffer, int32_t offset);
 const char *azs_buffer_text(int64_t buffer);
+/* Metadata identity of a confined regular file, or 0 if missing. */
+int64_t azs_project_file_stamp(int64_t project, const char *relative);
 int64_t azs_project_read(int64_t project, const char *relative);
 int32_t azs_project_write(int64_t project, const char *relative, int64_t buffer);
 /* Lines of "d name" / "f name", directories first, hidden entries omitted. */
@@ -48,6 +50,8 @@ int32_t azs_process_poll(int64_t process);
 const char *azs_process_output(int64_t process);
 int32_t azs_process_cancel(int64_t process);
 int32_t azs_process_close(int64_t process);
+int64_t azs_studio_version(const char *bundle);
+int32_t azs_studio_install(const char *bundle, const char *library);
 int64_t azs_studio_start(const char *program);
 int32_t azs_process_pid(int64_t process);
 void azs_diagnostic(int32_t offset, int32_t length, int32_t line,

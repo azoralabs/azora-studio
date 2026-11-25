@@ -1,9 +1,7 @@
 #!/bin/bash
 # Puts "Azora Studio" and "Azora Launcher" apps on the Desktop (or in $1) that
-# open this checkout's development builds with their toolchain: the native
-# compiler from ../azora-lang, its std, and the Engine beside it. Each app runs
-# the window last built by run.sh / build-window.sh, so it opens at once, and
-# builds one first only when none exists.
+# open this checkout's development builds. Each shortcut uses the last build
+# and builds its window on first launch if needed.
 #
 #   bash native/tools/desktop-app.sh                 # on the Desktop
 #   bash native/tools/desktop-app.sh /Applications   # somewhere else
@@ -13,23 +11,9 @@ LANG_HOME="${AZORA_LANG_HOME:-$(cd "$ROOT/../../azora-lang" && pwd)}"
 ENGINE_HOME="${AZORA_ENGINE_HOME:-$(cd "$ROOT/../../azora-engine" && pwd)}"
 DEST="${1:-$HOME/Desktop}"
 
-# The toolchain both apps start from.
-ENVIRONMENT="ROOT=\"$ROOT\"
-LANG_HOME=\"$LANG_HOME\"
-RELEASE=\"\$LANG_HOME/compiler/build/bin/macosArm64/releaseExecutable/azora.kexe\"
-DEBUG=\"\$LANG_HOME/compiler/build/bin/macosArm64/debugExecutable/azora.kexe\"
-if [ -x \"\$RELEASE\" ]; then export AZORA_NATIVE_COMPILER=\"\$RELEASE\"; else export AZORA_NATIVE_COMPILER=\"\$DEBUG\"; fi
-export AZORA_STDLIB=\"\$LANG_HOME/std\"
-export AZORA_ENGINE_HOME=\"$ENGINE_HOME\"
-export AZORA_STUDIO_RESOURCES=\"\$ROOT/resources\"
-export AZORA_STUDIO_EXECUTABLE=\"\$ROOT/build/studio/azora-studio\"
-LOG=\"\$HOME/Library/Logs/Azora.log\"
-mkdir -p \"\$(dirname \"\$LOG\")\""
-
-# make_app <name> <bundle id suffix> <executable> <launch script body>
+# make_app <name> <mode>
 make_app() {
-    local app="$DEST/$1.app"
-    rm -rf "$app"
+    local app="$DEST/$1.app" executable="azora-$2"
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
     cp "$ROOT/resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
     cat > "$app/Contents/Info.plist" <<PLIST
@@ -40,7 +24,7 @@ make_app() {
     <key>CFBundleName</key><string>$1</string>
     <key>CFBundleDisplayName</key><string>$1</string>
     <key>CFBundleIdentifier</key><string>com.azoralabs.$2.development</string>
-    <key>CFBundleExecutable</key><string>$3</string>
+    <key>CFBundleExecutable</key><string>$executable</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0-dev</string>
@@ -49,21 +33,24 @@ make_app() {
 </dict>
 </plist>
 PLIST
-    printf '#!/bin/bash\n%s\n%s\n' "$ENVIRONMENT" "$4" > "$app/Contents/MacOS/$3"
-    chmod +x "$app/Contents/MacOS/$3"
+    {
+        printf '#!/bin/bash\nROOT=%q\nexport AZORA_LANG_HOME=%q\nexport AZORA_ENGINE_HOME=%q\nMODE=%q\n' \
+            "$ROOT" "$LANG_HOME" "$ENGINE_HOME" "$2"
+        cat <<'SCRIPT'
+LOG="$HOME/Library/Logs/Azora.log"
+mkdir -p "$(dirname "$LOG")"
+APP="$ROOT/build/$MODE/Azora $MODE Development.app/Contents"
+if [ ! -x "$APP/MacOS/azora-$MODE" ] || [ ! -s "$APP/Resources/shaders/scene.metallib" ]; then
+    exec bash "$ROOT/tools/run.sh" "$MODE" >> "$LOG" 2>&1
+fi
+exec bash "$ROOT/tools/launch.sh" "$MODE" >> "$LOG" 2>&1
+SCRIPT
+    } > "$app/Contents/MacOS/$executable.next"
+    chmod +x "$app/Contents/MacOS/$executable.next"
+    mv "$app/Contents/MacOS/$executable.next" "$app/Contents/MacOS/$executable"
     touch "$app"
     echo "$app"
 }
 
-make_app "Azora Studio" studio azora-studio '
-export AZORA_STUDIO_PROJECT="${AZORA_STUDIO_PROJECT:-$ROOT/build/demo-project}"
-if [ ! -x "$AZORA_STUDIO_EXECUTABLE" ] || [ ! -d "$AZORA_STUDIO_PROJECT" ]; then
-    exec bash "$ROOT/tools/run.sh" studio "$AZORA_STUDIO_PROJECT" >> "$LOG" 2>&1
-fi
-exec "$AZORA_STUDIO_EXECUTABLE" >> "$LOG" 2>&1'
-
-make_app "Azora Launcher" launcher azora-launcher '
-if [ ! -x "$ROOT/build/launcher/azora-launcher" ] || [ ! -x "$AZORA_STUDIO_EXECUTABLE" ]; then
-    exec bash "$ROOT/tools/run.sh" launcher >> "$LOG" 2>&1
-fi
-exec "$ROOT/build/launcher/azora-launcher" >> "$LOG" 2>&1'
+make_app "Azora Studio" studio
+make_app "Azora Launcher" launcher

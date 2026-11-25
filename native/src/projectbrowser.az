@@ -1,0 +1,500 @@
+module studio.projectbrowser
+
+import std.io
+import std.format
+import std.string
+import std.serializer
+import std.traits
+import engine.platform
+import engine.gpu.draw
+import engine.input
+import engine.io
+import engine.objc
+import engine.core
+import engine.ecs
+import engine.ui.node
+import engine.ui.compose
+import engine.ui.systems
+import engine.ui.paint
+import engine.ui.icons
+import studio.host
+import studio.editor
+import studio.script
+import studio.startup
+import studio.theme
+
+/** Metadata is optional for older templates that only ship src/main.az. */
+pack ProjectTemplate derives Clone {
+    var folder: String
+    var title: String
+    var detail: String = ""
+    var color: String = ""
+    var order: Int = 1000
+}
+
+func templatesIn(home: String): Array<ProjectTemplate> {
+    var catalogue: Array<ProjectTemplate> = []
+    fin root = "${home}/templates"
+    fin project = azsProjectOpen(root, 0)
+    if project == 0 then return catalogue
+    defer { azsProjectClose(project) }
+    fin listing = azsProjectList(project, "")
+    if listing == 0 then return catalogue
+    defer { azsBufferClose(listing) }
+    for entry in split(azsBufferText(listing), "\n") {
+        if !startsWith(entry, "d ") then continue
+        fin folder = substring(entry, 2, stringLength(entry))
+        fin template = azsProjectOpen("${root}/${folder}", 0)
+        if template == 0 then continue
+        fin files = projectFiles(template)
+        fin source = azsProjectRead(template, files.source)
+        azsProjectClose(template)
+        if source == 0 then continue
+        azsBufferClose(source)
+        var item: ProjectTemplate = .(folder, folder)
+        fin manifest = azsProjectRead(project, "${folder}/template.azon")
+        if manifest != 0 {
+            fin metadata = decodeSerialValue(azsBufferText(manifest), serializerOptions()) catch SerialValue.Null
+            when metadata {
+                .Object(fields) -> {
+                    for field in fields {
+                        when field.name {
+                            "title" -> { item.title = serialAsText(field.value) catch folder }
+                            "description" -> { item.detail = serialAsText(field.value) catch "" }
+                            "color" -> { item.color = serialAsText(field.value) catch "" }
+                            "order" -> { item.order = serialAsInt(field.value) catch 1000 }
+                            else -> { }
+                        }
+                    }
+                }
+                else -> { }
+            }
+            azsBufferClose(manifest)
+        }
+        catalogue.add(item.clone())
+        var at = catalogue.size - 1
+        while at > 0 && catalogue[at - 1].order > item.order {
+            catalogue[at] = catalogue[at - 1].clone()
+            at--
+        }
+        catalogue[at] = item.clone()
+    }
+    return catalogue
+}
+
+inline fin templatesPerRow: Int = 4
+inline fin templatesPerPage: Int = 8
+
+impl pack TemplateCard {
+    react ctor (anchor: Anchor!).(item: ProjectTemplate&, index: Int, selected: Bool): Entity {
+        fin base = Modifier::weight(1.0).fillMaxHeight().rounded(10.0).surface().hoverable()
+        fin look = if selected then base.border(2.0, 0.820, 0.306, 0.918) else base.border(1.0, 0.173, 0.173, 0.192)
+        fin tint = themeColor(item.color, studioTheme.brand)
+        return Button(modifier: look, action: 40 + index, key: item.folder) {
+            Column(modifier: ::fillMaxSize().padding(all: 12.0), spacing: 8.0, key: "content") {
+                Shape(modifier: ::fillMaxWidth().height(58.0).rounded(7.0).background(tint.r, tint.g, tint.b, 0.85))
+                Text(item.title, modifier: ::fillMaxWidth().height(24.0).fontSize(14.0).semibold().textAlign(.Start))
+            }
+        }
+    }
+}
+
+func projectNameDialog(initial: String): String {
+    fin alert = newObject("NSAlert")
+    defer { send0(alert, sel("release")) }
+    fin field = azSendQuad(send0(cls("NSTextField"), sel("alloc")), sel("initWithFrame:"), 0.0, 0.0, 320.0, 24.0)
+    defer { send0(field, sel("release")) }
+    send1(alert, sel("setMessageText:"), nsString("Name your Azora project"))
+    send1(alert, sel("addButtonWithTitle:"), nsString("Create"))
+    send1(alert, sel("addButtonWithTitle:"), nsString("Cancel"))
+    send1(field, sel("setStringValue:"), nsString(initial))
+    send1(alert, sel("setAccessoryView:"), field)
+    send1(send0(alert, sel("window")), sel("setInitialFirstResponder:"), field)
+    if send0(alert, sel("runModal")) != 1000 then return ""
+    return trim(nsStringText(send0(field, sel("stringValue"))))
+}
+
+inline fin recentLimit: Int = 6
+inline fin projectsPerRow: Int = 4
+inline fin projectsPerPage: Int = 8
+inline fin projectCardAction: Int = 10000
+
+enum ProjectBrowserPage { Projects, NewProject, Recent }
+
+func projectParent(path: String): String {
+    return nsStringText(send0(nsString(path), sel("stringByDeletingLastPathComponent")))
+}
+
+func projectRoot(path: String): String {
+    return if startupName(path) == "azora.azon" then projectParent(path) else path
+}
+
+func projectCanOpen(root: String): Bool {
+    fin project = azsProjectOpen(root, 0)
+    if project == 0 then return false
+    defer { azsProjectClose(project) }
+    fin files = projectFiles(project)
+    fin source = azsProjectRead(project, files.source)
+    if source == 0 then return false
+    azsBufferClose(source)
+    return true
+}
+
+func recentProjectSettings(): Long {
+    fin suite = azsEnvironment("AZORA_STUDIO_PROJECTS_SUITE")
+    return send1(send0(cls("NSUserDefaults"), sel("alloc")), sel("initWithSuiteName:"), nsString(if suite == "" then "org.azoralabs.studio.projects" else suite))
+}
+
+func recentProjects(settings: Long): Array<String> {
+    var recent: Array<String> = []
+    fin paths = send1(settings, sel("stringArrayForKey:"), nsString("recentProjects"))
+    fin count = send0(paths, sel("count"))
+    for i: Long in 0..<count {
+        fin path = nsStringText(send1(paths, sel("objectAtIndex:"), i))
+        if path != "" && recent.size < recentLimit then recent.add(path)
+    }
+    return recent
+}
+
+func rememberProject(path: String) {
+    fin settings = recentProjectSettings()
+    defer { send0(settings, sel("release")) }
+    fin paths = send0(cls("NSMutableArray"), sel("array"))
+    send1(paths, sel("addObject:"), nsString(path))
+    fin recent = recentProjects(settings)
+    for previous in recent {
+        if previous != path && send0(paths, sel("count")) < recentLimit then send1(paths, sel("addObject:"), nsString(previous))
+    }
+    send2(settings, sel("setObject:forKey:"), paths, nsString("recentProjects"))
+}
+
+pack BrowserProject derives Clone {
+    var root: String = ""
+    var name: String = ""
+    var thumbnail: String = ""
+    var stamp: Long = 0
+    var texture: Long = 0
+    var aspect: Double = 1.0
+}
+
+func browserProject(root: String): BrowserProject {
+    fin project = azsProjectOpen(root, 0)
+    if project == 0 then return .()
+    defer { azsProjectClose(project) }
+    fin files = projectFiles(project)
+    if azsProjectFileStamp(project, files.source) == 0 then return .()
+    var item: BrowserProject = .(root, if files.name != "" then files.name else startupName(root))
+    for candidate in ["thumbnail.png", "thumbnail.jpg", "thumbnail.jpeg"] {
+        fin stamp = azsProjectFileStamp(project, candidate)
+        if stamp != 0 {
+            item.thumbnail = "${root}/${candidate}"
+            item.stamp = stamp
+            break
+        }
+    }
+    return item
+}
+
+func discoverProjects(library: String, recent: Array<String>&, recentOnly: Bool): Array<BrowserProject> {
+    var projects: Array<BrowserProject> = []
+    if recentOnly {
+        for root in recent {
+            var item = browserProject(root)
+            if item.root != "" then projects.add(take item)
+        }
+        return projects
+    }
+    fin folder = azsProjectOpen(library, 0)
+    if folder == 0 then return projects
+    defer { azsProjectClose(folder) }
+    fin listing = azsProjectList(folder, "")
+    if listing == 0 then return projects
+    defer { azsBufferClose(listing) }
+    for entry in split(azsBufferText(listing), "\n") {
+        if !startsWith(entry, "d ") then continue
+        fin name = substring(entry, 2, stringLength(entry))
+        var item = browserProject("${library}/${name}")
+        if item.root != "" then projects.add(take item)
+    }
+    return projects
+}
+
+func projectsChanged(visible: Array<BrowserProject>&, scanned: Array<BrowserProject>&): Bool {
+    if visible.size != scanned.size then return true
+    for i: Int in 0..<visible.size {
+        fin old = visible[i].&
+        fin fresh = scanned[i].&
+        if old.root != fresh.root || old.name != fresh.name || old.thumbnail != fresh.thumbnail || old.stamp != fresh.stamp then return true
+    }
+    return false
+}
+
+func releaseProjectThumbnails(projects: Array<BrowserProject>!) {
+    for i: Int in 0..<projects.size {
+        App::releaseTexture(projects[i].texture)
+        projects[i].texture = 0
+    }
+}
+
+func loadProjectThumbnails(app: App&, projects: Array<BrowserProject>!, page: Int) {
+    releaseProjectThumbnails(projects)
+    for i: Int in 0..<projectsPerPage {
+        fin index = page * projectsPerPage + i
+        if index >= projects.size then break
+        fin path = projects[index].thumbnail
+        if path == "" then continue
+        fin image = app.loadImage(path)
+        if image.texture != 0 {
+            projects[index].texture = image.texture
+            projects[index].aspect = (image.width as Double) / (image.height as Double)
+        }
+    }
+}
+
+impl pack BrowserProjectCard {
+    react ctor (anchor: Anchor!).(item: BrowserProject&, index: Int): Entity {
+        return Button(modifier: ::weight(1.0).fillMaxHeight().rounded(10.0).surface().hoverable().border(1.0, 0.173, 0.173, 0.192),
+            action: projectCardAction + index, key: item.root) {
+            Column(modifier: ::fillMaxSize().padding(all: 9.0), spacing: 7.0) {
+                Row(modifier: ::fillMaxWidth().height(112.0).sunken().rounded(6.0).clip(),
+                    horizontalArrangement: .Center, verticalAlignment: .Center) {
+                    if item.texture != 0 {
+                        fin width = if item.aspect > 1.55 then 164.0 else 106.0 * item.aspect
+                        ImageView(item.texture, modifier: ::size(width, width / item.aspect))
+                    } else {
+                        Icon("folder", studioTheme.yellow, size: 38.0)
+                    }
+                }
+                Text(item.name, modifier: ::fillMaxWidth().height(23.0).padding(start: 4.0).fontSize(14.0).semibold().textAlign(.Start))
+            }
+        }
+    }
+}
+
+impl pack StudioProjectBrowser {
+    react ctor (anchor: Anchor!).(library: String, location: String, status: String, catalogue: Array<ProjectTemplate>&, projects: Array<BrowserProject>&,
+        selected: Int, templatePage: Int, projectPage: Int, view: ProjectBrowserPage): Entity {
+        fin creating = view == .NewProject
+        return Row(modifier: ::fillMaxSize().ground(), key: "project-browser") {
+            Column(modifier: ::width(198.0).fillMaxHeight().surface().padding(all: 18.0), spacing: 10.0, key: "navigation") {
+                Text("AZORA STUDIO", modifier: ::fillMaxWidth().height(28.0).caption())
+                StartupButton("Projects", 3, 162.0, view == .Projects)
+                StartupButton("New project", 4, 162.0, creating)
+                StartupButton("Recent projects", 8, 162.0, view == .Recent)
+            }
+            Column(modifier: ::weight(1.0).fillMaxHeight().padding(all: 25.0), spacing: 10.0, key: "main") {
+                Text(if creating then "Create a project" else "Open a project", modifier: ::fillMaxWidth().height(34.0).fontSize(25.0).semibold().textAlign(.Start))
+                if creating {
+                    if catalogue.size == 0 {
+                        Text("No templates are available in this Studio installation.", modifier: ::fillMaxWidth().height(34.0).mutedText().textAlign(.Start))
+                    }
+                    for row: Int in 0..<2 {
+                        Row(modifier: ::fillMaxWidth().height(113.0), spacing: 10.0, key: "templates-${row}") {
+                            for column: Int in 0..<templatesPerRow {
+                                fin index = templatePage * templatesPerPage + row * templatesPerRow + column
+                                if index < catalogue.size then TemplateCard(catalogue[index].&, index, selected == index)
+                                else Shape(modifier: ::weight(1.0).fillMaxHeight().background(0.0, 0.0, 0.0, 0.0), key: "space-${column}")
+                            }
+                        }
+                    }
+                    if catalogue.size > templatesPerPage {
+                        Row(modifier: ::fillMaxWidth().height(36.0), spacing: 8.0, verticalAlignment: .Center) {
+                            if templatePage > 0 then StartupButton("Previous", 5, 95.0)
+                            Text("${templatePage + 1} / ${(catalogue.size + templatesPerPage - 1) / templatesPerPage}", modifier: ::width(48.0).mutedText())
+                            if (templatePage + 1) * templatesPerPage < catalogue.size then StartupButton("Next", 6, 95.0)
+                        }
+                    }
+                    if catalogue.size > 0 {
+                        Text(catalogue[selected].detail, modifier: ::fillMaxWidth().height(36.0).fontSize(12.0).mutedText().textAlign(.Start))
+                    }
+                    Row(modifier: ::fillMaxWidth().height(38.0), spacing: 10.0, verticalAlignment: .Center) {
+                        Text(location, modifier: ::weight(1.0).fillMaxHeight().sunken().rounded(8.0).padding(start: 12.0).monospace().fontSize(12.0).textAlign(.Start))
+                        StartupButton("Location…", 7, 110.0)
+                    }
+                } else {
+                    if view == .Projects {
+                        Text(library, modifier: ::fillMaxWidth().height(22.0).fontSize(12.0).mutedText().textAlign(.Start))
+                    }
+                    if projects.size == 0 {
+                        Text(if view == .Recent then "No recent projects." else "No Azora projects in this folder.",
+                            modifier: ::fillMaxWidth().height(60.0).surface().rounded(8.0).padding(start: 12.0).mutedText().textAlign(.Start))
+                    }
+                    for row: Int in 0..<2 {
+                        fin first = projectPage * projectsPerPage + row * projectsPerRow
+                        if first < projects.size {
+                            Row(modifier: ::fillMaxWidth().height(160.0), spacing: 10.0, key: "projects-${row}") {
+                                for column: Int in 0..<projectsPerRow {
+                                    fin index = first + column
+                                    if index < projects.size then BrowserProjectCard(projects[index].&, index)
+                                    else Shape(modifier: ::weight(1.0).fillMaxHeight().background(0.0, 0.0, 0.0, 0.0), key: "space-${column}")
+                                }
+                            }
+                        }
+                    }
+                    if projects.size > projectsPerPage {
+                        Row(modifier: ::fillMaxWidth().height(36.0), spacing: 8.0, verticalAlignment: .Center) {
+                            if projectPage > 0 then StartupButton("Previous", 9, 95.0)
+                            Text("${projectPage + 1} / ${(projects.size + projectsPerPage - 1) / projectsPerPage}", modifier: ::width(48.0).mutedText())
+                            if (projectPage + 1) * projectsPerPage < projects.size then StartupButton("Next", 10, 95.0)
+                        }
+                    }
+                }
+                Shape(modifier: ::weight(1.0).background(0.0, 0.0, 0.0, 0.0))
+                Row(modifier: ::fillMaxWidth().height(40.0), spacing: 10.0, verticalAlignment: .Center, key: "actions") {
+                    Text(status, modifier: ::weight(1.0).fontSize(12.0).mutedText().textAlign(.Start))
+                    StartupButton("Browse…", 2, 104.0, !creating)
+                    if creating && catalogue.size > 0 then StartupButton("Create project", 1, 145.0, true)
+                }
+            }
+        }
+    }
+}
+
+react func browseStudioProjects(initialStatus: String): String {
+    fin engine = azsEnvironment("AZORA_ENGINE_HOME")
+    fin catalogue = templatesIn(engine)
+    fin settings = recentProjectSettings()
+    fin recent = recentProjects(settings)
+    send0(settings, sel("release"))
+    fin override = azsEnvironment("AZORA_STUDIO_PROJECTS")
+    fin library = if override != "" then override else "${azsEnvironment("HOME")}/Documents/Azora"
+    var location = library
+    var world: World = .()
+    var pass = Composition::of(world, "project-browser")
+    var app = appInit("Azora Studio · Project Browser", 1040, 620)
+    if !app.ok then azsExit(1)
+    fin resourcesPath = azsEnvironment("AZORA_STUDIO_RESOURCES")
+    var atlas: Long = 0
+    fin resources = if resourcesPath == "" then 0 else azsProjectOpen(resourcesPath, 0)
+    if resources != 0 {
+        fin index = azsProjectRead(resources, "icons-index.azon")
+        if index != 0 {
+            if loadIconAtlas(app, pass.world, "${resourcesPath}/icons.png", azsBufferText(index)) {
+                atlas = storageValueAt<IconAtlas>(ensureStorage(pass.world), 0).texture
+            }
+            azsBufferClose(index)
+        }
+        azsProjectClose(resources)
+    }
+    var player = ScriptPlayer::open(azsEnvironment("AZORA_PROJECT_BROWSER_SCRIPT"))
+    var status = initialStatus
+    var view: ProjectBrowserPage = .Projects
+    var projects: Array<BrowserProject> = []
+    var refreshAt: Double = 0.0
+    var selected = 0
+    var templatePage = 0
+    var projectPage = 0
+    var choice = ""
+    var frames = 0
+    var revision: Long = 1
+    var layoutVersion: Long = -1
+    var lastWidth: Double = -1.0
+    var lastHeight: Double = -1.0
+    var paintList: PaintList = .()
+    fin frameLimit = azsEnvironmentInt("AZORA_STUDIO_FRAME_LIMIT")
+    while app.frame() {
+        frames++
+        fin cue = player.next(app, frames)
+        var action = 0
+        if cue.click then action = pass.hit(player.x, player.y)
+        else if !player.pointing && app.mouseClicked(.Left) then action = pass.hit(app.mouseX(), app.mouseY())
+        if app.keyDown(.Meta) && app.keyJustPressed(.O) then action = 2
+        if app.keyDown(.Meta) && app.keyJustPressed(.N) then action = 4
+        if view == .NewProject && app.keyJustPressed(.Enter) then action = 1
+        if cue.command == "new" then action = 4
+        if cue.command == "create" then action = 1
+        if view == .NewProject && action >= 40 && action - 40 < catalogue.size {
+            selected = action - 40
+            revision++
+        }
+        var reloadThumbnails = false
+        if action == 3 || action == 4 || action == 8 {
+            view = if action == 4 then .NewProject else if action == 8 then .Recent else .Projects
+            projectPage = 0
+            refreshAt = 0.0
+            reloadThumbnails = view != .NewProject
+            if view == .NewProject then releaseProjectThumbnails(projects)
+            status = ""
+            revision++
+        }
+        if action == 5 || action == 6 {
+            templatePage += if action == 5 then -1 else 1
+            selected = templatePage * templatesPerPage
+            revision++
+        }
+        if action == 9 || action == 10 {
+            projectPage += if action == 9 then -1 else 1
+            reloadThumbnails = true
+            revision++
+        }
+        if action == 7 {
+            fin chosen = chooseStartupPath("Choose Location", location)
+            if chosen != "" { location = chosen
+                revision++ }
+        }
+        var requested = if cue.command == "open" then cue.argument else ""
+        if action == 2 then requested = chooseStartupPath("Open Project", if view == .NewProject then location else library, project: true)
+        if view != .NewProject && action >= projectCardAction && action - projectCardAction < projects.size {
+            requested = projects[action - projectCardAction].root
+        }
+        if action == 1 && catalogue.size > 0 {
+            fin name = if cue.command == "create" then cue.argument else projectNameDialog("")
+            if name == "." || name == ".." || indexOf(name, "/") >= 0 || indexOf(name, "\\") >= 0 {
+                status = "Enter a project name without path separators."
+            } else if name != "" {
+                fin target = "${location}/${name}"
+                if !ensureStartupDirectory(location) { status = "Could not create the project location." }
+                else if createNativeProject(target, "${engine}/templates/${catalogue[selected].folder}") { requested = target }
+                else { status = "${azsError()}" }
+            }
+            revision++
+        }
+        if requested != "" {
+            fin root = projectRoot(requested)
+            if projectCanOpen(root) {
+                choice = root
+                break
+            }
+            status = "Cannot open ${startupName(root)}. Check that its entry source exists."
+            revision++
+        }
+        // Resolve clicks against the cards that were actually painted before refreshing.
+        fin now = azsMonotonicSeconds()
+        if view != .NewProject && now >= refreshAt {
+            refreshAt = now + 0.5
+            var scanned = discoverProjects(library, recent, view == .Recent)
+            if projectsChanged(projects, scanned) {
+                releaseProjectThumbnails(projects)
+                projects = take scanned
+                if projectPage > 0 && projectPage * projectsPerPage >= projects.size {
+                    projectPage = if projects.size == 0 then 0 else (projects.size - 1) / projectsPerPage
+                }
+                reloadThumbnails = true
+                revision++
+            }
+        }
+        if reloadThumbnails then loadProjectThumbnails(app, projects, projectPage)
+        composeIfChanged(pass, revision) { StudioProjectBrowser(library, location, status, catalogue, projects, selected, templatePage, projectPage, view) }
+        fin browser = pass.findChild(pass.root, "project-browser")
+        fin width = app.width() as Double
+        fin height = app.height() as Double
+        if pass.version != layoutVersion || width != lastWidth || height != lastHeight {
+            pass.arrange(browser, 0.0, 0.0, width, height)
+            layoutVersion = pass.version
+            lastWidth = width
+            lastHeight = height
+            paintList.clear()
+            recordTree(app, pass, browser, 0.0, height, paintList)
+        }
+        player.capture(app, "", cue.shot)
+        replayPaint(app, paintList)
+        app.present()
+        if frameLimit > 0 && frames >= frameLimit then app.quit()
+    }
+    player.close()
+    pass.dispose()
+    releaseProjectThumbnails(projects)
+    App::releaseTexture(atlas)
+    app.shutdown()
+    return choice
+}
