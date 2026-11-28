@@ -303,7 +303,7 @@ react func main() {
         if packagePath != "" && installProcess == 0 {
             if !ensureStartupDirectory(library) then status = "Could not create the Studio library."
             else if azsStudioInstall(packagePath, library) == 0 then status = "${azsError()}"
-            else { status = "Studio installed." }
+            else status = "Studio installed."
             versions = studioVersions(library, catalog, releases)
             page = 0
             revision++

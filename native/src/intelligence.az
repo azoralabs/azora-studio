@@ -5,10 +5,9 @@ import studio.host
 // semantic diagnostics. Spans are UTF-8 byte offsets, lines/columns are 1-based
 // byte coordinates. Non-ASCII bytes remain opaque; Unicode identifiers and
 // UTF-16 LSP coordinates need a qualified decoder before protocol publication.
-func identifierByte(value: Int): Bool {
-    return (value >= 65 && value <= 90) || (value >= 97 && value <= 122) ||
+func identifierByte(value: Int): Bool =
+    (value >= 65 && value <= 90) || (value >= 97 && value <= 122) ||
         (value >= 48 && value <= 57) || value == 95 || value >= 128
-}
 
 func declarationWidth(source: Long, offset: Int): Int {
     fin a = azsBufferByte(source, offset)
@@ -48,14 +47,18 @@ func inspectSource(source: Long): Int {
         if lineComment {
             if value == 10 then lineComment = false
         } else if blockDepth > 0 {
-            if value == 47 && next == 42 { blockDepth = blockDepth + 1
-        skip = 2 }
-            if value == 42 && next == 47 { blockDepth = blockDepth - 1
-        skip = 2 }
+            if value == 47 && next == 42 {
+                blockDepth++
+                skip = 2
+            }
+            if value == 42 && next == 47 {
+                blockDepth--
+                skip = 2
+            }
         } else if quote != 0 {
-            if escape { escape = false }
-            else if value == 92 { escape = true }
-            else if value == quote { quote = 0 }
+            if escape then escape = false
+            else if value == 92 then escape = true
+            else if value == quote then quote = 0
         } else if value == 47 && next == 47 {
             lineComment = true
             skip = 2
@@ -69,8 +72,10 @@ func inspectSource(source: Long): Int {
                 if depth == 256 {
                     azsDiagnostic(offset, 1, line, column, "structural nesting exceeds 256")
                     errors++
-                } else { azsBufferSetByte(stack, depth, value)
-        depth += 1 }
+                } else {
+                    azsBufferSetByte(stack, depth, value)
+                    depth++
+                }
             } else if value == 41 || value == 93 || value == 125 {
                 var expected = value - 2
                 if value == 41 then expected = 40
@@ -93,21 +98,29 @@ func inspectSource(source: Long): Int {
             }
             // Computed member declarations and generics are not approximated as
             // semantic definitions. A punctuation boundary abandons this hint.
-            if declaration && value != 32 && value != 9 && !identifierByte(value) then declaration = false
+            if declaration && value != 32 && value != 9 && !identifierByte(value)
+            then declaration = false
             beforeIdentifier = identifierByte(value)
         }
-        if value == 10 { line = line + 1
-        column = 1
-        beforeIdentifier = false }
-        else { column = column + skip }
+        if value == 10 {
+            line++
+            column = 1
+            beforeIdentifier = false
+        } else column += skip
         offset += skip
     }
-    if quote != 0 { azsDiagnostic(size, 0, line, column, "unterminated literal")
-        errors += 1 }
-    if blockDepth > 0 { azsDiagnostic(size, 0, line, column, "unterminated block comment")
-        errors += 1 }
-    if depth > 0 { azsDiagnostic(size, 0, line, column, "unclosed delimiter")
-        errors += 1 }
+    if quote != 0 {
+        azsDiagnostic(size, 0, line, column, "unterminated literal")
+        errors++
+    }
+    if blockDepth > 0 {
+        azsDiagnostic(size, 0, line, column, "unterminated block comment")
+        errors++
+    }
+    if depth > 0 {
+        azsDiagnostic(size, 0, line, column, "unclosed delimiter")
+        errors++
+    }
     azsBufferClose(stack)
     return errors
 }

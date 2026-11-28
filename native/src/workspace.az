@@ -118,20 +118,18 @@ impl WorkspaceView {
 
 /** A spacer that takes the leftover room along its row or column. */
 impl pack Spacer {
-    react ctor (anchor: Anchor!).(): Entity {
-        return Shape(
-            modifier: ::weight(1.0).background(0.0, 0.0, 0.0, 0.0)
-        )
-    }
+    react ctor (anchor: Anchor!).(): Entity
+    scope return Shape(
+        modifier: ::weight(1.0).background(0.0, 0.0, 0.0, 0.0)
+    )
 }
 
 /** A short vertical hairline between toolbar groups. */
 impl pack Divider {
-    react ctor (anchor: Anchor!).(): Entity {
-        return Shape(
-            modifier: ::width(1.0).height(22.0).hairline()
-        )
-    }
+    react ctor (anchor: Anchor!).(): Entity
+    scope return Shape(
+        modifier: ::width(1.0).height(22.0).hairline()
+    )
 }
 
 /** A toolbar control. Style 0 is neutral, 1 the primary action, 2 run. */
@@ -221,33 +219,31 @@ impl pack ListItem {
 // ── Panels ──────────────────────────────────────────────────────────────
 
 impl pack SceneHierarchy {
-    react ctor (anchor: Anchor!).(selected: Int): Entity {
-        return Column(modifier: ::fillMaxWidth().height(170.0).card(), key: "hierarchy") {
-            PanelHeader("HIERARCHY", "3 entities")
-            Column(modifier: ::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0), spacing: 2.0, key: "entities") {
-                for id in 0..<3 {
-                    fin name = if id == 0 then "Cube" else if id == 1 then "Camera" else "Light"
-                    ListItem(name, 100 + id, selected == id, kindRed(id), kindGreen(id), kindBlue(id),
-                        round: if id == 0 then 2.5 else 5.0, key: name)
-                }
+    react ctor (anchor: Anchor!).(selected: Int): Entity
+    scope return Column(modifier: ::fillMaxWidth().height(170.0).card(), key: "hierarchy") {
+        PanelHeader("HIERARCHY", "3 entities")
+        Column(modifier: ::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0), spacing: 2.0, key: "entities") {
+            for id in 0..<3 {
+                fin name = if id == 0 then "Cube" else if id == 1 then "Camera" else "Light"
+                ListItem(name, 100 + id, selected == id, kindRed(id), kindGreen(id), kindBlue(id),
+                    round: if id == 0 then 2.5 else 5.0, key: name)
             }
         }
     }
 }
 
 impl pack ProjectBrowser {
-    react ctor (anchor: Anchor!).(tab: Int, project: String): Entity {
-        return Column(modifier: ::fillMaxWidth().weight(1.0).card(), key: "assets") {
-            PanelHeader("PROJECT", project)
-            Column(modifier: ::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0), spacing: 2.0, key: "files") {
-                ListItem("src / main.az", 13, tab == 1, 0.820, 0.306, 0.918, round: 2.0, key: "main")
-                ListItem("scene.azscene", 12, tab == 0, 0.306, 0.576, 0.918, round: 2.0, key: "scene")
-                ListItem("azora.azon", 0, false, 0.404, 0.404, 0.404, round: 2.0, key: "manifest")
-                Text("PACKAGES", modifier: ::fillMaxWidth().height(34.0).padding(start: 8.0).caption(), key: "packages")
-                ListItem("engine.ecs", 0, false, 0.306, 0.788, 0.384, round: 5.0, key: "ecs")
-                ListItem("engine.ui", 0, false, 0.306, 0.788, 0.384, round: 5.0, key: "ui")
-                ListItem("std", 0, false, 0.306, 0.788, 0.384, round: 5.0, key: "std")
-            }
+    react ctor (anchor: Anchor!).(tab: Int, project: String): Entity
+    scope return Column(modifier: ::fillMaxWidth().weight(1.0).card(), key: "assets") {
+        PanelHeader("PROJECT", project)
+        Column(modifier: ::fillMaxWidth().weight(1.0).padding(start: 6.0, end: 6.0), spacing: 2.0, key: "files") {
+            ListItem("src / main.az", 13, tab == 1, 0.820, 0.306, 0.918, round: 2.0, key: "main")
+            ListItem("scene.azscene", 12, tab == 0, 0.306, 0.576, 0.918, round: 2.0, key: "scene")
+            ListItem("azora.azon", 0, false, 0.404, 0.404, 0.404, round: 2.0, key: "manifest")
+            Text("PACKAGES", modifier: ::fillMaxWidth().height(34.0).padding(start: 8.0).caption(), key: "packages")
+            ListItem("engine.ecs", 0, false, 0.306, 0.788, 0.384, round: 5.0, key: "ecs")
+            ListItem("engine.ui", 0, false, 0.306, 0.788, 0.384, round: 5.0, key: "ui")
+            ListItem("std", 0, false, 0.306, 0.788, 0.384, round: 5.0, key: "std")
         }
     }
 }
@@ -298,13 +294,12 @@ impl pack CenterDock {
 
 /** One editable property: a label, its value in a well, and steppers. */
 impl pack PropertyRow {
-    react ctor (anchor: Anchor!).(label: String, value: String, less: Int, more: Int, key: String): Entity {
-        return Row(modifier: ::fillMaxWidth().height(36.0).padding(start: 14.0, end: 12.0), spacing: 6.0, verticalAlignment: .Center, :key) {
-            Text(label, modifier: ::width(74.0).fontSize(12.0).mutedText().textAlign(.Start))
-            Text(value, modifier: ::weight(1.0).height(28.0).sunken().rounded(6.0).border(1.0, 0.173, 0.173, 0.192).monospace().fontSize(12.0).textAlign(.End).padding(end: 10.0))
-            StepButton("−", less)
-            StepButton("+", more)
-        }
+    react ctor (anchor: Anchor!).(label: String, value: String, less: Int, more: Int, key: String): Entity
+    scope return Row(modifier: ::fillMaxWidth().height(36.0).padding(start: 14.0, end: 12.0), spacing: 6.0, verticalAlignment: .Center, :key) {
+        Text(label, modifier: ::width(74.0).fontSize(12.0).mutedText().textAlign(.Start))
+        Text(value, modifier: ::weight(1.0).height(28.0).sunken().rounded(6.0).border(1.0, 0.173, 0.173, 0.192).monospace().fontSize(12.0).textAlign(.End).padding(end: 10.0))
+        StepButton("−", less)
+        StepButton("+", more)
     }
 }
 
@@ -463,10 +458,9 @@ react func describeWorkspace(pass: Composition!, scene: StudioScene&, view: Work
     }
 }
 
-func surfaceRect(pass: Composition!, group: Int): Rect {
-    return for i in 0..<storageLength<TagI>(store(pass)) {
-        fin entity = storageEntityAt<TagI>(store(pass), i)
-        fin tag = storageGet<TagI>(store(pass), entity)
-        if tag.index == group then break storageGet<Rect>(store(pass), entity).clone()
-    } else .()
-}
+func surfaceRect(pass: Composition!, group: Int): Rect
+scope return for i: Int in 0..<storageLength<TagI>(store(pass)) {
+    fin entity = storageEntityAt<TagI>(store(pass), i)
+    fin tag = storageGet<TagI>(store(pass), entity)
+    if tag.index == group then break storageGet<Rect>(store(pass), entity).clone()
+} else .()

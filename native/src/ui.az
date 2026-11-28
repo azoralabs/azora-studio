@@ -35,23 +35,20 @@ pack Pressable derives Clone {
 
 /** Fills the leftover room along its row or column. */
 impl pack Spacer {
-    react ctor (_: Anchor!).(key: String = ""): Entity {
-        return Shape(modifier: ::weight(1.0).fill(studioTheme.ground.withAlpha(0.0)), :key)
-    }
+    react ctor (_: Anchor!).(key: String = ""): Entity
+    scope return Shape(modifier: ::weight(1.0).fill(studioTheme.ground.withAlpha(0.0)), :key)
 }
 
 /** A fixed gap. */
 impl pack Gap {
-    react ctor (anchor: Anchor!).(size: Double, key: String = ""): Entity {
-        return Shape(modifier: ::size(size, size).fill(studioTheme.ground.withAlpha(0.0)), :key)
-    }
+    react ctor (_: Anchor!).(size: Double, key: String = ""): Entity
+    scope return Shape(modifier: ::size(size, size).fill(studioTheme.ground.withAlpha(0.0)), :key)
 }
 
 /** A short vertical hairline between groups in a bar. */
 impl pack Divider {
-    react ctor (anchor: Anchor!).(height: Double = 18.0, key: String = ""): Entity {
-        return Shape(modifier: ::width(1.0).height(height).hairline(), :key)
-    }
+    react ctor (_: Anchor!).(height: Double = 18.0, key: String = ""): Entity
+    scope return Shape(modifier: ::width(1.0).height(height).hairline(), :key)
 }
 
 /** Text sized to fit itself, so a row can place what follows it. */

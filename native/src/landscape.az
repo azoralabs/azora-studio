@@ -305,8 +305,11 @@ func submitLandscapeChunk(field: Field&, a: Int, b: Int, c: Int, object: Int, ke
     }
     for i: Int in 0..<mesh.levels.size {
         fin level = mesh.levels[i].&
-        fin bytes = studioPluginObjectMeshLod(object,key,i,level.count,mesh.center.x,mesh.center.y,mesh.center.z,
-            mesh.radius,level.deviation)
+        fin bytes = studioPluginObjectMeshLod(
+            object, key, i, level.count
+            mesh.center.x, mesh.center.y, mesh.center.z
+            mesh.radius, level.deviation
+        )
         if bytes != 0 then azCopy(bytes,level.vertices,(level.count as Long)*24)
     }
 }
@@ -339,7 +342,8 @@ func meshReach(field: Field&, landscape: Int, box: Reach&) {
     fin highC = clampInt((box.highK + 2) / chunkCells, 0, chunkCount(field.cellsZ) - 1)
     for c in lowC..highC {
         for b in lowB..highB {
-            for a in lowA..highA then submitLandscapeChunk(field, a, b, c, landscape, chunkIndex(field, a, b, c))
+            for a in lowA..highA
+            then submitLandscapeChunk(field, a, b, c, landscape, chunkIndex(field, a, b, c))
         }
     }
 }

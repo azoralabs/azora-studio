@@ -18,7 +18,12 @@ impl pack FieldCaption {
     react ctor (anchor: Anchor!).(text: String, key: String = ""): Entity {
         return Text(
             text
-            modifier: ::fillMaxWidth().height(17.0).padding(start: 1.0).fontSize(10.5).mutedText().textAlign(.Start)
+            modifier: ::fillMaxWidth()
+                .height(17.0)
+                .padding(start: 1.0)
+                .fontSize(10.5)
+                .mutedText()
+                .textAlign(.Start)
             :key
         )
     }

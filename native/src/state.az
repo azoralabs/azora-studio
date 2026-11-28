@@ -575,12 +575,10 @@ impl Studio {
     func &.editsAsText(path: String): Bool = self.fileKind(path, false).text
 
     /** Where [path] is among the parked [documents], or -1. */
-    func &.parkedFile(path: String): Int {
-        for i: Int in 0..<self.documents.size {
-            if self.documents[i].path == path then return i
-        }
-        return -1
-    }
+    func &.parkedFile(path: String): Int
+    scope return for i: Int in 0..<self.documents.size {
+        if self.documents[i].path == path then break i
+    } else -1
 
     /** Whether [path] is open with changes not yet saved. */
     func &.documentDirty(path: String): Bool {
@@ -592,8 +590,9 @@ impl Studio {
     /** Whether any open file has changes not yet saved. */
     func &.documentsDirty(): Bool {
         if self.editor.dirty then return true
-        for file in self.documents { if file.dirty then return true }
-        return false
+        return for file in self.documents {
+            if file.dirty then break true
+        } else false
     }
 
     /**
@@ -642,19 +641,16 @@ impl Studio {
         return saved
     }
 
-    func &.sceneTabIndex(path: String): Int {
-        for i: Int in 0..<self.sceneTabs.size {
-            if self.sceneTabs[i].path == path then return i
-        }
-        return -1
-    }
+    func &.sceneTabIndex(path: String): Int
+    scope return for i: Int in 0..<self.sceneTabs.size {
+        if self.sceneTabs[i].path == path then break i
+    } else -1
 
     func &.scenesDirty(): Bool {
         if self.sceneDirty then return true
-        for tab in self.sceneTabs {
-            if tab.path != self.scenePath && tab.dirty then return true
-        }
-        return false
+        return for tab in self.sceneTabs {
+            if tab.path != self.scenePath && tab.dirty then break true
+        } else false
     }
 
     func !.activateSceneTab(index: Int) {
@@ -710,9 +706,9 @@ impl Studio {
         self.skyPreviewMinute = -1
     }
 
-    func !.changed() { self.revision = self.revision + 1 }
+    func !.changed() scope self.revision++
 
-    func !.message(value: String) { self.notify(value, 0) }
+    func !.message(value: String) scope self.notify(value, 0)
 
     /** How the Assets panel shows [name]: by its extension, or as a folder. */
     func &.fileKind(name: String, folder: Bool): FileKind {
@@ -781,7 +777,7 @@ impl Studio {
     func &.countProblems(severity: Int): Int {
         var count = 0
         for i: Int in 0..<self.problems.size {
-            if self.problems[i].severity == severity then count = count + 1
+            if self.problems[i].severity == severity then count++
         }
         return count
     }
@@ -851,17 +847,16 @@ impl Studio {
     }
 
     /** [entity]'s display name. */
-    func !.nameOf(entity: Entity): String {
-        if storageHas<Name>(ensureStorage(self.scene), entity) {
-            return storageGet<Name>(ensureStorage(self.scene), entity).value
-        }
-        return "Entity ${entity.id}"
-    }
+    func !.nameOf(entity: Entity): String
+    scope return if storageHas<Name>(ensureStorage(self.scene), entity) {
+        storageGet<Name>(ensureStorage(self.scene), entity).value
+    } else "Entity ${entity.id}"
 
     // ── History ─────────────────────────────────────────────────────────
 
     /** Everything [entity] carries, for a [SceneEdit]; empty when it is gone. */
-    func !.snapshot(entity: Entity): String = if !self.scene.isAlive(entity) then "" else componentsAzon(self.scene, entity)
+    func !.snapshot(entity: Entity): String =
+        if !self.scene.isAlive(entity) then "" else componentsAzon(self.scene, entity)
 
     /** Records a change to [entity] that began from [before]. */
     func !.record(entity: Entity, before: String, parentBefore: Int, label: String) {

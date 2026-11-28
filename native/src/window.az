@@ -1213,30 +1213,26 @@ react func main() {
         if frameLimit > 0 && frames >= frameLimit then app.quit()
     }
     if tracing {
-        var slot = 0
-        while slot < pass.world.storages.size {
+        for slot: Int in 0..<pass.world.storages.size {
             fin size = storageLength<Any>(pass.world.storages[slot] as Storage<Any>&)
             println("ui storage ${pass.world.storageNames[slot]} ${size}")
-            slot++
         }
         println("ui entities ${pass.world.entityCount} alive ${pass.world.aliveCount}")
     }
     saveLayout(studio, pass.world)
     player.close()
     studio.pluginProcess.cancel()
-    var plugin = 0
-    while plugin < studio.plugins.size {
-        studio.unloadPlugin(app, plugin)
-        plugin++
-    }
+    for plugin: Int in 0..<studio.plugins.size then studio.unloadPlugin(app, plugin)
     app.releasePrimitives(studio.meshes)
     pass.dispose()
     endPlaySession(studio, -1)
     app.shutdown()
     purge studio
     println("frames ${frames}")
-    if frames > 0 { println("mean frame interval seconds ${(azsMonotonicSeconds() - started) / (frames as Double)}") }
+    if frames > 0 then println("mean frame interval seconds ${(azsMonotonicSeconds() - started) / (frames as Double)}")
     println("peak resident bytes ${azsPeakMemoryBytes()}")
-    if azsLiveHandles() != 0 { println("native handle leak")
-        azsExit(1) }
+    if azsLiveHandles() != 0 {
+        println("native handle leak")
+        azsExit(1)
+    }
 }

@@ -77,7 +77,8 @@ func spawn(program: String, directory: String, args: Array<String>&, log: String
     if directory != "" then posixSpawnFileActionsAddchdirNp(actions, directory)
     fin pid = azAlloc(8)
     fin environment = azPeek64(_NSGetEnviron(), 0)
-    if posixSpawn(pid, program, actions, 0, argv, environment) == 0 then started.pid = azPeek32(pid, 0)
+    if posixSpawn(pid, program, actions, 0, argv, environment) == 0
+    then started.pid = azPeek32(pid, 0)
     posixSpawnFileActionsDestroy(actions)
     azFree(actions)
     azFree(pid)
@@ -176,4 +177,4 @@ func temporaryFolder(root: String, purpose: String): String {
     return path
 }
 
-func removeTemporaryFolder(path: String) { removefile(path, 0, 1) }
+func removeTemporaryFolder(path: String) scope removefile(path, 0, 1)
